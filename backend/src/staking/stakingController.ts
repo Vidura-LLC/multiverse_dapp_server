@@ -1,5 +1,8 @@
+//backend/src/staking/stakingController.ts
+
+
 import { Request, Response } from 'express';
-import { initializeAccountsService, stakeTokenService } from './services';
+import { initializeAccountsService, stakeTokenService, unstakeTokenService, getUserStakingAccount, getTokenMetadata } from './services';
 import { PublicKey, Keypair } from '@solana/web3.js';
 
 
@@ -56,29 +59,73 @@ export const stakeTokens = async (req: Request, res: Response) => {
 };
 
 
-// // Controller function to handle unstaking tokens
-// export const unstakeTokens = async (req: Request, res: Response) => {
-//   try {
-//     const { userPublicKey, mintPublicKey, amount } = req.body;
+export const unstakeTokens = async (req: Request, res: Response) => {
+  try {
+    const { mintPublicKey, amount } = req.body;
 
-//     // Validate inputs
-//     if (!userPublicKey || !mintPublicKey || !amount) {
-//       return res.status(400).json({ success: false, message: 'User public key, mint public key, and amount are required' });
-//     }
+    if (!mintPublicKey || !amount) {
+      return res.status(400).json({ success: false, message: "Mint public key and amount are required" });
+    }
 
-//     const userAddress = new PublicKey(userPublicKey);
-//     const mintAddress = new PublicKey(mintPublicKey);
+    const mintAddress = new PublicKey(mintPublicKey);
+    const result = await unstakeTokenService(mintAddress, amount);
 
-//     // Call the service function to unstake tokens
-//     const result = await unstakeTokenService(userAddress, mintAddress, amount);
-    
-//     if (result.success) {
-//       return res.status(200).json(result);
-//     } else {
-//       return res.status(500).json(result);
-//     }
-//   } catch (err) {
-//     console.error('Error in unstaking tokens:', err);
-//     return res.status(500).json({ success: false, message: 'Internal server error' });
-//   }
-// };
+    if (result.success) {
+      return res.status(200).json(result);
+    } else {
+      return res.status(500).json(result);
+    }
+  } catch (err) {
+    console.error("Error in unstaking tokens:", err);
+    return res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+
+// ✅ Controller function to fetch user staking account
+export const fetchUserStakingAccount = async (req: Request, res: Response) => {
+  try {
+    const { userPublicKey } = req.params;
+
+    if (!userPublicKey) {
+      return res.status(400).json({ success: false, message: "User public key is required" });
+    }
+
+    const userPubkey = new PublicKey(userPublicKey);
+    const result = await getUserStakingAccount(userPubkey);
+
+    if (result.success) {
+      return res.status(200).json(result);
+    } else {
+      return res.status(404).json(result);
+    }
+  } catch (err) {
+    console.error("❌ Error in fetching user staking account:", err);
+    return res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+
+
+// ✅ Controller to Fetch Token Metadata
+export const fetchTokenMetadata = async (req: Request, res: Response) => {
+  try {
+    const { mintAddress } = req.params;
+
+    if (!mintAddress) {
+      return res.status(400).json({ success: false, message: "Mint address is required" });
+    }
+
+    const mintPublicKey = new PublicKey(mintAddress);
+    const result = await getTokenMetadata(mintPublicKey);
+
+    if (result.success) {
+      return res.status(200).json(result);
+    } else {
+      return res.status(404).json(result);
+    }
+  } catch (err) {
+    console.error("❌ Error fetching token metadata:", err);
+    return res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
