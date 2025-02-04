@@ -23,6 +23,7 @@
     "@project-serum/anchor": "^0.26.0",
     "@solana/spl-token": "^0.4.12",
     "@solana/web3.js": "^1.98.0",
+    "bn.js": "^5.2.1",
     "body-parser": "^1.20.3",
     "bs58": "^6.0.0",
     "cors": "^2.8.5",
@@ -32,6 +33,7 @@
     "winston": "^3.17.0"
   },
   "devDependencies": {
+    "@types/bn.js": "^5.1.6",
     "@types/body-parser": "^1.19.5",
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.0",
