@@ -13,7 +13,7 @@ dotenv_1.default.config();
 const app = (0, express_1.default)();
 // Middleware
 app.use((0, cors_1.default)({
-    origin: '*', // Allow frontend URL
+    origin: process.env.CLIENT_URL, // Allow frontend URL
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
     credentials: true // Allow cookies and authentication headers
 }));

@@ -7,7 +7,7 @@
     "noImplicitAny": true,
     "moduleResolution": "node",
     "sourceMap": true,
-    "outDir": "src/dist",
+    "outDir": "dist",
     "baseUrl": ".",
     "paths": {
       "*": [
@@ -18,5 +18,5 @@
   },
   "include": [
     "./src/**/*"
-  ]
+, "dist"  ]
 }

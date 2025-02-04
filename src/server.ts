@@ -11,7 +11,7 @@ const app: Application = express();
 
 // Middleware
 app.use(cors({
-    origin: '*', // Allow frontend URL
+    origin: process.env.CLIENT_URL, // Allow frontend URL
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
     credentials: true // Allow cookies and authentication headers
 }));
