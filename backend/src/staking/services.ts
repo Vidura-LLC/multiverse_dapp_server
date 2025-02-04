@@ -94,14 +94,13 @@ export const initializeAccountsService = async (mintPublicKey: PublicKey) => {
   }
 };
 
-// ✅ Function to stake tokens into the staking pool
 export const stakeTokenService = async (
   mintPublicKey: PublicKey,
+  userPublicKey: PublicKey,
   amount: number
 ) => {
   try {
     const { program, adminPublicKey, connection } = getProgram();
-    const userPublicKey = userKeypair.publicKey;
 
     const [stakingPoolPublicKey] = PublicKey.findProgramAddressSync(
       [Buffer.from("staking_pool"), adminPublicKey.toBuffer()],
@@ -118,22 +117,16 @@ export const stakeTokenService = async (
       program.programId
     );
 
-    // ✅ Ensure user token account exists
     const userTokenAccountPublicKey = await getOrCreateAssociatedTokenAccount(
       connection,
       mintPublicKey,
       userPublicKey
     );
 
-    console.log("✅ Staking with:", {
-      userPublicKey: userPublicKey.toBase58(),
-      stakingPoolPublicKey: stakingPoolPublicKey.toBase58(),
-      userStakingAccountPublicKey: userStakingAccountPublicKey.toBase58(),
-      userTokenAccountPublicKey: userTokenAccountPublicKey.toBase58(),
-      poolEscrowAccountPublicKey: poolEscrowAccountPublicKey.toBase58(),
-    });
+    const { blockhash } = await connection.getLatestBlockhash("finalized");
 
-    await program.methods
+    // ✅ Create an unsigned transaction
+    const transaction = await program.methods
       .stake(new anchor.BN(amount))
       .accounts({
         user: userPublicKey,
@@ -145,15 +138,23 @@ export const stakeTokenService = async (
         tokenProgram: TOKEN_2022_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
       })
-      .signers([userKeypair])
-      .rpc();
+      .transaction(); // ⬅️ Create transaction, don't sign
 
-    return { success: true, message: "Tokens staked successfully!" };
+    transaction.recentBlockhash = blockhash;
+    transaction.feePayer = userPublicKey;
+
+    // Serialize transaction and send it to the frontend
+    return {
+      success: true,
+      message: "Transaction created successfully!",
+      transaction: transaction.serialize({ requireAllSignatures: false }),
+    };
   } catch (err) {
-    console.error("❌ Error staking tokens:", err);
-    return { success: false, message: "Error staking tokens" };
+    console.error("❌ Error creating staking transaction:", err);
+    return { success: false, message: "Error creating staking transaction" };
   }
 };
+
 
 // ✅ Helper function to get or create an associated token account
 async function getOrCreateAssociatedTokenAccount(

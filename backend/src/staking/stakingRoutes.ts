@@ -1,5 +1,5 @@
 import { Router, RequestHandler } from 'express';
-import { initializeAccountsController, stakeTokens } from './/stakingController';
+import { initializeAccountsController, stakeTokens } from './stakingController';
 
 const router = Router();
 

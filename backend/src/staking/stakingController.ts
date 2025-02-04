@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { initializeAccountsService, stakeTokenService } from './services';
-import { PublicKey, Keypair } from '@solana/web3.js';
+import { PublicKey, Keypair } from '@solana/web3.js'
 
 
 
@@ -29,21 +29,21 @@ export const initializeAccountsController = async (req: Request, res: Response) 
   }
 };
 
-
-// Controller function to handle staking tokens
 export const stakeTokens = async (req: Request, res: Response) => {
+  console.log('stacking invoked')
   try {
-    const { mintPublicKey, amount } = req.body;
+    const { mintPublicKey, userPublicKey, amount } = req.body;
 
-    if (!mintPublicKey || !amount) {
-      return res.status(400).json({ success: false, message: "Mint public key and amount are required" });
+    if (!mintPublicKey || !userPublicKey || !amount) {
+      return res.status(400).json({ success: false, message: "Mint public key, user public key, and amount are required" });
     }
 
     const mintAddress = new PublicKey(mintPublicKey);
+    const userAddress = new PublicKey(userPublicKey); // Get user's wallet public key
 
     // Call the service function to stake tokens
-    const result = await stakeTokenService(mintAddress, amount);
-    
+    const result = await stakeTokenService(mintAddress, userAddress, amount);
+
     if (result.success) {
       return res.status(200).json(result);
     } else {
@@ -54,6 +54,7 @@ export const stakeTokens = async (req: Request, res: Response) => {
     return res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
+
 
 
 // // Controller function to handle unstaking tokens
@@ -71,7 +72,7 @@ export const stakeTokens = async (req: Request, res: Response) => {
 
 //     // Call the service function to unstake tokens
 //     const result = await unstakeTokenService(userAddress, mintAddress, amount);
-    
+
 //     if (result.success) {
 //       return res.status(200).json(result);
 //     } else {
