@@ -19,10 +19,6 @@ yarn-error.log*
 *.sln
 *.sw?
 
-# Build directories
-build/
-dist/
-
 # React specific
 /public/*.html
 /src/setupProxy.js
