@@ -13,7 +13,8 @@ import {
   createAssociatedTokenAccountInstruction,
   getAssociatedTokenAddressSync,
   TOKEN_2022_PROGRAM_ID,
-  getMint
+  getMint,
+  transferChecked
 } from "@solana/spl-token";
 import { bs58 } from "@project-serum/anchor/dist/cjs/utils/bytes";
 import dotenv from "dotenv";
@@ -27,6 +28,11 @@ const getProgram = () => {
 
   const adminKeypair = Keypair.fromSecretKey(new Uint8Array(walletKeypair));
   const adminPublicKey = adminKeypair.publicKey;
+
+  const userWallet = require("./userkeypair.json");
+
+  const userKeypair = Keypair.fromSecretKey(new Uint8Array(walletKeypair));
+  const userPublicKey = adminKeypair.publicKey;
 
   const connection = new Connection(clusterApiUrl("devnet"), "confirmed");
 
@@ -46,6 +52,8 @@ const getProgram = () => {
     adminPublicKey,
     adminKeypair,
     connection,
+    userKeypair,
+    userPublicKey
   };
 };
 
@@ -259,6 +267,63 @@ export const getUserStakingAccount = async (userPublicKey: PublicKey) => {
 
 
 
+// To create an associated token account for a user
+export const createAssociatedTokenAccount = async (
+  mintPublicKey: PublicKey,
+  userPublicKey: PublicKey
+) => {
+  try {
+    const { connection, program } = getProgram();  // You may need to adjust how you retrieve these
+    
+    // Get or create the associated token account for the user
+    const associatedTokenAddress = await getAssociatedTokenAddressSync(
+      mintPublicKey,
+      userPublicKey,
+      false,
+      TOKEN_2022_PROGRAM_ID
+    );
+
+      // Check if the associated token account already exists
+      const accountInfo = await connection.getAccountInfo(associatedTokenAddress);
+
+      if (!accountInfo) {
+        console.log(
+          `🔹 Token account does not exist. Creating ATA: ${associatedTokenAddress.toBase58()}`
+        );
+
+    // Get the recent blockhash
+    const { blockhash } = await connection.getLatestBlockhash("finalized");
+
+    // Create the unsigned transaction to create ATA
+    const transaction = new Transaction().add(
+      createAssociatedTokenAccountInstruction(
+        userPublicKey,  // The wallet to create the ATA for
+        associatedTokenAddress,  // The ATA to be created
+        userPublicKey,  // The user’s public key (as the owner)
+        mintPublicKey,  // The token mint
+        TOKEN_2022_PROGRAM_ID  // Token program ID (default)
+      )
+    );
+
+    // Set the recent blockhash and fee payer (user will pay the transaction fees)
+    transaction.recentBlockhash = blockhash;
+    transaction.feePayer = userPublicKey;
+
+    // Serialize the transaction to send to frontend (unsigned)
+    return {
+      success: true,
+      message: 'Transaction created successfully! Please sign it with your wallet.',
+      transaction: transaction.serialize({ requireAllSignatures: false }),
+      associatedTokenAddress  // Send unsigned transaction as base64
+    };
+
+  }
+} catch (err) {
+    console.error("❌ Error creating the ATA transaction:", err);
+    return { success: false, message: "Error creating the associated token account" };
+  }
+}
+
 
 
 
@@ -303,3 +368,69 @@ async function getOrCreateAssociatedTokenAccount(
 
   return associatedTokenAddress;
 }
+
+
+
+// ✅ Helper function to get or create an associated token account (using the server's keypair for testing purpose)
+export const createAssociatedTokenAccountWithKeypair = async (
+  mintPublicKey: PublicKey,
+  userPublicKey: PublicKey
+) => {
+  try {
+    // Load the user's keypair from file
+    const {userKeypair, userPublicKey, connection} = getProgram();
+
+
+    // Get the associated token address for the user
+    const associatedTokenAddress = await getAssociatedTokenAddressSync(
+      mintPublicKey,
+      userPublicKey,
+      false, // Not a PDA
+      TOKEN_2022_PROGRAM_ID
+    );
+
+    // Check if the associated token account exists
+    const accountInfo = await connection.getAccountInfo(associatedTokenAddress);
+    if (accountInfo) {
+      console.log(`🔹 Token account exists: ${associatedTokenAddress.toBase58()}`);
+      return { success: true, message: "Token account already exists.", associatedTokenAddress };
+    }
+
+    console.log(`🔹 Token account does not exist. Creating ATA: ${associatedTokenAddress.toBase58()}`);
+
+    // Get the recent blockhash for the transaction
+    const { blockhash } = await connection.getLatestBlockhash("finalized");
+
+    // Create the transaction to create the ATA
+    const transaction = new Transaction().add(
+      createAssociatedTokenAccountInstruction(
+        userPublicKey, // Wallet address to create the ATA for
+        associatedTokenAddress, // ATA address to be created
+        userPublicKey, // User's public key as owner
+        mintPublicKey, // The mint of the token
+        TOKEN_2022_PROGRAM_ID // Token program ID
+      )
+    );
+
+    // Set the recent blockhash and fee payer (user will pay the transaction fees)
+    transaction.recentBlockhash = blockhash;
+    transaction.feePayer = userPublicKey;
+
+    // Sign the transaction with the server's keypair (for testing purpose)
+    transaction.sign(userKeypair);
+
+    // Send the transaction to the network and confirm it
+    const signature = await connection.sendTransaction(transaction, [userKeypair], { skipPreflight: false, preflightCommitment: "confirmed" });
+
+    console.log(`✅ Transaction sent successfully! Signature: ${signature}`);
+
+    // Optionally, confirm the transaction
+    const confirmation = await connection.confirmTransaction(signature);
+    console.log('Transaction confirmed:', confirmation);
+
+    return { success: true, message: "ATA created successfully.", signature, associatedTokenAddress };
+  } catch (err) {
+    console.error("❌ Error creating ATA:", err);
+    return { success: false, message: "Error creating the associated token account" };
+  }
+};
