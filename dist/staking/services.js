@@ -46,7 +46,9 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+
 exports.stakeTokenServiceWithKeypair = exports.createAssociatedTokenAccountWithKeypair = exports.createAssociatedTokenAccount = exports.getUserStakingAccount = exports.unstakeTokenService = exports.stakeTokenService = exports.initializeAccountsService = void 0;
+
 const web3_js_1 = require("@solana/web3.js");
 const anchor = __importStar(require("@project-serum/anchor"));
 const spl_token_1 = require("@solana/spl-token");
@@ -58,9 +60,11 @@ const getProgram = () => {
     const walletKeypair = require("./wallet-keypair.json");
     const adminKeypair = web3_js_1.Keypair.fromSecretKey(new Uint8Array(walletKeypair));
     const adminPublicKey = adminKeypair.publicKey;
+
     const userWallet = require("./testWallet.json");
     const userKeypair = web3_js_1.Keypair.fromSecretKey(new Uint8Array(userWallet));
     const userPublicKey = userKeypair.publicKey;
+  
     const connection = new web3_js_1.Connection((0, web3_js_1.clusterApiUrl)("devnet"), "confirmed");
     const programId = new web3_js_1.PublicKey("9zYBuWmk35JryeiwzuZK8fen2koGuxTKh3qDDWtnWBFq");
     const provider = new anchor.AnchorProvider(connection, new anchor.Wallet(adminKeypair), anchor.AnchorProvider.defaultOptions());
@@ -104,6 +108,7 @@ exports.initializeAccountsService = initializeAccountsService;
 // ✅ Function to stake tokens into the staking pool
 const stakeTokenService = (mintPublicKey, userPublicKey, amount, lockDuration // New parameter for lock duration in seconds
 ) => __awaiter(void 0, void 0, void 0, function* () {
+
     try {
         const { program, adminPublicKey, connection } = getProgram();
         const [stakingPoolPublicKey] = web3_js_1.PublicKey.findProgramAddressSync([Buffer.from("staking_pool"), adminPublicKey.toBuffer()], program.programId);
@@ -201,6 +206,7 @@ const getUserStakingAccount = (userPublicKey) => __awaiter(void 0, void 0, void 
         const tokenDecimals = 9; // Change this if your token has different decimals
         const readableStakedAmount = userStakingAccount.stakedAmount.toNumber() / (Math.pow(10, tokenDecimals));
         // ✅ Convert Unix timestamp to readable date
+
         const stakeTimestamp = userStakingAccount.stakeTimestamp.toNumber();
         const stakeDate = new Date(stakeTimestamp * 1000).toISOString();
         // ✅ Check if the stakeTimestamp is in the future and handle it
@@ -375,5 +381,4 @@ const stakeTokenServiceWithKeypair = (userPublicKey, mintPublicKey, amount, dura
         return { success: false, message: `Error creating staking transaction: ${err.message}` };
     }
 });
-exports.stakeTokenServiceWithKeypair = stakeTokenServiceWithKeypair;
 //# sourceMappingURL=services.js.map
