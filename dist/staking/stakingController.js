@@ -41,10 +41,11 @@ exports.initializeAccountsController = initializeAccountsController;
 const stakeTokens = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     console.log('Staking invoked');
     try {
-        const { mintPublicKey, amount, duration, userPublicKey } = req.body;
+        const { mintPublicKey, userPublicKey, amount, duration } = req.body;
         const mintAddress = new web3_js_1.PublicKey(mintPublicKey);
+        const userAddress = new web3_js_1.PublicKey(userPublicKey);
         // Call the service function to create an unsigned transaction
-        const result = yield (0, services_1.stakeTokenServiceWithKeypair)(new web3_js_1.PublicKey(userPublicKey), mintAddress, amount, duration);
+        const result = yield (0, services_1.stakeTokenService)(mintAddress, userAddress, amount, duration);
         if (result.success) {
             return res.status(200).json(result);
         }
