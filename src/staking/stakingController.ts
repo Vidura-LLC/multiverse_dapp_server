@@ -2,8 +2,8 @@
 
 
 import { Request, Response } from 'express';
-import { initializeAccountsService, stakeTokenService, unstakeTokenService, getUserStakingAccount, createAssociatedTokenAccount, createAssociatedTokenAccountWithKeypair, stakeTokenServiceWithKeypair } from './services';
-import { PublicKey, Keypair } from '@solana/web3.js';
+import { initializeAccountsService, stakeTokenService, unstakeTokenService, getUserStakingAccount, createAssociatedTokenAccount, createAssociatedTokenAccountWithKeypair } from './services';
+import { PublicKey } from '@solana/web3.js';
 
 
 
@@ -37,12 +37,13 @@ export const initializeAccountsController = async (req: Request, res: Response) 
 export const stakeTokens = async (req: Request, res: Response) => {
   console.log('Staking invoked');
   try {
-    const { mintPublicKey, amount, duration, userPublicKey } = req.body;
+    const { mintPublicKey, userPublicKey, amount, duration } = req.body;
 
     const mintAddress = new PublicKey(mintPublicKey);
+    const userAddress = new PublicKey(userPublicKey);
 
     // Call the service function to create an unsigned transaction
-    const result = await stakeTokenServiceWithKeypair(new PublicKey(userPublicKey), mintAddress, amount, duration);
+    const result = await stakeTokenService(mintAddress, userAddress, amount, duration);
 
     if (result.success) {
       return res.status(200).json(result);
