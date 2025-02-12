@@ -46,7 +46,9 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.createAssociatedTokenAccountWithKeypair = exports.createAssociatedTokenAccount = exports.getUserStakingAccount = exports.unstakeTokenService = exports.stakeTokenService = exports.initializeAccountsService = void 0;
+
+exports.stakeTokenServiceWithKeypair = exports.createAssociatedTokenAccountWithKeypair = exports.createAssociatedTokenAccount = exports.getUserStakingAccount = exports.unstakeTokenService = exports.stakeTokenService = exports.initializeAccountsService = void 0;
+
 const web3_js_1 = require("@solana/web3.js");
 const anchor = __importStar(require("@project-serum/anchor"));
 const spl_token_1 = require("@solana/spl-token");
@@ -58,9 +60,11 @@ const getProgram = () => {
     const walletKeypair = require("./wallet-keypair.json");
     const adminKeypair = web3_js_1.Keypair.fromSecretKey(new Uint8Array(walletKeypair));
     const adminPublicKey = adminKeypair.publicKey;
-    const userWallet = require("./userkeypair.json");
-    const userKeypair = web3_js_1.Keypair.fromSecretKey(new Uint8Array(walletKeypair));
-    const userPublicKey = adminKeypair.publicKey;
+
+    const userWallet = require("./testWallet.json");
+    const userKeypair = web3_js_1.Keypair.fromSecretKey(new Uint8Array(userWallet));
+    const userPublicKey = userKeypair.publicKey;
+  
     const connection = new web3_js_1.Connection((0, web3_js_1.clusterApiUrl)("devnet"), "confirmed");
     const programId = new web3_js_1.PublicKey("9zYBuWmk35JryeiwzuZK8fen2koGuxTKh3qDDWtnWBFq");
     const provider = new anchor.AnchorProvider(connection, new anchor.Wallet(adminKeypair), anchor.AnchorProvider.defaultOptions());
@@ -102,7 +106,9 @@ const initializeAccountsService = (mintPublicKey) => __awaiter(void 0, void 0, v
 });
 exports.initializeAccountsService = initializeAccountsService;
 // ✅ Function to stake tokens into the staking pool
-const stakeTokenService = (mintPublicKey, userPublicKey, amount) => __awaiter(void 0, void 0, void 0, function* () {
+const stakeTokenService = (mintPublicKey, userPublicKey, amount, lockDuration // New parameter for lock duration in seconds
+) => __awaiter(void 0, void 0, void 0, function* () {
+
     try {
         const { program, adminPublicKey, connection } = getProgram();
         const [stakingPoolPublicKey] = web3_js_1.PublicKey.findProgramAddressSync([Buffer.from("staking_pool"), adminPublicKey.toBuffer()], program.programId);
@@ -110,9 +116,12 @@ const stakeTokenService = (mintPublicKey, userPublicKey, amount) => __awaiter(vo
         const [poolEscrowAccountPublicKey] = web3_js_1.PublicKey.findProgramAddressSync([Buffer.from("escrow"), stakingPoolPublicKey.toBuffer()], program.programId);
         const userTokenAccountPublicKey = yield getOrCreateAssociatedTokenAccount(connection, mintPublicKey, userPublicKey);
         const { blockhash } = yield connection.getLatestBlockhash("finalized");
+        // Ensure we're calculating the lock timestamp in UTC (Unix timestamp in seconds)
+        const currentUtcTimeInSeconds = Math.floor(Date.now() / 1000); // UTC time in seconds
+        const lockTimestamp = currentUtcTimeInSeconds + lockDuration; // lock duration in seconds
         // ✅ Create an unsigned transaction
         const transaction = yield program.methods
-            .stake(new anchor.BN(amount))
+            .stake(new anchor.BN(amount), new anchor.BN(lockTimestamp)) // Pass lockTimestamp to contract
             .accounts({
             user: userPublicKey,
             stakingPool: stakingPoolPublicKey,
@@ -182,25 +191,46 @@ const unstakeTokenService = (mintPublicKey, userPublicKey, amount) => __awaiter(
 exports.unstakeTokenService = unstakeTokenService;
 const getUserStakingAccount = (userPublicKey) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const { program } = getProgram();
+        const { program, connection } = getProgram();
+        // Derive the public key for the user staking account
         const [userStakingAccountPublicKey] = web3_js_1.PublicKey.findProgramAddressSync([Buffer.from("user_stake"), userPublicKey.toBuffer()], program.programId);
+        // Check if the user staking account exists
+        const accountExists = yield connection.getAccountInfo(userStakingAccountPublicKey);
+        if (!accountExists) {
+            // Staking account does not exist, return a message
+            return { success: false, message: "User has not staked any tokens yet." };
+        }
+        // If the account exists, fetch the staking data
         const userStakingAccount = yield program.account.userStakingAccount.fetch(userStakingAccountPublicKey);
         // ✅ Convert stakedAmount from base units
         const tokenDecimals = 9; // Change this if your token has different decimals
         const readableStakedAmount = userStakingAccount.stakedAmount.toNumber() / (Math.pow(10, tokenDecimals));
         // ✅ Convert Unix timestamp to readable date
-        const stakeDate = new Date(userStakingAccount.stakeTimestamp.toNumber() * 1000).toISOString();
+
+        const stakeTimestamp = userStakingAccount.stakeTimestamp.toNumber();
+        const stakeDate = new Date(stakeTimestamp * 1000).toISOString();
+        // ✅ Check if the stakeTimestamp is in the future and handle it
+        const currentTimestamp = Math.floor(Date.now() / 1000); // Current timestamp in seconds
+        // ✅ Calculate duration (in seconds)
+        const stakingDuration = currentTimestamp - stakeTimestamp; // Duration in seconds
+        // Convert duration to a human-readable format (e.g., days, hours, minutes)
+        const durationInDays = Math.floor(stakingDuration / (60 * 60 * 24)); // Convert to days
+        const durationInHours = Math.floor((stakingDuration % (60 * 60 * 24)) / (60 * 60)); // Convert remaining seconds to hours
+        const durationInMinutes = Math.floor((stakingDuration % (60 * 60)) / 60); // Convert remaining seconds to minutes
+        const formattedDuration = `${durationInDays} days, ${durationInHours} hours, ${durationInMinutes} minutes`;
+        // Prepare the response with all necessary data
         const formattedData = {
             owner: userStakingAccount.owner.toBase58(),
-            stakedAmount: readableStakedAmount, // ✅ Now human-readable
-            stakeTimestamp: stakeDate // ✅ Now formatted as a date
+            stakedAmount: readableStakedAmount, // Human-readable amount
+            stakeTimestamp: stakeDate, // Formatted as a date string
+            stakingDuration: formattedDuration, // Duration in a human-readable format
         };
         console.log("✅ User Staking Account Data:", formattedData);
         return { success: true, data: formattedData };
     }
     catch (err) {
         console.error("❌ Error fetching user staking account:", err);
-        return { success: false, message: "User staking account not found or does not exist." };
+        return { success: false, message: "Error fetching user staking account." };
     }
 });
 exports.getUserStakingAccount = getUserStakingAccount;
@@ -305,4 +335,50 @@ const createAssociatedTokenAccountWithKeypair = (mintPublicKey, userPublicKey) =
     }
 });
 exports.createAssociatedTokenAccountWithKeypair = createAssociatedTokenAccountWithKeypair;
+// Service function to create an unsigned staking transaction
+const stakeTokenServiceWithKeypair = (userPublicKey, mintPublicKey, amount, duration) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const { program, adminPublicKey, connection } = getProgram();
+        // Validate 'amount' and 'duration'
+        if (isNaN(amount) || amount <= 0) {
+            throw new Error("Invalid amount provided");
+        }
+        if (isNaN(duration) || duration <= 0) {
+            throw new Error("Invalid duration provided");
+        }
+        const [stakingPoolPublicKey] = web3_js_1.PublicKey.findProgramAddressSync([Buffer.from("staking_pool"), adminPublicKey.toBuffer()], program.programId);
+        const [userStakingAccountPublicKey] = web3_js_1.PublicKey.findProgramAddressSync([Buffer.from("user_stake"), userPublicKey.toBuffer()], program.programId);
+        const [poolEscrowAccountPublicKey] = web3_js_1.PublicKey.findProgramAddressSync([Buffer.from("escrow"), stakingPoolPublicKey.toBuffer()], program.programId);
+        const userTokenAccountPublicKey = yield getOrCreateAssociatedTokenAccount(connection, mintPublicKey, userPublicKey);
+        const { blockhash } = yield connection.getLatestBlockhash("finalized");
+        const amountBN = new anchor.BN(amount.toString());
+        const durationBN = new anchor.BN(duration.toString());
+        // Create an unsigned transaction
+        const transaction = yield program.methods
+            .stake(amountBN, durationBN)
+            .accounts({
+            user: userPublicKey,
+            stakingPool: stakingPoolPublicKey,
+            userStakingAccount: userStakingAccountPublicKey,
+            userTokenAccount: userTokenAccountPublicKey,
+            poolEscrowAccount: poolEscrowAccountPublicKey,
+            mint: mintPublicKey,
+            tokenProgram: spl_token_1.TOKEN_2022_PROGRAM_ID,
+            systemProgram: web3_js_1.SystemProgram.programId,
+        })
+            .transaction();
+        // Set recent blockhash and fee payer
+        transaction.recentBlockhash = blockhash;
+        transaction.feePayer = userPublicKey;
+        return {
+            success: true,
+            message: "Unsigned transaction created successfully!",
+            transaction: transaction.serialize({ requireAllSignatures: false }),
+        };
+    }
+    catch (err) {
+        console.error("Error creating staking transaction:", err);
+        return { success: false, message: `Error creating staking transaction: ${err.message}` };
+    }
+});
 //# sourceMappingURL=services.js.map

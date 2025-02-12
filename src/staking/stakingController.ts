@@ -2,7 +2,7 @@
 
 
 import { Request, Response } from 'express';
-import { initializeAccountsService, stakeTokenService, unstakeTokenService, getUserStakingAccount, createAssociatedTokenAccount, createAssociatedTokenAccountWithKeypair } from './services';
+import { initializeAccountsService, stakeTokenService, unstakeTokenService, getUserStakingAccount, createAssociatedTokenAccount, createAssociatedTokenAccountWithKeypair, stakeTokenServiceWithKeypair } from './services';
 import { PublicKey, Keypair } from '@solana/web3.js';
 
 
@@ -33,21 +33,16 @@ export const initializeAccountsController = async (req: Request, res: Response) 
 };
 
 
-// Controller function to handle staking tokens
+// Controller to handle staking requests
 export const stakeTokens = async (req: Request, res: Response) => {
-  console.log('stacking invoked')
+  console.log('Staking invoked');
   try {
-    const { mintPublicKey, userPublicKey, amount } = req.body;
-
-    if (!mintPublicKey || !userPublicKey || !amount) {
-      return res.status(400).json({ success: false, message: "Mint public key, user public key, and amount are required" });
-    }
+    const { mintPublicKey, amount, duration, userPublicKey } = req.body;
 
     const mintAddress = new PublicKey(mintPublicKey);
-    const userAddress = new PublicKey(userPublicKey); // Get user's wallet public key
 
-    // Call the service function to stake tokens
-    const result = await stakeTokenService(mintAddress, userAddress, amount);
+    // Call the service function to create an unsigned transaction
+    const result = await stakeTokenServiceWithKeypair(new PublicKey(userPublicKey), mintAddress, amount, duration);
 
     if (result.success) {
       return res.status(200).json(result);
@@ -61,6 +56,7 @@ export const stakeTokens = async (req: Request, res: Response) => {
 };
 
 
+
 export const unstakeTokens = async (req: Request, res: Response) => {
   try {
     const { mintPublicKey, userPublicKey, amount } = req.body;
@@ -71,7 +67,7 @@ export const unstakeTokens = async (req: Request, res: Response) => {
 
     const mintAddress = new PublicKey(mintPublicKey);
     const userAddress = new PublicKey(userPublicKey);
-    const result = await unstakeTokenService(mintAddress, userAddress , amount);
+    const result = await unstakeTokenService(mintAddress, userAddress, amount);
 
     if (result.success) {
       return res.status(200).json(result);
