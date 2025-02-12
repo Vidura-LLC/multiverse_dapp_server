@@ -250,7 +250,7 @@ export const getUserStakingAccount = async (userPublicKey: PublicKey) => {
 
     // Check if the user staking account exists
     const accountExists = await connection.getAccountInfo(userStakingAccountPublicKey);
-    
+
     if (!accountExists) {
       // Staking account does not exist, return a message
       return { success: false, message: "User has not staked any tokens yet." };
@@ -272,7 +272,7 @@ export const getUserStakingAccount = async (userPublicKey: PublicKey) => {
     // ✅ Check if the stakeTimestamp is in the future and handle it
     const currentTimestamp = Math.floor(Date.now() / 1000); // Current timestamp in seconds
 
-  
+
 
     // ✅ Calculate duration (in seconds)
     const stakingDuration = currentTimestamp - stakeTimestamp; // Duration in seconds
@@ -293,7 +293,7 @@ export const getUserStakingAccount = async (userPublicKey: PublicKey) => {
     };
 
     console.log("✅ User Staking Account Data:", formattedData);
-    
+
     return { success: true, data: formattedData };
   } catch (err) {
     console.error("❌ Error fetching user staking account:", err);
@@ -310,7 +310,7 @@ export const createAssociatedTokenAccount = async (
 ) => {
   try {
     const { connection, program } = getProgram();  // You may need to adjust how you retrieve these
-    
+
     // Get or create the associated token account for the user
     const associatedTokenAddress = await getAssociatedTokenAddressSync(
       mintPublicKey,
@@ -319,42 +319,42 @@ export const createAssociatedTokenAccount = async (
       TOKEN_2022_PROGRAM_ID
     );
 
-      // Check if the associated token account already exists
-      const accountInfo = await connection.getAccountInfo(associatedTokenAddress);
+    // Check if the associated token account already exists
+    const accountInfo = await connection.getAccountInfo(associatedTokenAddress);
 
-      if (!accountInfo) {
-        console.log(
-          `🔹 Token account does not exist. Creating ATA: ${associatedTokenAddress.toBase58()}`
-        );
+    if (!accountInfo) {
+      console.log(
+        `🔹 Token account does not exist. Creating ATA: ${associatedTokenAddress.toBase58()}`
+      );
 
-    // Get the recent blockhash
-    const { blockhash } = await connection.getLatestBlockhash("finalized");
+      // Get the recent blockhash
+      const { blockhash } = await connection.getLatestBlockhash("finalized");
 
-    // Create the unsigned transaction to create ATA
-    const transaction = new Transaction().add(
-      createAssociatedTokenAccountInstruction(
-        userPublicKey,  // The wallet to create the ATA for
-        associatedTokenAddress,  // The ATA to be created
-        userPublicKey,  // The user’s public key (as the owner)
-        mintPublicKey,  // The token mint
-        TOKEN_2022_PROGRAM_ID  // Token program ID (default)
-      )
-    );
+      // Create the unsigned transaction to create ATA
+      const transaction = new Transaction().add(
+        createAssociatedTokenAccountInstruction(
+          userPublicKey,  // The wallet to create the ATA for
+          associatedTokenAddress,  // The ATA to be created
+          userPublicKey,  // The user’s public key (as the owner)
+          mintPublicKey,  // The token mint
+          TOKEN_2022_PROGRAM_ID  // Token program ID (default)
+        )
+      );
 
-    // Set the recent blockhash and fee payer (user will pay the transaction fees)
-    transaction.recentBlockhash = blockhash;
-    transaction.feePayer = userPublicKey;
+      // Set the recent blockhash and fee payer (user will pay the transaction fees)
+      transaction.recentBlockhash = blockhash;
+      transaction.feePayer = userPublicKey;
 
-    // Serialize the transaction to send to frontend (unsigned)
-    return {
-      success: true,
-      message: 'Transaction created successfully! Please sign it with your wallet.',
-      transaction: transaction.serialize({ requireAllSignatures: false }),
-      associatedTokenAddress  // Send unsigned transaction as base64
-    };
+      // Serialize the transaction to send to frontend (unsigned)
+      return {
+        success: true,
+        message: 'Transaction created successfully! Please sign it with your wallet.',
+        transaction: transaction.serialize({ requireAllSignatures: false }),
+        associatedTokenAddress  // Send unsigned transaction as base64
+      };
 
-  }
-} catch (err) {
+    }
+  } catch (err) {
     console.error("❌ Error creating the ATA transaction:", err);
     return { success: false, message: "Error creating the associated token account" };
   }
@@ -393,7 +393,7 @@ async function getOrCreateAssociatedTokenAccount(
         TOKEN_2022_PROGRAM_ID
       )
     );
-    const {adminKeypair} = getProgram();
+    const { adminKeypair } = getProgram();
     await anchor.web3.sendAndConfirmTransaction(connection, transaction, [
       adminKeypair
     ]);
@@ -414,7 +414,7 @@ export const createAssociatedTokenAccountWithKeypair = async (
 ) => {
   try {
     // Load the user's keypair from file
-    const {userKeypair, userPublicKey, connection} = getProgram();
+    const { userKeypair, userPublicKey, connection } = getProgram();
 
 
     // Get the associated token address for the user
@@ -472,26 +472,24 @@ export const createAssociatedTokenAccountWithKeypair = async (
 };
 
 
-// ✅ Function to stake tokens into the staking pool
+// Service function to create an unsigned staking transaction
 export const stakeTokenServiceWithKeypair = async (
+  userPublicKey: PublicKey,
   mintPublicKey: PublicKey,
   amount: number,
   duration: number,
 ) => {
   try {
-    const { program, adminPublicKey, userKeypair, userPublicKey, connection } = getProgram();
-
-
-    // Ensure 'amount' is a valid number and positive
+    const { program, adminPublicKey, connection } = getProgram();
+    // Validate 'amount' and 'duration'
     if (isNaN(amount) || amount <= 0) {
       throw new Error("Invalid amount provided");
     }
 
-    // Ensure 'duration' is a valid number and positive
     if (isNaN(duration) || duration <= 0) {
-      throw new Error("Invalid time frame provided");
+      throw new Error("Invalid duration provided");
     }
-    
+
     const [stakingPoolPublicKey] = PublicKey.findProgramAddressSync(
       [Buffer.from("staking_pool"), adminPublicKey.toBuffer()],
       program.programId
@@ -515,13 +513,12 @@ export const stakeTokenServiceWithKeypair = async (
 
     const { blockhash } = await connection.getLatestBlockhash("finalized");
 
-    // Ensure amount and duration are valid BN inputs
-    const amountBN = new anchor.BN(amount.toString()); // Convert to string before passing to BN
-    const durationBN = new anchor.BN(duration.toString()); // Convert to string before passing to BN
+    const amountBN = new anchor.BN(amount.toString());
+    const durationBN = new anchor.BN(duration.toString());
 
-    // ✅ Create an unsigned transaction with the added duration parameter
+    // Create an unsigned transaction
     const transaction = await program.methods
-      .stake(new anchor.BN(amountBN), new anchor.BN(durationBN)) // Pass both amount and duration
+      .stake(amountBN, durationBN)
       .accounts({
         user: userPublicKey,
         stakingPool: stakingPoolPublicKey,
@@ -532,31 +529,21 @@ export const stakeTokenServiceWithKeypair = async (
         tokenProgram: TOKEN_2022_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
       })
-      .transaction(); // ⬅️ Create transaction, don't sign
+      .transaction();
 
-    // Set the recent blockhash and fee payer
+    // Set recent blockhash and fee payer
     transaction.recentBlockhash = blockhash;
-    transaction.feePayer = userPublicKey; // Use admin as fee payer
+    transaction.feePayer = userPublicKey;
 
-    // ✅ Sign the transaction fully with admin's keypair (no partial signing)
-    transaction.sign(userKeypair); // Fully sign the transaction with the admin's keypair
-
-    // Serialize transaction and send it to the frontend
-    const serializedTransaction = transaction.serialize(); // Serialize the fully signed transaction
-
-    // Send the serialized transaction to the network
-    const txId = await connection.sendRawTransaction(serializedTransaction, { skipPreflight: false });
-
-    // Wait for confirmation
-    await connection.confirmTransaction(txId, 'finalized');
 
     return {
       success: true,
-      message: "Transaction created and executed successfully!",
-      transactionId: txId, // Return the transaction ID for logging
+      message: "Unsigned transaction created successfully!",
+      transaction: transaction.serialize({ requireAllSignatures: false }),
     };
   } catch (err) {
-    console.error("❌ Error creating staking transaction:", err);
+    console.error("Error creating staking transaction:", err);
     return { success: false, message: `Error creating staking transaction: ${err.message}` };
   }
 };
+

@@ -1,4 +1,5 @@
 "use strict";
+//backend/src/staking/stakingController.ts
 var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
     function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
     return new (P || (P = Promise))(function (resolve, reject) {
@@ -9,7 +10,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.stakeTokens = exports.initializeAccountsController = void 0;
+exports.createTokenAccountControllerWithKeypair = exports.createTokenAccountController = exports.fetchUserStakingAccount = exports.unstakeTokens = exports.stakeTokens = exports.initializeAccountsController = void 0;
 const services_1 = require("./services");
 const web3_js_1 = require("@solana/web3.js");
 // Controller function for initializing the staking pool
@@ -36,17 +37,14 @@ const initializeAccountsController = (req, res) => __awaiter(void 0, void 0, voi
     }
 });
 exports.initializeAccountsController = initializeAccountsController;
+// Controller to handle staking requests
 const stakeTokens = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    console.log('stacking invoked');
+    console.log('Staking invoked');
     try {
-        const { mintPublicKey, userPublicKey, amount } = req.body;
-        if (!mintPublicKey || !userPublicKey || !amount) {
-            return res.status(400).json({ success: false, message: "Mint public key, user public key, and amount are required" });
-        }
+        const { mintPublicKey, amount, duration, userPublicKey } = req.body;
         const mintAddress = new web3_js_1.PublicKey(mintPublicKey);
-        const userAddress = new web3_js_1.PublicKey(userPublicKey); // Get user's wallet public key
-        // Call the service function to stake tokens
-        const result = yield (0, services_1.stakeTokenService)(mintAddress, userAddress, amount);
+        // Call the service function to create an unsigned transaction
+        const result = yield (0, services_1.stakeTokenServiceWithKeypair)(new web3_js_1.PublicKey(userPublicKey), mintAddress, amount, duration);
         if (result.success) {
             return res.status(200).json(result);
         }
@@ -60,26 +58,119 @@ const stakeTokens = (req, res) => __awaiter(void 0, void 0, void 0, function* ()
     }
 });
 exports.stakeTokens = stakeTokens;
-// // Controller function to handle unstaking tokens
-// export const unstakeTokens = async (req: Request, res: Response) => {
-//   try {
-//     const { userPublicKey, mintPublicKey, amount } = req.body;
-//     // Validate inputs
-//     if (!userPublicKey || !mintPublicKey || !amount) {
-//       return res.status(400).json({ success: false, message: 'User public key, mint public key, and amount are required' });
-//     }
-//     const userAddress = new PublicKey(userPublicKey);
-//     const mintAddress = new PublicKey(mintPublicKey);
-//     // Call the service function to unstake tokens
-//     const result = await unstakeTokenService(userAddress, mintAddress, amount);
-//     if (result.success) {
-//       return res.status(200).json(result);
-//     } else {
-//       return res.status(500).json(result);
-//     }
-//   } catch (err) {
-//     console.error('Error in unstaking tokens:', err);
-//     return res.status(500).json({ success: false, message: 'Internal server error' });
-//   }
-// };
+const unstakeTokens = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const { mintPublicKey, userPublicKey, amount } = req.body;
+        if (!mintPublicKey || !amount) {
+            return res.status(400).json({ success: false, message: "Mint public key and amount are required" });
+        }
+        const mintAddress = new web3_js_1.PublicKey(mintPublicKey);
+        const userAddress = new web3_js_1.PublicKey(userPublicKey);
+        const result = yield (0, services_1.unstakeTokenService)(mintAddress, userAddress, amount);
+        if (result.success) {
+            return res.status(200).json(result);
+        }
+        else {
+            return res.status(500).json(result);
+        }
+    }
+    catch (err) {
+        console.error("Error in unstaking tokens:", err);
+        return res.status(500).json({ success: false, message: "Internal server error" });
+    }
+});
+exports.unstakeTokens = unstakeTokens;
+// ✅ Controller function to fetch user staking account
+const fetchUserStakingAccount = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const { userPublicKey } = req.params;
+        if (!userPublicKey) {
+            return res.status(400).json({ success: false, message: "User public key is required" });
+        }
+        const userPubkey = new web3_js_1.PublicKey(userPublicKey);
+        const result = yield (0, services_1.getUserStakingAccount)(userPubkey);
+        if (result.success) {
+            return res.status(200).json(result);
+        }
+        else {
+            return res.status(404).json(result);
+        }
+    }
+    catch (err) {
+        console.error("❌ Error in fetching user staking account:", err);
+        return res.status(500).json({ success: false, message: "Internal server error" });
+    }
+});
+exports.fetchUserStakingAccount = fetchUserStakingAccount;
+// Controller function to create token account
+const createTokenAccountController = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const { mintPublicKey, userPublicKey } = req.body;
+        if (!mintPublicKey || !userPublicKey) {
+            return res.status(400).json({
+                success: false,
+                message: "mintPublicKey and userPublicKey are required.",
+            });
+        }
+        // Convert mintPublicKey and userPublicKey to PublicKey instances
+        const mintPubkey = new web3_js_1.PublicKey(mintPublicKey);
+        const userPubkey = new web3_js_1.PublicKey(userPublicKey);
+        // Call the service function to create a token account transaction
+        const result = yield (0, services_1.createAssociatedTokenAccount)(mintPubkey, userPubkey);
+        if (result.success) {
+            return res.status(200).json(result); // Return unsigned transaction to frontend
+        }
+        else {
+            return res.status(500).json(result); // Error during transaction creation
+        }
+    }
+    catch (err) {
+        console.error("❌ Error in creating token account:", err);
+        return res.status(500).json({ success: false, message: "Internal server error" });
+    }
+});
+exports.createTokenAccountController = createTokenAccountController;
+function createTokenAccount(mintPubkey, userPubkey) {
+    throw new Error('Function not implemented.');
+}
+// Controller to handle creating ATA for testing purpose
+const createTokenAccountControllerWithKeypair = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const { mintPublicKey, userPublicKey } = req.body; // Expect mint and user public keys from the body
+        // Validate the input
+        if (!mintPublicKey || !userPublicKey) {
+            return res.status(400).json({
+                success: false,
+                message: "Both mintPublicKey and userPublicKey are required."
+            });
+        }
+        // Convert public keys from string to PublicKey objects
+        const mintPubkey = new web3_js_1.PublicKey(mintPublicKey);
+        const userPubkey = new web3_js_1.PublicKey(userPublicKey);
+        // Call the service function to create the ATA using the user's keypair
+        const result = yield (0, services_1.createAssociatedTokenAccountWithKeypair)(mintPubkey, userPubkey);
+        if (result.success) {
+            return res.status(200).json({
+                success: true,
+                message: "Token account created successfully.",
+                associatedTokenAddress: result.associatedTokenAddress.toBase58(),
+                signature: result.signature
+            });
+        }
+        else {
+            return res.status(400).json({
+                success: false,
+                message: result.message
+            });
+        }
+    }
+    catch (err) {
+        console.error("❌ Error in createTokenAccountController:", err);
+        return res.status(500).json({
+            success: false,
+            message: "Internal Server Error"
+        });
+    }
+});
+exports.createTokenAccountControllerWithKeypair = createTokenAccountControllerWithKeypair;
 //# sourceMappingURL=stakingController.js.map

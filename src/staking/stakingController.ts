@@ -33,17 +33,16 @@ export const initializeAccountsController = async (req: Request, res: Response) 
 };
 
 
-// Controller function to handle staking tokens
+// Controller to handle staking requests
 export const stakeTokens = async (req: Request, res: Response) => {
   console.log('Staking invoked');
   try {
-    const { mintPublicKey, amount, duration } = req.body;  // Added timeFrame
-
+    const { mintPublicKey, amount, duration, userPublicKey } = req.body;
 
     const mintAddress = new PublicKey(mintPublicKey);
 
-    // Call the service function to stake tokens
-    const result = await stakeTokenServiceWithKeypair(mintAddress, amount, duration);
+    // Call the service function to create an unsigned transaction
+    const result = await stakeTokenServiceWithKeypair(new PublicKey(userPublicKey), mintAddress, amount, duration);
 
     if (result.success) {
       return res.status(200).json(result);
@@ -68,7 +67,7 @@ export const unstakeTokens = async (req: Request, res: Response) => {
 
     const mintAddress = new PublicKey(mintPublicKey);
     const userAddress = new PublicKey(userPublicKey);
-    const result = await unstakeTokenService(mintAddress, userAddress , amount);
+    const result = await unstakeTokenService(mintAddress, userAddress, amount);
 
     if (result.success) {
       return res.status(200).json(result);
