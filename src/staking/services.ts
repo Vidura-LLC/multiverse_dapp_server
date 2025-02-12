@@ -130,9 +130,8 @@ export const stakeTokenService = async (
 
     const { blockhash } = await connection.getLatestBlockhash("finalized");
 
-    // Ensure we're calculating the lock timestamp in UTC (Unix timestamp in seconds)
-    const currentUtcTimeInSeconds = Math.floor(Date.now() / 1000);  // UTC time in seconds
-    const lockTimestamp = currentUtcTimeInSeconds + lockDuration; // lock duration in seconds
+    // Calculate the lock timestamp (current time + lock duration)
+    const lockTimestamp = Math.floor(Date.now() / 1000) + lockDuration;
 
     // ✅ Create an unsigned transaction
     const transaction = await program.methods
@@ -163,6 +162,7 @@ export const stakeTokenService = async (
     return { success: false, message: "Error creating staking transaction" };
   }
 };
+
 
 
 
@@ -471,79 +471,4 @@ export const createAssociatedTokenAccountWithKeypair = async (
   }
 };
 
-
-// Service function to create an unsigned staking transaction
-export const stakeTokenServiceWithKeypair = async (
-  userPublicKey: PublicKey,
-  mintPublicKey: PublicKey,
-  amount: number,
-  duration: number,
-) => {
-  try {
-    const { program, adminPublicKey, connection } = getProgram();
-    // Validate 'amount' and 'duration'
-    if (isNaN(amount) || amount <= 0) {
-      throw new Error("Invalid amount provided");
-    }
-
-    if (isNaN(duration) || duration <= 0) {
-      throw new Error("Invalid duration provided");
-    }
-
-    const [stakingPoolPublicKey] = PublicKey.findProgramAddressSync(
-      [Buffer.from("staking_pool"), adminPublicKey.toBuffer()],
-      program.programId
-    );
-
-    const [userStakingAccountPublicKey] = PublicKey.findProgramAddressSync(
-      [Buffer.from("user_stake"), userPublicKey.toBuffer()],
-      program.programId
-    );
-
-    const [poolEscrowAccountPublicKey] = PublicKey.findProgramAddressSync(
-      [Buffer.from("escrow"), stakingPoolPublicKey.toBuffer()],
-      program.programId
-    );
-
-    const userTokenAccountPublicKey = await getOrCreateAssociatedTokenAccount(
-      connection,
-      mintPublicKey,
-      userPublicKey
-    );
-
-    const { blockhash } = await connection.getLatestBlockhash("finalized");
-
-    const amountBN = new anchor.BN(amount.toString());
-    const durationBN = new anchor.BN(duration.toString());
-
-    // Create an unsigned transaction
-    const transaction = await program.methods
-      .stake(amountBN, durationBN)
-      .accounts({
-        user: userPublicKey,
-        stakingPool: stakingPoolPublicKey,
-        userStakingAccount: userStakingAccountPublicKey,
-        userTokenAccount: userTokenAccountPublicKey,
-        poolEscrowAccount: poolEscrowAccountPublicKey,
-        mint: mintPublicKey,
-        tokenProgram: TOKEN_2022_PROGRAM_ID,
-        systemProgram: SystemProgram.programId,
-      })
-      .transaction();
-
-    // Set recent blockhash and fee payer
-    transaction.recentBlockhash = blockhash;
-    transaction.feePayer = userPublicKey;
-
-
-    return {
-      success: true,
-      message: "Unsigned transaction created successfully!",
-      transaction: transaction.serialize({ requireAllSignatures: false }),
-    };
-  } catch (err) {
-    console.error("Error creating staking transaction:", err);
-    return { success: false, message: `Error creating staking transaction: ${err.message}` };
-  }
-};
 
