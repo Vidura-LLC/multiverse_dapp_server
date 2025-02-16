@@ -14,7 +14,8 @@ import {
   getAssociatedTokenAddressSync,
   TOKEN_2022_PROGRAM_ID,
   getMint,
-  transferChecked
+  transferChecked,
+  getAssociatedTokenAddress
 } from "@solana/spl-token";
 import { bs58 } from "@project-serum/anchor/dist/cjs/utils/bytes";
 import dotenv from "dotenv";
@@ -36,8 +37,12 @@ const getProgram = () => {
 
   const connection = new Connection(clusterApiUrl("devnet"), "confirmed");
 
+  // const programId = new PublicKey(
+  //   "9zYBuWmk35JryeiwzuZK8fen2koGuxTKh3qDDWtnWBFq"
+  // );
+
   const programId = new PublicKey(
-    "9zYBuWmk35JryeiwzuZK8fen2koGuxTKh3qDDWtnWBFq"
+    "7eHXYjG8HAETfS67bs6jZEZStvgSCZkmQjirzrqf9ByW"
   );
 
   const provider = new anchor.AnchorProvider(
@@ -96,6 +101,8 @@ export const initializeAccountsService = async (mintPublicKey: PublicKey) => {
     return { success: false, message: "Error initializing staking pool" };
   }
 };
+const mintPubKey = new PublicKey("mLSeR1QWF2Ay4rZDiU6o61BZxvbQd2LThJoCYmQHwEg")
+initializeAccountsService(mintPubKey);
 
 // ✅ Function to stake tokens into the staking pool
 export const stakeTokenService = async (
@@ -166,7 +173,7 @@ export const stakeTokenService = async (
     return {
       success: true,
       message: "Transaction created successfully!",
-      transaction: Buffer.from(transaction.serialize({ requireAllSignatures: false })).toString("base64")
+      transaction: Buffer.from(transaction.serialize({ requireAllSignatures: false }))
     };
   } catch (err) {
     console.error("❌ Error creating staking transaction:", err);
@@ -262,6 +269,7 @@ export const getUserStakingAccount = async (userPublicKey: PublicKey) => {
 
     // Check if the user staking account exists
     const accountExists = await connection.getAccountInfo(userStakingAccountPublicKey);
+    console.log('Staking Account: ', userStakingAccountPublicKey);
 
     if (!accountExists) {
       // Staking account does not exist, return a message
@@ -361,7 +369,7 @@ export const createAssociatedTokenAccount = async (
       return {
         success: true,
         message: 'Transaction created successfully! Please sign it with your wallet.',
-        transaction: Buffer.from(transaction.serialize({ requireAllSignatures: false })).toString("base64"),
+        transaction: Buffer.from(transaction.serialize({ requireAllSignatures: false })),
         associatedTokenAddress  // Send unsigned transaction as base64
       };
 
@@ -483,4 +491,60 @@ export const createAssociatedTokenAccountWithKeypair = async (
   }
 };
 
+export const resetPool = async (mintPublicKey: string) => {
+  try {
+    const { program, adminPublicKey, connection } = getProgram();
+    const mintAddress = new PublicKey(mintPublicKey);
 
+    const [stakingPoolPublicKey] = PublicKey.findProgramAddressSync(
+      [Buffer.from("staking_pool"), adminPublicKey.toBuffer()],
+      program.programId
+    );
+
+    const [poolEscrowAccountPublicKey] = PublicKey.findProgramAddressSync(
+      [Buffer.from("escrow"), stakingPoolPublicKey.toBuffer()],
+      program.programId
+    );
+
+    // Derive the admin token account
+    const adminTokenAccount = getAssociatedTokenAddressSync(
+      mintAddress,
+      adminPublicKey,
+      false,
+      TOKEN_2022_PROGRAM_ID
+    );
+
+    // Log the addresses to verify
+    console.log("Staking Pool PDA:", stakingPoolPublicKey.toBase58());
+    console.log("Escrow Account PDA:", poolEscrowAccountPublicKey.toBase58());
+    console.log("Admin Token Account:", adminTokenAccount.toBase58());
+
+    // Call the resetPool instruction
+    await program.methods
+      .resetPool()
+      .accounts({
+        admin: adminPublicKey,
+        stakingPool: stakingPoolPublicKey,
+        poolEscrowAccount: poolEscrowAccountPublicKey,
+        systemProgram: SystemProgram.programId,
+        tokenProgram: TOKEN_2022_PROGRAM_ID,
+        adminTokenAccount: adminTokenAccount,
+        mint: mintAddress,
+      })
+      .rpc();
+
+    return { success: true, message: "Staking pool reset." };
+  } catch (err) {
+    console.error("❌ Error resetting pool:", err);
+    return { success: false, message: "Error resetting staking pool" };
+  }
+};
+
+
+export const withTokensToAdmin = async () => {
+  try {
+    const { adminKeypair } = getProgram();
+  } catch (error) {
+
+  }
+}
