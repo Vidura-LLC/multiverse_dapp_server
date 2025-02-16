@@ -122,6 +122,17 @@ export const stakeTokenService = async (
       program.programId
     );
 
+    // Check if the user already has a staking account
+    const userStakingAccountResponse = await getUserStakingAccount(userPublicKey);
+
+    // If the user already has staked tokens, prevent further staking
+    if (userStakingAccountResponse.success && userStakingAccountResponse.data.stakedAmount > 0) {
+      return {
+        success: false,
+        message: "User has already staked tokens. Cannot stake again."
+      };
+    }
+
     const userTokenAccountPublicKey = await getOrCreateAssociatedTokenAccount(
       connection,
       mintPublicKey,
@@ -155,13 +166,14 @@ export const stakeTokenService = async (
     return {
       success: true,
       message: "Transaction created successfully!",
-      transaction: transaction.serialize({ requireAllSignatures: false }),
+      transaction: Buffer.from(transaction.serialize({ requireAllSignatures: false })).toString("base64")
     };
   } catch (err) {
     console.error("❌ Error creating staking transaction:", err);
     return { success: false, message: "Error creating staking transaction" };
   }
 };
+
 
 
 
@@ -223,7 +235,7 @@ export const unstakeTokenService = async (
     return {
       success: true,
       message: 'Transaction created successfully!',
-      transaction: transaction.serialize({ requireAllSignatures: false }),
+      transaction: Buffer.from(transaction.serialize({ requireAllSignatures: false })).toString("base64")
     };
   } catch (err) {
     console.error('❌ Error creating unstaking transaction:', err);
@@ -349,7 +361,7 @@ export const createAssociatedTokenAccount = async (
       return {
         success: true,
         message: 'Transaction created successfully! Please sign it with your wallet.',
-        transaction: transaction.serialize({ requireAllSignatures: false }),
+        transaction: Buffer.from(transaction.serialize({ requireAllSignatures: false })).toString("base64"),
         associatedTokenAddress  // Send unsigned transaction as base64
       };
 
