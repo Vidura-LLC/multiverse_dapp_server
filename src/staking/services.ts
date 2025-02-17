@@ -37,12 +37,8 @@ const getProgram = () => {
 
   const connection = new Connection(clusterApiUrl("devnet"), "confirmed");
 
-  // const programId = new PublicKey(
-  //   "9zYBuWmk35JryeiwzuZK8fen2koGuxTKh3qDDWtnWBFq"
-  // );
-
   const programId = new PublicKey(
-    "7eHXYjG8HAETfS67bs6jZEZStvgSCZkmQjirzrqf9ByW"
+    "9zYBuWmk35JryeiwzuZK8fen2koGuxTKh3qDDWtnWBFq"
   );
 
   const provider = new anchor.AnchorProvider(
@@ -490,6 +486,41 @@ export const createAssociatedTokenAccountWithKeypair = async (
     return { success: false, message: "Error creating the associated token account" };
   }
 };
+
+export const withdrawTokensToAdminAccount = async (mint: PublicKey, adminTokenAccount: PublicKey, amount: number) => {
+  try {
+    const { adminPublicKey, program } = getProgram();
+
+
+    const [stakingPoolPublicKey] = PublicKey.findProgramAddressSync(
+      [Buffer.from("staking_pool"), adminPublicKey.toBuffer()],
+      program.programId
+    );
+
+    const [poolEscrowAccountPublicKey] = PublicKey.findProgramAddressSync(
+      [Buffer.from("escrow"), stakingPoolPublicKey.toBuffer()],
+      program.programId
+    );
+
+    await program.methods
+      .adminWithdraw()
+      .accounts({
+        admin: adminPublicKey,
+        stakingPool: stakingPoolPublicKey,
+        poolEscrowAccount: poolEscrowAccountPublicKey,
+        adminTokenAccount: adminTokenAccount,
+        mint: mint,
+        tokenProgram: TOKEN_2022_PROGRAM_ID
+
+      })
+      .rpc();
+
+    return { success: true, message: "Tokens transferred." };
+  } catch (err) {
+    console.error("❌ Error transferring tokens:", err);
+    return { success: false, message: "Error transferring tokens." };
+  }
+}
 
 export const resetPool = async (mintPublicKey: string) => {
   try {
