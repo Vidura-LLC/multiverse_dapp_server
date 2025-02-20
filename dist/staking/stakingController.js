@@ -62,12 +62,9 @@ exports.stakeTokens = stakeTokens;
 const unstakeTokens = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { mintPublicKey, userPublicKey, amount } = req.body;
-        if (!mintPublicKey || !amount) {
-            return res.status(400).json({ success: false, message: "Mint public key and amount are required" });
-        }
         const mintAddress = new web3_js_1.PublicKey(mintPublicKey);
         const userAddress = new web3_js_1.PublicKey(userPublicKey);
-        const result = yield (0, services_1.unstakeTokenService)(mintAddress, userAddress, amount);
+        const result = yield (0, services_1.unstakeTokenService)(mintAddress, userAddress);
         if (result.success) {
             return res.status(200).json(result);
         }
