@@ -170,7 +170,7 @@ export const stakeTokenService = async (
     return {
       success: true,
       message: "Transaction created successfully!",
-      transaction: Buffer.from(transaction.serialize({ requireAllSignatures: false })).toString("base64")
+      transaction: transaction.serialize({ requireAllSignatures: false })
     };
   } catch (err) {
     console.error("❌ Error creating staking transaction:", err);
@@ -286,7 +286,7 @@ export const getUserStakingAccount = async (userPublicKey: PublicKey) => {
 
     console.log(userStakingAccount);
 
-  
+
 
     // ✅ Convert stakedAmount from base units
     const tokenDecimals = 9;  // Adjust token decimals as needed
@@ -513,14 +513,14 @@ export const stakeTokenServiceWithKeypair = async (
     );
 
 
-       // Check if the user already has a staking account
-       const userStakingAccountResponse = await getUserStakingAccount(userPublicKey);
-       if (userStakingAccountResponse && userStakingAccountResponse.data.stakedAmount > 0) {
-         return {
-           success: false,
-           message: "You have already staked tokens. Please unstake before staking again."
-         };
-       }
+    // Check if the user already has a staking account
+    const userStakingAccountResponse = await getUserStakingAccount(userPublicKey);
+    if (userStakingAccountResponse && userStakingAccountResponse.data.stakedAmount > 0) {
+      return {
+        success: false,
+        message: "You have already staked tokens. Please unstake before staking again."
+      };
+    }
 
     const userTokenAccountPublicKey = await getOrCreateAssociatedTokenAccount(
       connection,
@@ -562,7 +562,7 @@ export const stakeTokenServiceWithKeypair = async (
     // Serialize the transaction and send it to the frontend for submission
     const serializedTransaction = transaction.serialize();
     const transactionBase64 = Buffer.from(serializedTransaction).toString("base64");
-    
+
     // Log the transaction details
     console.log("Transaction created and signed successfully:");
     console.log("Serialized Transaction (Base64):", transactionBase64);
@@ -641,40 +641,40 @@ export const unstakeTokenServiceWithKeypair = async (
       })
       .transaction(); // ⬅️ Create transaction, don't sign
 
-      transaction.recentBlockhash = blockhash;
-      transaction.feePayer = userPublicKey;
-  
-      // Sign the transaction with the user's keypair
-      console.log("Signing the transaction with the user's keypair...");
-      await transaction.sign(userKeypair); // Sign the transaction
-  
-      // Serialize the transaction and send it to the frontend for submission
-      const serializedTransaction = transaction.serialize();
-      const transactionBase64 = Buffer.from(serializedTransaction).toString("base64");
-      
-      // Log the transaction details
-      console.log("Transaction created and signed successfully:");
-      console.log("Serialized Transaction (Base64):", transactionBase64);
-  
-      // ✅ Send the transaction to the Solana network and get the signature
-      const transactionSignature = await connection.sendTransaction(transaction, [userKeypair], {
-        skipPreflight: false,
-        preflightCommitment: "processed",
-      });
-      console.log("Transaction sent successfully, Transaction ID (Signature):", transactionSignature);
-  
-      // ✅ Optionally, confirm the transaction if you need to wait for finality
-      const confirmation = await connection.confirmTransaction(transactionSignature, "confirmed");
-      console.log("Transaction confirmation:", confirmation);
-  
-      return {
-        success: true,
-        message: "Transaction created, signed, and sent successfully!",
-        transaction: transactionBase64,
-        transactionSignature: transactionSignature // Return the transaction ID for reference
-      };
-    } catch (err) {
-      console.error("❌ Error creating staking transaction:", err);
-      return { success: false, message: "Error creating staking transaction" };
-    }
-  };
+    transaction.recentBlockhash = blockhash;
+    transaction.feePayer = userPublicKey;
+
+    // Sign the transaction with the user's keypair
+    console.log("Signing the transaction with the user's keypair...");
+    await transaction.sign(userKeypair); // Sign the transaction
+
+    // Serialize the transaction and send it to the frontend for submission
+    const serializedTransaction = transaction.serialize();
+    const transactionBase64 = Buffer.from(serializedTransaction).toString("base64");
+
+    // Log the transaction details
+    console.log("Transaction created and signed successfully:");
+    console.log("Serialized Transaction (Base64):", transactionBase64);
+
+    // ✅ Send the transaction to the Solana network and get the signature
+    const transactionSignature = await connection.sendTransaction(transaction, [userKeypair], {
+      skipPreflight: false,
+      preflightCommitment: "processed",
+    });
+    console.log("Transaction sent successfully, Transaction ID (Signature):", transactionSignature);
+
+    // ✅ Optionally, confirm the transaction if you need to wait for finality
+    const confirmation = await connection.confirmTransaction(transactionSignature, "confirmed");
+    console.log("Transaction confirmation:", confirmation);
+
+    return {
+      success: true,
+      message: "Transaction created, signed, and sent successfully!",
+      transaction: transactionBase64,
+      transactionSignature: transactionSignature // Return the transaction ID for reference
+    };
+  } catch (err) {
+    console.error("❌ Error creating staking transaction:", err);
+    return { success: false, message: "Error creating staking transaction" };
+  }
+};
