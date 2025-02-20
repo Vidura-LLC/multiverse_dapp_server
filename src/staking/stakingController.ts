@@ -1,7 +1,7 @@
 //backend/src/staking/stakingController.ts
 
 import { Request, Response } from 'express';
-import { initializeAccountsService, stakeTokenServiceWithKeypair, unstakeTokenService, getUserStakingAccount, createAssociatedTokenAccount, createAssociatedTokenAccountWithKeypair, stakeTokenService } from './services';
+import { initializeAccountsService, unstakeTokenService, getUserStakingAccount, createAssociatedTokenAccount, createAssociatedTokenAccountWithKeypair, stakeTokenService } from './services';
 import { PublicKey } from '@solana/web3.js';
 
 // Controller function for initializing the staking pool
