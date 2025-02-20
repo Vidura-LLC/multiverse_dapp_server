@@ -251,6 +251,7 @@ interface UserStakingAccount {
   owner: PublicKey;
   stakedAmount: anchor.BN;
   stakeTimestamp: anchor.BN;
+  lockDuration: anchor.BN;
 }
 
 export const getUserStakingAccount = async (userPublicKey: PublicKey) => {
@@ -263,58 +264,45 @@ export const getUserStakingAccount = async (userPublicKey: PublicKey) => {
       program.programId
     );
 
+    console.log(userStakingAccountPublicKey);
+
     // Check if the user staking account exists
     const accountExists = await connection.getAccountInfo(userStakingAccountPublicKey);
 
     if (!accountExists) {
-      // Staking account does not exist, return a message
       return { success: false, message: "User has not staked any tokens yet." };
     }
 
-    // If the account exists, fetch the staking data
+    // Fetch staking data
     const userStakingAccount = await program.account.userStakingAccount.fetch(
       userStakingAccountPublicKey
     ) as UserStakingAccount;
 
+    console.log(userStakingAccount);
+
+  
+
     // ✅ Convert stakedAmount from base units
-    const tokenDecimals = 9;  // Change this if your token has different decimals
+    const tokenDecimals = 9;  // Adjust token decimals as needed
     const readableStakedAmount = userStakingAccount.stakedAmount.toNumber() / (10 ** tokenDecimals);
 
-    // ✅ Convert Unix timestamp to readable date
-    const stakeTimestamp = userStakingAccount.stakeTimestamp.toNumber();
-    const stakeDate = new Date(stakeTimestamp * 1000).toISOString();
-
-    // ✅ Check if the stakeTimestamp is in the future and handle it
-    const currentTimestamp = Math.floor(Date.now() / 1000); // Current timestamp in seconds
-
-
-
-    // ✅ Calculate duration (in seconds)
-    const stakingDuration = currentTimestamp - stakeTimestamp; // Duration in seconds
-
-    // Convert duration to a human-readable format (e.g., days, hours, minutes)
-    const durationInDays = Math.floor(stakingDuration / (60 * 60 * 24)); // Convert to days
-    const durationInHours = Math.floor((stakingDuration % (60 * 60 * 24)) / (60 * 60)); // Convert remaining seconds to hours
-    const durationInMinutes = Math.floor((stakingDuration % (60 * 60)) / 60); // Convert remaining seconds to minutes
-
-    const formattedDuration = `${durationInDays} days, ${durationInHours} hours, ${durationInMinutes} minutes`;
-
-    // Prepare the response with all necessary data
-    const formattedData = {
+    // Ensure that the fields are defined and use safe .toString() calls
+    const rawData = {
       owner: userStakingAccount.owner.toBase58(),
-      stakedAmount: readableStakedAmount,  // Human-readable amount
-      stakeTimestamp: stakeDate,  // Formatted as a date string
-      stakingDuration: formattedDuration,  // Duration in a human-readable format
+      stakedAmount: readableStakedAmount,
+      stakeTimestamp: userStakingAccount.stakeTimestamp.toString(),
+      stakeDuration: userStakingAccount.lockDuration.toString(),
     };
 
-    console.log("✅ User Staking Account Data:", formattedData);
+    console.log("✅ Raw User Staking Account Data:", rawData);
 
-    return { success: true, data: formattedData };
+    return { success: true, data: rawData };
   } catch (err) {
     console.error("❌ Error fetching user staking account:", err);
     return { success: false, message: "Error fetching user staking account." };
   }
 };
+
 
 
 
