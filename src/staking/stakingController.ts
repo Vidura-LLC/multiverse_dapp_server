@@ -1,7 +1,7 @@
 //backend/src/staking/stakingController.ts
 
 import { Request, Response } from 'express';
-import { initializeAccountsService, unstakeTokenService, getUserStakingAccount, createAssociatedTokenAccount, createAssociatedTokenAccountWithKeypair, stakeTokenService } from './services';
+import { initializeAccountsService, unstakeTokenService, getUserStakingAccount, createAssociatedTokenAccount, createAssociatedTokenAccountWithKeypair, stakeTokenService, unstakeTokenServiceWithKeypair } from './services';
 import { PublicKey } from '@solana/web3.js';
 
 // Controller function for initializing the staking pool
@@ -59,7 +59,7 @@ export const unstakeTokens = async (req: Request, res: Response) => {
 
     const mintAddress = new PublicKey(mintPublicKey);
     const userAddress = new PublicKey(userPublicKey);
-    const result = await unstakeTokenService(mintAddress, userAddress, amount);
+    const result = await unstakeTokenService(mintAddress, userAddress);
 
     if (result.success) {
       return res.status(200).json(result);

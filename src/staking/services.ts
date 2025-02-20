@@ -14,8 +14,7 @@ import {
   getAssociatedTokenAddressSync,
   TOKEN_2022_PROGRAM_ID,
   getMint,
-  transferChecked,
-  getAssociatedTokenAddress
+  transferChecked
 } from "@solana/spl-token";
 import { bs58 } from "@project-serum/anchor/dist/cjs/utils/bytes";
 import dotenv from "dotenv";
@@ -30,7 +29,7 @@ const getProgram = () => {
   const adminKeypair = Keypair.fromSecretKey(new Uint8Array(walletKeypair));
   const adminPublicKey = adminKeypair.publicKey;
 
-  const userWallet = require("./cosRayAdmin.json");
+  const userWallet = require("./hamad-wallet-keypair.json");
 
   const userKeypair = Keypair.fromSecretKey(new Uint8Array(userWallet));
   const userPublicKey = userKeypair.publicKey;
@@ -97,7 +96,6 @@ export const initializeAccountsService = async (mintPublicKey: PublicKey) => {
     return { success: false, message: "Error initializing staking pool" };
   }
 };
-const mintPubKey = new PublicKey("mLSeR1QWF2Ay4rZDiU6o61BZxvbQd2LThJoCYmQHwEg")
 
 // ✅ Function to stake tokens into the staking pool
 export const stakeTokenService = async (
@@ -172,7 +170,7 @@ export const stakeTokenService = async (
     return {
       success: true,
       message: "Transaction created successfully!",
-      transaction: Buffer.from(transaction.serialize({ requireAllSignatures: false }))
+      transaction: Buffer.from(transaction.serialize({ requireAllSignatures: false })).toString("base64")
     };
   } catch (err) {
     console.error("❌ Error creating staking transaction:", err);
@@ -187,8 +185,7 @@ export const stakeTokenService = async (
 
 export const unstakeTokenService = async (
   mintPublicKey: PublicKey,
-  userPublicKey: PublicKey,
-  amount: number
+  userPublicKey: PublicKey
 ) => {
   try {
     const { program, adminPublicKey, connection } = getProgram(); // Assuming getProgram() initializes necessary context
@@ -216,12 +213,18 @@ export const unstakeTokenService = async (
       userPublicKey
     );
 
+    // Fetch the user's staking account to get the staked amount
+    const userStakingAccount = await program.account.userStakingAccount.fetch(
+      userStakingAccountPublicKey
+    );
+
+
     // Get the latest blockhash
     const { blockhash } = await connection.getLatestBlockhash('finalized');
 
-    // ✅ Create an unsigned transaction
+    // ✅ Create an unsigned transaction to unstake all tokens
     const transaction = await program.methods
-      .unstake(new anchor.BN(amount * 10 ** 9)) // Ensure correct decimals
+      .unstake() // No need to pass amount, as unstake now operates on the full staked amount
       .accounts({
         user: userPublicKey,
         stakingPool: stakingPoolPublicKey,
@@ -236,15 +239,16 @@ export const unstakeTokenService = async (
 
     transaction.recentBlockhash = blockhash;
     transaction.feePayer = userPublicKey;
+
     // Serialize transaction and send it to the frontend
     return {
       success: true,
       message: "Transaction created successfully!",
-      transaction: transaction.serialize({ requireAllSignatures: false })
+      transaction: Buffer.from(transaction.serialize({ requireAllSignatures: false }))
     };
   } catch (err) {
-    console.error("❌ Error creating staking transaction:", err);
-    return { success: false, message: "Error creating staking transaction" };
+    console.error("❌ Error creating unstake transaction:", err);
+    return { success: false, message: "Error creating unstake transaction" };
   }
 };
 
@@ -270,7 +274,6 @@ export const getUserStakingAccount = async (userPublicKey: PublicKey) => {
 
     // Check if the user staking account exists
     const accountExists = await connection.getAccountInfo(userStakingAccountPublicKey);
-    console.log('Staking Account: ', userStakingAccountPublicKey);
 
     if (!accountExists) {
       return { success: false, message: "User has not staked any tokens yet." };
@@ -283,7 +286,7 @@ export const getUserStakingAccount = async (userPublicKey: PublicKey) => {
 
     console.log(userStakingAccount);
 
-
+  
 
     // ✅ Convert stakedAmount from base units
     const tokenDecimals = 9;  // Adjust token decimals as needed
@@ -355,7 +358,7 @@ export const createAssociatedTokenAccount = async (
       return {
         success: true,
         message: 'Transaction created successfully! Please sign it with your wallet.',
-        transaction: transaction.serialize({ requireAllSignatures: false }),
+        transaction: Buffer.from(transaction.serialize({ requireAllSignatures: false })).toString("base64"),
         associatedTokenAddress  // Send unsigned transaction as base64
       };
 
@@ -477,97 +480,6 @@ export const createAssociatedTokenAccountWithKeypair = async (
   }
 };
 
-export const withdrawTokensToAdminAccount = async (mint: PublicKey, adminTokenAccount: PublicKey, amount: number) => {
-  try {
-    const { adminPublicKey, program } = getProgram();
-
-
-    const [stakingPoolPublicKey] = PublicKey.findProgramAddressSync(
-      [Buffer.from("staking_pool"), adminPublicKey.toBuffer()],
-      program.programId
-    );
-
-    const [poolEscrowAccountPublicKey] = PublicKey.findProgramAddressSync(
-      [Buffer.from("escrow"), stakingPoolPublicKey.toBuffer()],
-      program.programId
-    );
-
-    await program.methods
-      .adminWithdraw()
-      .accounts({
-        admin: adminPublicKey,
-        stakingPool: stakingPoolPublicKey,
-        poolEscrowAccount: poolEscrowAccountPublicKey,
-        adminTokenAccount: adminTokenAccount,
-        mint: mint,
-        tokenProgram: TOKEN_2022_PROGRAM_ID
-
-      })
-      .rpc();
-
-    return { success: true, message: "Tokens transferred." };
-  } catch (err) {
-    console.error("❌ Error transferring tokens:", err);
-    return { success: false, message: "Error transferring tokens." };
-  }
-}
-
-export const resetPool = async (mintPublicKey: string) => {
-  try {
-    const { program, adminPublicKey, connection } = getProgram();
-    const mintAddress = new PublicKey(mintPublicKey);
-
-    const [stakingPoolPublicKey] = PublicKey.findProgramAddressSync(
-      [Buffer.from("staking_pool"), adminPublicKey.toBuffer()],
-      program.programId
-    );
-
-    const [poolEscrowAccountPublicKey] = PublicKey.findProgramAddressSync(
-      [Buffer.from("escrow"), stakingPoolPublicKey.toBuffer()],
-      program.programId
-    );
-
-    // Derive the admin token account
-    const adminTokenAccount = getAssociatedTokenAddressSync(
-      mintAddress,
-      adminPublicKey,
-      false,
-      TOKEN_2022_PROGRAM_ID
-    );
-
-    // Log the addresses to verify
-    console.log("Staking Pool PDA:", stakingPoolPublicKey.toBase58());
-    console.log("Escrow Account PDA:", poolEscrowAccountPublicKey.toBase58());
-    console.log("Admin Token Account:", adminTokenAccount.toBase58());
-
-    // Call the resetPool instruction
-    await program.methods
-      .resetPool()
-      .accounts({
-        admin: adminPublicKey,
-        stakingPool: stakingPoolPublicKey,
-        poolEscrowAccount: poolEscrowAccountPublicKey,
-        systemProgram: SystemProgram.programId,
-        tokenProgram: TOKEN_2022_PROGRAM_ID,
-        adminTokenAccount: adminTokenAccount,
-        mint: mintAddress,
-      })
-      .rpc();
-
-    return { success: true, message: "Staking pool reset." };
-  } catch (err) {
-    console.error("❌ Error resetting pool:", err);
-    return { success: false, message: "Error resetting staking pool" };
-  }
-};
-
-
-export const withTokensToAdmin = async () => {
-  try {
-    const { adminKeypair } = getProgram();
-  } catch (error) { }
-}
-
 
 export const stakeTokenServiceWithKeypair = async (
   mintPublicKey: PublicKey,
@@ -601,14 +513,14 @@ export const stakeTokenServiceWithKeypair = async (
     );
 
 
-    // Check if the user already has a staking account
-    const userStakingAccountResponse = await getUserStakingAccount(userPublicKey);
-    if (userStakingAccountResponse && userStakingAccountResponse.data.stakedAmount > 0) {
-      return {
-        success: false,
-        message: "You have already staked tokens. Please unstake before staking again."
-      };
-    }
+       // Check if the user already has a staking account
+       const userStakingAccountResponse = await getUserStakingAccount(userPublicKey);
+       if (userStakingAccountResponse && userStakingAccountResponse.data.stakedAmount > 0) {
+         return {
+           success: false,
+           message: "You have already staked tokens. Please unstake before staking again."
+         };
+       }
 
     const userTokenAccountPublicKey = await getOrCreateAssociatedTokenAccount(
       connection,
@@ -649,8 +561,8 @@ export const stakeTokenServiceWithKeypair = async (
 
     // Serialize the transaction and send it to the frontend for submission
     const serializedTransaction = transaction.serialize();
-    const transactionBase64 = serializedTransaction;
-
+    const transactionBase64 = Buffer.from(serializedTransaction).toString("base64");
+    
     // Log the transaction details
     console.log("Transaction created and signed successfully:");
     console.log("Serialized Transaction (Base64):", transactionBase64);
@@ -676,7 +588,7 @@ export const stakeTokenServiceWithKeypair = async (
     console.error("❌ Error creating staking transaction:", err);
     return { success: false, message: "Error creating staking transaction" };
   }
-}
+};
 
 export const unstakeTokenServiceWithKeypair = async (
   mintPublicKey: PublicKey,
@@ -693,7 +605,7 @@ export const unstakeTokenServiceWithKeypair = async (
     );
 
     const [userStakingAccountPublicKey] = PublicKey.findProgramAddressSync(
-      [Buffer.from('user_stake'), userKeypair.publicKey.toBuffer()],
+      [Buffer.from('user_stake'), userPublicKey.toBuffer()],
       program.programId
     );
 
@@ -706,8 +618,10 @@ export const unstakeTokenServiceWithKeypair = async (
     const userTokenAccountPublicKey = await getOrCreateAssociatedTokenAccount(
       connection,
       mintPublicKey,
-      userKeypair.publicKey
+      userPublicKey
     );
+
+    console.log(userPublicKey);
 
     // Get the latest blockhash
     const { blockhash } = await connection.getLatestBlockhash('finalized');
@@ -716,7 +630,7 @@ export const unstakeTokenServiceWithKeypair = async (
     const transaction = await program.methods
       .unstake(new anchor.BN(amount * 10 ** 9)) // Ensure correct decimals
       .accounts({
-        user: userKeypair.publicKey,
+        user: userPublicKey,
         stakingPool: stakingPoolPublicKey,
         userStakingAccount: userStakingAccountPublicKey,
         userTokenAccount: userTokenAccountPublicKey,
@@ -727,40 +641,40 @@ export const unstakeTokenServiceWithKeypair = async (
       })
       .transaction(); // ⬅️ Create transaction, don't sign
 
-    transaction.recentBlockhash = blockhash;
-    transaction.feePayer = userKeypair.publicKey;
-
-    // Sign the transaction with the user's keypair
-    console.log("Signing the transaction with the user's keypair...");
-    await transaction.sign(userKeypair); // Sign the transaction
-
-    // Serialize the transaction and send it to the frontend for submission
-    const serializedTransaction = transaction.serialize();
-    const transactionBase64 = serializedTransaction;
-
-    // Log the transaction details
-    console.log("Transaction created and signed successfully:");
-    console.log("Serialized Transaction (Base64):", transactionBase64);
-
-    // ✅ Send the transaction to the Solana network and get the signature
-    const transactionSignature = await connection.sendTransaction(transaction, [userKeypair], {
-      skipPreflight: false,
-      preflightCommitment: "processed",
-    });
-    console.log("Transaction sent successfully, Transaction ID (Signature):", transactionSignature);
-
-    // ✅ Optionally, confirm the transaction if you need to wait for finality
-    const confirmation = await connection.confirmTransaction(transactionSignature, "confirmed");
-    console.log("Transaction confirmation:", confirmation);
-
-    return {
-      success: true,
-      message: "Transaction created, signed, and sent successfully!",
-      transaction: transactionBase64,
-      transactionSignature: transactionSignature // Return the transaction ID for reference
-    };
-  } catch (err) {
-    console.error("❌ Error creating staking transaction:", err);
-    return { success: false, message: "Error creating staking transaction" };
-  }
-}
+      transaction.recentBlockhash = blockhash;
+      transaction.feePayer = userPublicKey;
+  
+      // Sign the transaction with the user's keypair
+      console.log("Signing the transaction with the user's keypair...");
+      await transaction.sign(userKeypair); // Sign the transaction
+  
+      // Serialize the transaction and send it to the frontend for submission
+      const serializedTransaction = transaction.serialize();
+      const transactionBase64 = Buffer.from(serializedTransaction).toString("base64");
+      
+      // Log the transaction details
+      console.log("Transaction created and signed successfully:");
+      console.log("Serialized Transaction (Base64):", transactionBase64);
+  
+      // ✅ Send the transaction to the Solana network and get the signature
+      const transactionSignature = await connection.sendTransaction(transaction, [userKeypair], {
+        skipPreflight: false,
+        preflightCommitment: "processed",
+      });
+      console.log("Transaction sent successfully, Transaction ID (Signature):", transactionSignature);
+  
+      // ✅ Optionally, confirm the transaction if you need to wait for finality
+      const confirmation = await connection.confirmTransaction(transactionSignature, "confirmed");
+      console.log("Transaction confirmation:", confirmation);
+  
+      return {
+        success: true,
+        message: "Transaction created, signed, and sent successfully!",
+        transaction: transactionBase64,
+        transactionSignature: transactionSignature // Return the transaction ID for reference
+      };
+    } catch (err) {
+      console.error("❌ Error creating staking transaction:", err);
+      return { success: false, message: "Error creating staking transaction" };
+    }
+  };
