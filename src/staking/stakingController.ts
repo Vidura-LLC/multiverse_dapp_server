@@ -1,11 +1,8 @@
 //backend/src/staking/stakingController.ts
 
-
 import { Request, Response } from 'express';
 import { initializeAccountsService, stakeTokenServiceWithKeypair, unstakeTokenService, getUserStakingAccount, createAssociatedTokenAccount, createAssociatedTokenAccountWithKeypair, stakeTokenService } from './services';
 import { PublicKey } from '@solana/web3.js';
-
-
 
 // Controller function for initializing the staking pool
 export const initializeAccountsController = async (req: Request, res: Response) => {
@@ -55,8 +52,6 @@ export const stakeTokens = async (req: Request, res: Response) => {
     return res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
-
-
 
 export const unstakeTokens = async (req: Request, res: Response) => {
   try {
