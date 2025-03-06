@@ -3,6 +3,8 @@ import dotenv from "dotenv";
 import bodyParser from "body-parser";
 import cors from "cors";
 import stakingRoutes from "./staking/stakingRoutes";
+import { getUser } from "./utils/firebaseUtils";
+import { PublicKey } from "@solana/web3.js";
 
 // Load environment variables
 dotenv.config();

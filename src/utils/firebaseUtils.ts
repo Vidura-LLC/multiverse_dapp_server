@@ -1,14 +1,19 @@
-import { PublicKey } from "@solana/web3.js/lib";
+import { PublicKey } from "@solana/web3.js";
 import { db } from "../config/firebase";
-import { set, ref, get } from 'firebase/database'
+import { set, ref, get, push, query, orderByChild, equalTo } from "firebase/database";
 
+/**
+ * Fetch a user by their publicKey
+ */
 export async function getUser(publicKey: PublicKey) {
     try {
-        const userRef = ref(db, `multiverse-users/${publicKey.toString()}`); // Directly reference the user by publicKey
-        const snapshot = await get(userRef);
+        const usersRef = query(ref(db, "users"), orderByChild("PublicKey"), equalTo(publicKey.toString()));
+        const snapshot = await get(usersRef);
 
         if (snapshot.exists()) {
-            return snapshot.val(); // Return user object
+            const users = snapshot.val();
+            const userId = Object.keys(users)[0]; // Get the first matching user ID
+            return { id: userId, ...users[userId] }; // Return user object with ID
         } else {
             return null; // User does not exist
         }
@@ -18,35 +23,43 @@ export async function getUser(publicKey: PublicKey) {
     }
 }
 
-
+/**
+ * Create a new user with a random ID
+ */
 export const createUser = async (publicKey: PublicKey) => {
     try {
-        await set(ref(db, `multiverse-users/${publicKey}`), {
-            publicKey,
+        const newUserRef = push(ref(db, "users")); // Generate a random user ID
+        const userId = newUserRef.key; // Get the generated ID
+
+        await set(newUserRef, {
+            id: userId, // Store user ID
+            publicKey: publicKey.toString(),
             createdAt: new Date().toISOString(),
         });
-        console.log('User created successfully');
+
+        console.log("User created successfully:", userId);
+        return userId;
     } catch (error) {
-        console.error('Error creating user:', error);
+        console.error("Error creating user:", error);
+        return null;
     }
 };
 
-
+/**
+ * Check if a user exists using publicKey
+ */
 export const checkUser = async (publicKey: PublicKey) => {
     try {
-        const userRef = ref(db, `multiverse-users/${publicKey.toString()}`); // Direct lookup
-        const snapshot = await get(userRef);
-
-        if (snapshot.exists()) {
-            console.log("User found:", snapshot.val());
-            return snapshot.val(); // Return user object
+        const user = await getUser(publicKey);
+        if (user) {
+            console.log("User found:", user);
+            return user;
         } else {
             console.log("User not found");
-            return false; // User does not exist
+            return false;
         }
     } catch (error) {
         console.error("Error checking user:", error);
         return false;
     }
 };
-
