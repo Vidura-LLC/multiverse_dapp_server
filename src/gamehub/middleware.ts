@@ -2,7 +2,6 @@
 
 import { ref, get } from "firebase/database";
 import { db } from "../config/firebase";  // Assuming db is your Firebase database instance
-import { PublicKey } from "@solana/web3.js/lib";
 
 // Function to check if user exists and matches with the provided publicKey
 export const checkUser = async (publicKey: string) => {
