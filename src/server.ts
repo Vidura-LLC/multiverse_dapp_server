@@ -3,6 +3,9 @@ import dotenv from "dotenv";
 import bodyParser from "body-parser";
 import cors from "cors";
 import stakingRoutes from "./staking/stakingRoutes";
+import gamehubRoutes from "./gamehub/gamehubRoutes";
+import { getUser } from "./utils/firebaseUtils";
+import { PublicKey } from "@solana/web3.js";
 
 // Load environment variables
 dotenv.config();
@@ -21,6 +24,7 @@ app.use(bodyParser.json());
 
 // Routes
 app.use("/api/staking", stakingRoutes);
+app.use("/api/gamehub/", gamehubRoutes);
 
 // Server Port
 const PORT = process.env.PORT || 5000;
