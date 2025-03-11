@@ -19,6 +19,23 @@ interface Tournament {
 }
 
 
+export async function getAllGames(req: Request, res: Response) {
+    try {
+        const gamesRef = ref(db, 'games');
+        const gamesSnapshot = await get(gamesRef);
+
+        if (!gamesSnapshot.exists()) {
+            return res.status(404).json({ message: "No games found" });
+        }
+
+        const games = gamesSnapshot.val();
+        return res.status(200).json({ games });
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ message: "Internal Server Error" });
+    }
+}
+
 export function createTournament(req: Request, res: Response) {
     try {
         const { name, description, startTime, endTime, gameId } = req.body as Tournament;
@@ -227,34 +244,34 @@ export async function getTournamentById(req: Request, res: Response) {
 
 // Controller function to register for a tournament
 export const registerForTournamentController = async (req: Request, res: Response) => {
-  try {
-    // Get the necessary data from the request body
-    const { mintPublicKey, entryFee } = req.body;  // Assuming mintPublicKey and tournamentId are passed in the body
+    try {
+        // Get the necessary data from the request body
+        const { mintPublicKey, entryFee } = req.body;  // Assuming mintPublicKey and tournamentId are passed in the body
 
-    // Call the service function to register for the tournament
-    const registrationResult = await registerForTournamentService(mintPublicKey, entryFee);
+        // Call the service function to register for the tournament
+        const registrationResult = await registerForTournamentService(mintPublicKey, entryFee);
 
-    // Check if the registration was successful
-    if (registrationResult.success) {
-      // Send a success response
-      return res.status(200).json({
-        message: 'User successfully registered for the tournament',
-        transaction: registrationResult.transaction,  // Include the transaction details
-        transactionSignature: registrationResult.transactionSignature  // Include the transaction signature
-      });
-    } else {
-      // If registration failed, send an error response
-      return res.status(500).json({
-        message: registrationResult.message || 'Failed to register for the tournament'
-      });
+        // Check if the registration was successful
+        if (registrationResult.success) {
+            // Send a success response
+            return res.status(200).json({
+                message: 'User successfully registered for the tournament',
+                transaction: registrationResult.transaction,  // Include the transaction details
+                transactionSignature: registrationResult.transactionSignature  // Include the transaction signature
+            });
+        } else {
+            // If registration failed, send an error response
+            return res.status(500).json({
+                message: registrationResult.message || 'Failed to register for the tournament'
+            });
+        }
+    } catch (error) {
+        console.error('Error registering for tournament:', error);
+        return res.status(500).json({
+            message: 'An error occurred while registering for the tournament',
+            error: error.message
+        });
     }
-  } catch (error) {
-    console.error('Error registering for tournament:', error);
-    return res.status(500).json({
-      message: 'An error occurred while registering for the tournament',
-      error: error.message
-    });
-  }
 };
 
 
