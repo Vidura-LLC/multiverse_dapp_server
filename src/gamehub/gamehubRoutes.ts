@@ -2,7 +2,7 @@
 
 import { Router, RequestHandler, Request, Response } from 'express';
 import { verifyUser } from './middleware';  // Import the verifyUser middleware
-import { createTournamentController, createTournamentPoolController, getActiveTournamentController, registerForTournamentController } from './gamehubController';
+import { createTournament, createTournamentPool, getActiveTournament, getTournamentById, getTournaments, registerForTournamentController, userParticipation } from './gamehubController';
 
 
 const router = Router();

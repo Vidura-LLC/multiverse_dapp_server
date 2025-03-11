@@ -9,6 +9,8 @@ const router = (0, express_1.Router)();
 router.post('/create-tournament-pool', gamehubController_1.createTournamentPool);
 // Route to create tournament
 router.post('/create-tournament', gamehubController_1.createTournament);
+// Route for registering a user for a tournament
+router.post('/register-for-tournament', gamehubController_1.registerForTournamentController);
 // Route for user authentication (verify the user with publicKey in headers)
 router.post('/verify-user', middleware_1.verifyUser, (req, res) => {
     // If the verifyUser middleware passes, this handler will be called

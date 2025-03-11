@@ -9,7 +9,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getActiveTournament = exports.userParticipation = exports.createTournamentPool = void 0;
+exports.registerForTournamentController = exports.getActiveTournament = exports.userParticipation = exports.createTournamentPool = void 0;
 exports.createTournament = createTournament;
 exports.getTournaments = getTournaments;
 exports.getTournamentById = getTournamentById;
@@ -196,6 +196,38 @@ function getTournamentById(req, res) {
         }
     });
 }
+// Controller function to register for a tournament
+const registerForTournamentController = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        // Get the necessary data from the request body
+        const { mintPublicKey, entryFee } = req.body; // Assuming mintPublicKey and tournamentId are passed in the body
+        // Call the service function to register for the tournament
+        const registrationResult = yield (0, services_1.registerForTournamentService)(mintPublicKey, entryFee);
+        // Check if the registration was successful
+        if (registrationResult.success) {
+            // Send a success response
+            return res.status(200).json({
+                message: 'User successfully registered for the tournament',
+                transaction: registrationResult.transaction, // Include the transaction details
+                transactionSignature: registrationResult.transactionSignature // Include the transaction signature
+            });
+        }
+        else {
+            // If registration failed, send an error response
+            return res.status(500).json({
+                message: registrationResult.message || 'Failed to register for the tournament'
+            });
+        }
+    }
+    catch (error) {
+        console.error('Error registering for tournament:', error);
+        return res.status(500).json({
+            message: 'An error occurred while registering for the tournament',
+            error: error.message
+        });
+    }
+});
+exports.registerForTournamentController = registerForTournamentController;
 // // Define the structure of Tournament data
 // interface TournamentData {
 //     EnableTournament: boolean;
