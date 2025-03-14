@@ -2,13 +2,15 @@
 
 import { Router, RequestHandler, Request, Response } from 'express';
 import { verifyUser } from './middleware';  // Import the verifyUser middleware
-import { createTournament, createTournamentPool, getActiveTournament, getAllGames, getTournamentById, getTournaments, registerForTournamentController, userParticipation } from './gamehubController';
+import { createTournament, createTournamentPool, getActiveTournament, getAllGames, getTournamentById, getTournamentPoolController, getTournaments, registerForTournamentController, userParticipation } from './gamehubController';
 
 
 const router = Router();
 
 // Route to create tournament pool
 router.post('/create-tournament-pool', createTournamentPool as unknown as RequestHandler);
+
+router.post('/get-tournament-pool', getTournamentPoolController as unknown as RequestHandler);
 
 // Route to create tournament
 router.post('/create-tournament', createTournament as unknown as RequestHandler);
