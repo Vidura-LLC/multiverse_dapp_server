@@ -2,7 +2,7 @@
 
 import { Router, RequestHandler, Request, Response } from 'express';
 import { verifyUser } from './middleware';  // Import the verifyUser middleware
-import { createTournament, createTournamentPool, getActiveTournament, getAllGames, getTournamentById, getTournamentPoolController, getTournaments, registerForTournamentController, userParticipation } from './gamehubController';
+import { createTournament, createTournamentPool, getActiveTournament, getAllGames, getTournamentById, getTournamentPoolController, getTournaments, userParticipation } from './gamehubController';
 
 
 const router = Router();
@@ -16,7 +16,7 @@ router.post('/get-tournament-pool', getTournamentPoolController as unknown as Re
 router.post('/create-tournament', createTournament as unknown as RequestHandler);
 
 // Route for registering a user for a tournament
-router.post('/register-for-tournament', registerForTournamentController as unknown as RequestHandler);
+// router.post('/register-for-tournament', registerForTournamentController as unknown as RequestHandler);
 
 // Route for user authentication (verify the user with publicKey in headers)
 router.post('/verify-user', verifyUser as unknown as RequestHandler, (req: Request, res: Response) => {

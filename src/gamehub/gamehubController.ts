@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import { ref, get, set, push } from "firebase/database";
 import { db } from "../config/firebase";  // Assuming db is your Firebase database instance
-import { getTournamentPool, initializeAccountsService, registerForTournamentService, registerForTournamentServiceWithKeypair } from './services';
+import { getTournamentPool, initializeAccountsService } from './services';
 import { PublicKey } from "@solana/web3.js";
 import { initializeAccount2InstructionData } from "@solana/spl-token/lib/types";
 
@@ -91,19 +91,18 @@ export const createTournamentPool = async (req: Request, res: Response) => {
     try {
         const { adminPublicKey, tournamentId, entryFee, mint } = req.body;
 
-        if (!adminPublicKey|| !tournamentId || !entryFee || !mint) {
+        if (!adminPublicKey || !tournamentId || !entryFee || !mint) {
             return res.status(400).json({ message: 'Missing required fields: tournamentId, entryFee, mint' });
         }
         
-        const adminAdress = new PublicKey(adminPublicKey);
         const mintPublicKey = new PublicKey(mint);
         // Call the service to create the tournament pool
-        const result = await initializeAccountsService(adminAdress, tournamentId, entryFee, mintPublicKey);
+        const result = await initializeAccountsService(adminPublicKey, tournamentId, entryFee, mintPublicKey);
 
         if (result.success) {
-            return res.status(200).json({ message: result.message });
+            return res.status(200).json(result);
         } else {
-            return res.status(500).json({ message: result.message });
+            return res.status(500).json(result);
         }
     } catch (error) {
         console.error('Error creating tournament pool:', error);
@@ -242,44 +241,44 @@ export async function getTournamentById(req: Request, res: Response) {
 
 
 // Controller to handle the register for tournament logic
-export const registerForTournamentController = async (req: Request, res: Response) => {
-  try {
-    // Destructure the mintPublicKey and adminPublicKey from the request body
-    const { mintPublicKey, adminPublicKey, userPublicKey } = req.body;
+// export const registerForTournamentController = async (req: Request, res: Response) => {
+//   try {
+//     // Destructure the mintPublicKey and adminPublicKey from the request body
+//     const { mintPublicKey, adminPublicKey, userPublicKey } = req.body;
 
-    // Validate the inputs
-    if (!mintPublicKey || !adminPublicKey || !userPublicKey) {
-      return res.status(400).json({
-        success: false,
-        message: 'Missing mintPublicKey or adminPublicKey in the request body',
-      });
-    }
+//     // Validate the inputs
+//     if (!mintPublicKey || !adminPublicKey || !userPublicKey) {
+//       return res.status(400).json({
+//         success: false,
+//         message: 'Missing mintPublicKey or adminPublicKey in the request body',
+//       });
+//     }
 
-    // Convert the public keys from base58 to PublicKey
-    const mint = new PublicKey(mintPublicKey);
-    const admin = new PublicKey(adminPublicKey);
-    const user = new PublicKey(userPublicKey);
+//     // Convert the public keys from base58 to PublicKey
+//     const mint = new PublicKey(mintPublicKey);
+//     const admin = new PublicKey(adminPublicKey);
+//     const user = new PublicKey(userPublicKey);
 
 
-    // Call the service function to register the user for the tournament
-    const result = await registerForTournamentService(mint, user, admin);
+//     // Call the service function to register the user for the tournament
+//     const result = await registerForTournamentService(mint, user, admin);
 
-    if (result.success) {
-        return res.status(200).json(result);
-      } else {
-        return res.status(500).json(result);
-      }
-    } catch (err) {
-      console.error("Error in staking tokens:", err);
-      return res.status(500).json({ success: false, message: "Internal server error" });
-};
-}
+//     if (result.success) {
+//         return res.status(200).json(result);
+//       } else {
+//         return res.status(500).json(result);
+//       }
+//     } catch (err) {
+//       console.error("Error in staking tokens:", err);
+//       return res.status(500).json({ success: false, message: "Internal server error" });
+// };
+// }
 
 
 export const getTournamentPoolController = async (req: Request, res: Response) => {
   try {
     // Destructure the userPublicKey from the request body
-    const { userPublicKey } = req.body;
+    const { userPublicKey, tournamentId } = req.body;
 
     // Validate the inputs
     if (!userPublicKey) {
@@ -293,7 +292,7 @@ export const getTournamentPoolController = async (req: Request, res: Response) =
     const userAddress = new PublicKey(userPublicKey);
 
     // Call the service function to fetch the tournament pool data
-    const result = await getTournamentPool(userAddress);
+    const result = await getTournamentPool(userAddress, tournamentId);
 
     // Send the response based on the result of the service function
     if (result.success) {
