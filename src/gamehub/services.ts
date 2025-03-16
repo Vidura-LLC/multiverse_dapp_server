@@ -54,7 +54,7 @@ export const initializeAccountsService = async (
   mintPublicKey: PublicKey
 ) => {
   try {
-    const { program, adminPublicKey, connection } = getProgram();
+    const { program, connection } = getProgram();
 
     // 🔹 Convert tournamentId correctly
     const tournamentIdBytes = Buffer.from(tournamentId, "utf8"); // Ensure UTF-8 encoding
@@ -108,15 +108,15 @@ export const initializeAccountsService = async (
   }
 };
 
-  interface TournamentPoolAccount {
-    admin: PublicKey;
-    mint: PublicKey, // Admin public key
-    tournamentId: string; // Tournament ID
-    entryFee: anchor.BN; // Entry fee in base units (e.g., lamports or token units)
-    totalFunds: anchor.BN; // Total funds accumulated in the pool
-    bump: number; // Bump seed for the tournament pool account
-  }
-  
+interface TournamentPoolAccount {
+  admin: PublicKey;
+  mint: PublicKey, // Admin public key
+  tournamentId: string; // Tournament ID
+  entryFee: anchor.BN; // Entry fee in base units (e.g., lamports or token units)
+  totalFunds: anchor.BN; // Total funds accumulated in the pool
+  bump: number; // Bump seed for the tournament pool account
+}
+
 
 // Fetch the Tournament Pool Account
 export const getTournamentPool = async (
@@ -344,8 +344,8 @@ export const getTournamentPool = async (
 //     // Confirm the transaction
 //     const confirmation = await connection.confirmTransaction(transactionSignature, 'confirmed');
 
-    
-    
+
+
 //     return {
 //       success: true,
 //       message: 'Transaction created, signed, and sent successfully!',
@@ -359,46 +359,45 @@ export const getTournamentPool = async (
 
 
 
-  
-  
-  // ✅ Helper function to get or create an associated token account
-  async function getOrCreateAssociatedTokenAccount(
-    connection: Connection,
-    mint: PublicKey,
-    owner: PublicKey
-  ): Promise<PublicKey> {
-    const associatedTokenAddress = getAssociatedTokenAddressSync(
-      mint,
-      owner,
-      false, // ✅ Not a PDA
-      TOKEN_2022_PROGRAM_ID
+
+
+// ✅ Helper function to get or create an associated token account
+async function getOrCreateAssociatedTokenAccount(
+  connection: Connection,
+  mint: PublicKey,
+  owner: PublicKey
+): Promise<PublicKey> {
+  const associatedTokenAddress = getAssociatedTokenAddressSync(
+    mint,
+    owner,
+    false, // ✅ Not a PDA
+    TOKEN_2022_PROGRAM_ID
+  );
+
+  const accountInfo = await connection.getAccountInfo(associatedTokenAddress);
+
+  if (!accountInfo) {
+    console.log(
+      `🔹 Token account does not exist. Creating ATA: ${associatedTokenAddress.toBase58()}`
     );
-  
-    const accountInfo = await connection.getAccountInfo(associatedTokenAddress);
-  
-    if (!accountInfo) {
-      console.log(
-        `🔹 Token account does not exist. Creating ATA: ${associatedTokenAddress.toBase58()}`
-      );
-  
-      const transaction = new anchor.web3.Transaction().add(
-        createAssociatedTokenAccountInstruction(
-          owner,
-          associatedTokenAddress,
-          owner,
-          mint,
-          TOKEN_2022_PROGRAM_ID
-        )
-      );
-      const { adminKeypair } = getProgram();
-      await anchor.web3.sendAndConfirmTransaction(connection, transaction, [
-        adminKeypair
-      ]);
-      console.log(`✅ Successfully created ATA: ${associatedTokenAddress.toBase58()}`);
-    } else {
-      console.log(`🔹 Token account exists: ${associatedTokenAddress.toBase58()}`);
-    }
-  
-    return associatedTokenAddress;
+
+    const transaction = new anchor.web3.Transaction().add(
+      createAssociatedTokenAccountInstruction(
+        owner,
+        associatedTokenAddress,
+        owner,
+        mint,
+        TOKEN_2022_PROGRAM_ID
+      )
+    );
+    const { adminKeypair } = getProgram();
+    await anchor.web3.sendAndConfirmTransaction(connection, transaction, [
+      adminKeypair
+    ]);
+    console.log(`✅ Successfully created ATA: ${associatedTokenAddress.toBase58()}`);
+  } else {
+    console.log(`🔹 Token account exists: ${associatedTokenAddress.toBase58()}`);
   }
-  
+
+  return associatedTokenAddress;
+}
