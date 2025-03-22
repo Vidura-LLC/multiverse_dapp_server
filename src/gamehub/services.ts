@@ -83,9 +83,9 @@ export const initializeTournamentPool = async (
     // 🔹 Create and sign the transaction
     const transaction = await program.methods
       .createTournamentPool(
-        tournamentId, 
-        entryFeeBN, 
-        maxParticipantsBN, 
+        tournamentId,
+        entryFeeBN,
+        maxParticipantsBN,
         endTimeBN
       )
       .accounts({
@@ -100,7 +100,7 @@ export const initializeTournamentPool = async (
 
     transaction.recentBlockhash = blockhash;
     transaction.feePayer = adminPublicKey;
-  
+
 
     return {
       success: true,
@@ -109,9 +109,9 @@ export const initializeTournamentPool = async (
     };
   } catch (err) {
     console.error("❌ Error creating tournament pool:", err);
-    return { 
-      success: false, 
-      message: `Error creating tournament pool: ${err.message || err}` 
+    return {
+      success: false,
+      message: `Error creating tournament pool: ${err.message || err}`
     };
   }
 };
@@ -120,9 +120,9 @@ export const initializeTournamentPool = async (
 export const getTournamentPool = async (tournamentId: string, adminPublicKey: PublicKey) => {
   try {
     const { program } = getProgram();
-    
+
     const tournamentIdBytes = Buffer.from(tournamentId, "utf8");
-    
+
     const [tournamentPoolPublicKey] = PublicKey.findProgramAddressSync(
       [Buffer.from("tournament_pool"), adminPublicKey.toBuffer(), tournamentIdBytes],
       program.programId
@@ -160,9 +160,9 @@ export const registerForTournament = async (
 ) => {
   try {
     const { program, connection } = getProgram();
-    
+
     const tournamentIdBytes = Buffer.from(tournamentId, "utf8");
-    
+
     // Get tournament pool PDA
     const [tournamentPoolPublicKey] = PublicKey.findProgramAddressSync(
       [Buffer.from("tournament_pool"), adminPublicKey.toBuffer(), tournamentIdBytes],
@@ -173,13 +173,13 @@ export const registerForTournament = async (
       tournamentPoolPublicKey
     )) as TournamentPoolAccount;
     const mintPublicKey = tournamentPoolData.mint;
-    
+
     // Get escrow PDA
     const [poolEscrowAccountPublicKey] = PublicKey.findProgramAddressSync(
       [Buffer.from("escrow"), tournamentPoolPublicKey.toBuffer()],
       program.programId
     );
-    
+
     // Get registration PDA
     const [registrationAccountPublicKey] = PublicKey.findProgramAddressSync(
       [Buffer.from("registration"), tournamentPoolPublicKey.toBuffer(), userPublicKey.toBuffer()],
@@ -187,7 +187,7 @@ export const registerForTournament = async (
     );
 
     const userTokenAccount = await getOrCreateAssociatedTokenAccount(connection, mintPublicKey, userPublicKey);
-    
+
     console.log('User Token Account Public:', userTokenAccount);
 
     const transaction = await program.methods
@@ -203,13 +203,13 @@ export const registerForTournament = async (
         systemProgram: SystemProgram.programId,
       })
       .transaction();
-      
+
     const { blockhash } = await connection.getLatestBlockhash("finalized");
     transaction.recentBlockhash = blockhash;
     transaction.feePayer = userPublicKey;
-    
 
-    
+
+
     return {
       success: true,
       message: "Successfully created transaction for registering for tournament",
@@ -217,9 +217,9 @@ export const registerForTournament = async (
     };
   } catch (err) {
     console.error("❌ Error registering for tournament:", err);
-    return { 
-      success: false, 
-      message: `Error registering for tournament: ${err.message || err}` 
+    return {
+      success: false,
+      message: `Error registering for tournament: ${err.message || err}`
     };
   }
 };
@@ -232,34 +232,34 @@ export const endTournament = async (
 ) => {
   try {
     const { program, connection, adminKeypair, adminPublicKey } = getProgram();
-    
+
     const tournamentIdBytes = Buffer.from(tournamentId, "utf8");
-    
+
     // Get tournament pool PDA
     const [tournamentPoolPublicKey] = PublicKey.findProgramAddressSync(
       [Buffer.from("tournament_pool"), adminPublicKey.toBuffer(), tournamentIdBytes],
       program.programId
     );
-    
+
     // Get tournament data to access mint
     // 🔹 Fetch the tournament pool data
     const tournamentPoolData = (await program.account.tournamentPool.fetch(
       tournamentPoolPublicKey
     )) as TournamentPoolAccount;
     const mintPublicKey = tournamentPoolData.mint;
-    
+
     // Get escrow PDA
     const [poolEscrowAccountPublicKey] = PublicKey.findProgramAddressSync(
       [Buffer.from("escrow"), tournamentPoolPublicKey.toBuffer()],
       program.programId
     );
-    
+
     // Convert winner addresses to PublicKey objects
     const winnerPublicKeys = winnerAddresses.map(address => new PublicKey(address));
-    
+
     // Convert percentages to u8 array
     const winnerPercentagesU8 = Uint8Array.from(winnerPercentages);
-    
+
     const tx = await program.methods
       .endTournament(tournamentId, winnerPercentagesU8, winnerPublicKeys)
       .accounts({
@@ -271,15 +271,15 @@ export const endTournament = async (
         systemProgram: SystemProgram.programId,
       })
       .transaction();
-      
+
     const { blockhash } = await connection.getLatestBlockhash("finalized");
     tx.recentBlockhash = blockhash;
     tx.feePayer = adminPublicKey;
-    
+
     tx.sign(adminKeypair);
     const signature = await connection.sendRawTransaction(tx.serialize());
     await connection.confirmTransaction(signature);
-    
+
     return {
       success: true,
       message: "Tournament ended successfully",
@@ -287,9 +287,9 @@ export const endTournament = async (
     };
   } catch (err) {
     console.error("❌ Error ending tournament:", err);
-    return { 
-      success: false, 
-      message: `Error ending tournament: ${err.message || err}` 
+    return {
+      success: false,
+      message: `Error ending tournament: ${err.message || err}`
     };
   }
 };
@@ -298,28 +298,28 @@ export const endTournament = async (
 export const cancelTournament = async (tournamentId: string) => {
   try {
     const { program, connection, adminKeypair, adminPublicKey } = getProgram();
-    
+
     const tournamentIdBytes = Buffer.from(tournamentId, "utf8");
-    
+
     // Get tournament pool PDA
     const [tournamentPoolPublicKey] = PublicKey.findProgramAddressSync(
       [Buffer.from("tournament_pool"), adminPublicKey.toBuffer(), tournamentIdBytes],
       program.programId
     );
-    
+
     // Get tournament data to access mint
     // 🔹 Fetch the tournament pool data
     const tournamentPoolData = (await program.account.tournamentPool.fetch(
       tournamentPoolPublicKey
-    )) as TournamentPoolAccount;    
+    )) as TournamentPoolAccount;
     const mintPublicKey = tournamentPoolData.mint;
-    
+
     // Get escrow PDA
     const [poolEscrowAccountPublicKey] = PublicKey.findProgramAddressSync(
       [Buffer.from("escrow"), tournamentPoolPublicKey.toBuffer()],
       program.programId
     );
-    
+
     const tx = await program.methods
       .cancelTournament(tournamentId)
       .accounts({
@@ -331,15 +331,15 @@ export const cancelTournament = async (tournamentId: string) => {
         systemProgram: SystemProgram.programId,
       })
       .transaction();
-      
+
     const { blockhash } = await connection.getLatestBlockhash("finalized");
     tx.recentBlockhash = blockhash;
     tx.feePayer = adminPublicKey;
-    
+
     tx.sign(adminKeypair);
     const signature = await connection.sendRawTransaction(tx.serialize());
     await connection.confirmTransaction(signature);
-    
+
     return {
       success: true,
       message: "Tournament cancelled successfully",
@@ -347,9 +347,9 @@ export const cancelTournament = async (tournamentId: string) => {
     };
   } catch (err) {
     console.error("❌ Error cancelling tournament:", err);
-    return { 
-      success: false, 
-      message: `Error cancelling tournament: ${err.message || err}` 
+    return {
+      success: false,
+      message: `Error cancelling tournament: ${err.message || err}`
     };
   }
 };
@@ -360,7 +360,7 @@ export const createTokenAccountIfNeeded = async (
   mint: PublicKey
 ) => {
   const { connection, adminKeypair } = getProgram();
-  
+
   try {
     // Get the associated token address
     const tokenAddress = getAssociatedTokenAddressSync(
@@ -369,10 +369,10 @@ export const createTokenAccountIfNeeded = async (
       false,
       TOKEN_2022_PROGRAM_ID
     );
-    
+
     // Check if the account exists
     const accountInfo = await connection.getAccountInfo(tokenAddress);
-    
+
     if (!accountInfo) {
       // Create the account if it doesn't exist
       const instruction = createAssociatedTokenAccountInstruction(
@@ -382,22 +382,22 @@ export const createTokenAccountIfNeeded = async (
         mint,
         TOKEN_2022_PROGRAM_ID
       );
-      
+
       const transaction = new anchor.web3.Transaction().add(instruction);
       transaction.feePayer = adminKeypair.publicKey;
-      
+
       const { blockhash } = await connection.getLatestBlockhash();
       transaction.recentBlockhash = blockhash;
-      
+
       transaction.sign(adminKeypair);
       const signature = await connection.sendRawTransaction(transaction.serialize());
       await connection.confirmTransaction(signature);
-      
+
       console.log("✅ Token account created:", tokenAddress.toString());
     } else {
       console.log("✅ Token account already exists:", tokenAddress.toString());
     }
-    
+
     return { success: true, tokenAddress };
   } catch (err) {
     console.error("❌ Error creating token account:", err);

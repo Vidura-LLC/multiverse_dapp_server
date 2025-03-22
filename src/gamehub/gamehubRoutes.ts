@@ -2,13 +2,13 @@
 
 import { Router, RequestHandler, Request, Response } from 'express';
 import { verifyUser } from './middleware';  // Import the verifyUser middleware
-import { initializeTournamentPoolController, getActiveTournament, getAllGames, getTournamentById, getTournamentPoolController, getTournaments, registerForTournamentController, userParticipation } from './gamehubController';
+import { initializeTournamentPoolController, getActiveTournament, getAllGames, getTournamentById, getTournamentPoolController, getTournaments, registerForTournamentController, createTournament } from './gamehubController';
 
 
 const router = Router();
 
 // Route to create tournament pool
-// router.post('/create-tournament', createTournament as unknown as RequestHandler);
+router.post('/create-tournament', createTournament as unknown as RequestHandler);
 
 router.post('/get-tournament-pool', getTournamentPoolController as unknown as RequestHandler);
 
@@ -32,7 +32,7 @@ router.get('/tournament/:id', getTournamentById as unknown as RequestHandler);
 
 router.get('/active-tournament', getActiveTournament as unknown as RequestHandler);
 
-router.post('/user-participation', userParticipation as unknown as RequestHandler);
+router.post('/user-participation', registerForTournamentController as unknown as RequestHandler);
 
 router.post('/all-games', getAllGames as unknown as RequestHandler);
 
