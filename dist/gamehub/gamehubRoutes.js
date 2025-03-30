@@ -6,9 +6,12 @@ const middleware_1 = require("./middleware"); // Import the verifyUser middlewar
 const gamehubController_1 = require("./gamehubController");
 const router = (0, express_1.Router)();
 // Route to create tournament pool
-router.post('/create-tournament-pool', gamehubController_1.createTournamentPool);
-// Route to create tournament
 router.post('/create-tournament', gamehubController_1.createTournament);
+router.post('/get-tournament-pool', gamehubController_1.getTournamentPoolController);
+// Route to create tournament
+router.post('/create-tournament-pool', gamehubController_1.initializeTournamentPoolController);
+// Route for registering a user for a tournament
+router.post('/register-for-tournament', gamehubController_1.registerForTournamentController);
 // Route for user authentication (verify the user with publicKey in headers)
 router.post('/verify-user', middleware_1.verifyUser, (req, res) => {
     // If the verifyUser middleware passes, this handler will be called
@@ -19,7 +22,8 @@ router.post('/verify-user', middleware_1.verifyUser, (req, res) => {
 router.get('/tournaments', gamehubController_1.getTournaments);
 router.get('/tournament/:id', gamehubController_1.getTournamentById);
 router.get('/active-tournament', gamehubController_1.getActiveTournament);
-router.post('/user-participation', gamehubController_1.userParticipation);
+router.post('/user-participation', gamehubController_1.registerForTournamentController);
+router.post('/all-games', gamehubController_1.getAllGames);
 exports.default = router;
 // Define the route to fetch active tournament data
 router.get("/active-tournament", middleware_1.verifyUser, gamehubController_1.getActiveTournament);
