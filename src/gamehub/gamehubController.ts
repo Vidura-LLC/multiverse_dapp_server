@@ -1,7 +1,8 @@
 import { Request, Response } from "express";
 import { ref, get, set, push, update } from "firebase/database";
-import { db } from "../config/firebase";  // Assuming db is your Firebase database instance
+import { db } from "../config/firebase";  
 import { getTournamentPool, registerForTournament, initializeTournamentPool } from './services';
+import { getTournamentLeaderboard, updateParticipantScore, getTournamentsByGame } from "./leaderboardService";
 import { PublicKey } from "@solana/web3.js";
 import schedule from 'node-schedule'
 // Define Tournament interface
@@ -244,68 +245,74 @@ export const initializeTournamentPoolController = async (req: Request, res: Resp
 };
 
 
-// Controller to handle the register for tournament logic
+// Modification to the registerForTournamentController in gamehubController.ts
 export const registerForTournamentController = async (req: Request, res: Response) => {
     try {
-        const { tournamentId, userPublicKey } = req.body;
-
-        // Validate required fields
-        if (!userPublicKey || !tournamentId) {
-            return res.status(400).json({
-                success: false,
-                message: "Missing required fields: tournamentId or userPublicKey",
-            });
-        }
-
-        // Find tournament by tournamentId
-        const tournamentRef = ref(db, `tournaments/${tournamentId}`);
-        const tournamentSnapshot = await get(tournamentRef);
-
-        // Check if tournament exists
-        if (!tournamentSnapshot.exists()) {
-            return res.status(404).json({
-                success: false,
-                message: "Tournament not found",
-            });
-        }
-
-        const tournament = tournamentSnapshot.val();
-
-        // Extract adminPublicKey (createdBy)
-        const adminPublicKey = tournament.createdBy;
-        if (!adminPublicKey) {
-            return res.status(400).json({
-                success: false,
-                message: "Tournament does not have an adminPublicKey",
-            });
-        }
-
-        const userPubKey = new PublicKey(userPublicKey);
-
-        // Call the service to register for the tournament
-        const result = await registerForTournament(tournamentId, userPubKey, new PublicKey(adminPublicKey))
-            .then(async (tx) => {
-                const participants = tournament.participants || {}; // Ensure it exists
-                participants[userPublicKey] = true;
-
-                await update(tournamentRef, {
-                    participants,
-                    participantsCount: Object.keys(participants).length, // Update count
-                });
-
-                return res.status(200).json(tx);
-            });
-
-
-    } catch (error) {
-        console.error("❌ Error in registerForTournament controller:", error);
-        return res.status(500).json({
-            success: false,
-            message: "Internal server error",
-            error: error.message,
+      const { tournamentId, userPublicKey } = req.body;
+  
+      // Validate required fields
+      if (!userPublicKey || !tournamentId) {
+        return res.status(400).json({
+          success: false,
+          message: "Missing required fields: tournamentId or userPublicKey",
         });
+      }
+  
+      // Find tournament by tournamentId
+      const tournamentRef = ref(db, `tournaments/${tournamentId}`);
+      const tournamentSnapshot = await get(tournamentRef);
+  
+      // Check if tournament exists
+      if (!tournamentSnapshot.exists()) {
+        return res.status(404).json({
+          success: false,
+          message: "Tournament not found",
+        });
+      }
+  
+      const tournament = tournamentSnapshot.val();
+  
+      // Extract adminPublicKey (createdBy)
+      const adminPublicKey = tournament.createdBy;
+      if (!adminPublicKey) {
+        return res.status(400).json({
+          success: false,
+          message: "Tournament does not have an adminPublicKey",
+        });
+      }
+  
+      const userPubKey = new PublicKey(userPublicKey);
+  
+      // First register on blockchain (maintains existing functionality)
+      const blockchainResult = await registerForTournament(tournamentId, userPubKey, new PublicKey(adminPublicKey));
+      
+      // Then update Firebase to add participant with initial score
+      if (blockchainResult.success) {
+        const participants = tournament.participants || {};
+        
+        // Initialize the participant with a score of 0 (in Firebase )
+        participants[userPublicKey] = {
+          score: 0
+        };
+  
+        await update(tournamentRef, {
+          participants,
+          participantsCount: Object.keys(participants).length
+        });
+  
+        return res.status(200).json(blockchainResult);
+      } else {
+        return res.status(400).json(blockchainResult);
+      }
+    } catch (error) {
+      console.error("❌ Error in registerForTournament controller:", error);
+      return res.status(500).json({
+        success: false,
+        message: "Internal server error",
+        error: error.message,
+      });
     }
-};
+  };
 
 
 export const getTournamentPoolController = async (req: Request, res: Response) => {
@@ -337,3 +344,72 @@ export const getTournamentPoolController = async (req: Request, res: Response) =
         });
     }
 };
+
+
+
+
+// Get tournament leaderboard
+export async function getTournamentLeaderboardController(req: Request, res: Response) {
+  try {
+    const { id } = req.params;
+    
+    if (!id) {
+      return res.status(400).json({ message: "Tournament ID is required" });
+    }
+    
+    const result = await getTournamentLeaderboard(id);
+    
+    if (result.success) {
+      return res.status(200).json(result);
+    } else {
+      return res.status(404).json(result);
+    }
+  } catch (error) {
+    console.error("Error in getTournamentLeaderboardController:", error);
+    return res.status(500).json({ message: "Internal Server Error" });
+  }
+}
+
+// Update participant score
+export async function updateParticipantScoreController(req: Request, res: Response) {
+  try {
+    const { tournamentId, participantId, score } = req.body;
+    
+    if (!tournamentId || !participantId || score === undefined) {
+      return res.status(400).json({ message: "Missing required fields" });
+    }
+    
+    const result = await updateParticipantScore(tournamentId, participantId, score);
+    
+    if (result.success) {
+      return res.status(200).json(result);
+    } else {
+      return res.status(400).json(result);
+    }
+  } catch (error) {
+    console.error("Error in updateParticipantScoreController:", error);
+    return res.status(500).json({ message: "Internal Server Error" });
+  }
+}
+
+// Get tournaments by game
+export async function getTournamentsByGameController(req: Request, res: Response) {
+  try {
+    const { gameId } = req.params;
+    
+    if (!gameId) {
+      return res.status(400).json({ message: "Game ID is required" });
+    }
+    
+    const result = await getTournamentsByGame(gameId);
+    
+    if (result.success) {
+      return res.status(200).json(result);
+    } else {
+      return res.status(500).json(result);
+    }
+  } catch (error) {
+    console.error("Error in getTournamentsByGameController:", error);
+    return res.status(500).json({ message: "Internal Server Error" });
+  }
+}

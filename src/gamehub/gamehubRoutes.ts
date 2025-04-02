@@ -2,7 +2,7 @@
 
 import { Router, RequestHandler, Request, Response } from 'express';
 import { verifyUser } from './middleware';  // Import the verifyUser middleware
-import { initializeTournamentPoolController, getActiveTournament, getAllGames, getTournamentById, getTournamentPoolController, getTournaments, registerForTournamentController, createTournament } from './gamehubController';
+import { initializeTournamentPoolController, getActiveTournament, getAllGames, getTournamentById, getTournamentPoolController, getTournaments, registerForTournamentController, createTournament, getTournamentLeaderboardController, updateParticipantScoreController, getTournamentsByGameController } from './gamehubController';
 
 
 const router = Router();
@@ -35,6 +35,17 @@ router.get('/active-tournament', getActiveTournament as unknown as RequestHandle
 router.post('/user-participation', registerForTournamentController as unknown as RequestHandler);
 
 router.post('/all-games', getAllGames as unknown as RequestHandler);
+
+//Leaderboard Routes
+// Route to get tournament leaderboard
+router.get('/tournament-leaderboard/:id', getTournamentLeaderboardController as unknown as RequestHandler);
+
+// Route to update participant score (protected)
+router.post('/score/update', verifyUser as unknown as RequestHandler, updateParticipantScoreController as unknown as RequestHandler);
+
+// Route to get tournaments by game
+router.get('/tournaments/game/:gameId', getTournamentsByGameController as unknown as RequestHandler);
+
 
 
 
