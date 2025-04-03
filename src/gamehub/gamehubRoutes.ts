@@ -34,7 +34,7 @@ router.get('/active-tournament', getActiveTournament as unknown as RequestHandle
 
 router.post('/user-participation', registerForTournamentController as unknown as RequestHandler);
 
-router.post('/all-games', getAllGames as unknown as RequestHandler);
+router.get('/all-games', getAllGames as unknown as RequestHandler);
 
 //Leaderboard Routes
 // Route to get tournament leaderboard
@@ -44,7 +44,7 @@ router.get('/tournament-leaderboard/:id', getTournamentLeaderboardController as 
 router.post('/score/update', verifyUser as unknown as RequestHandler, updateParticipantScoreController as unknown as RequestHandler);
 
 // Route to get tournaments by game
-router.get('/get-tournament-by-game/:gameId', getTournamentsByGameController as unknown as RequestHandler);
+router.get('/get-tournaments-by-game/:gameId', getTournamentsByGameController as unknown as RequestHandler);
 
 
 
