@@ -17,21 +17,26 @@ exports.getAllGames = getAllGames;
 exports.createTournament = createTournament;
 exports.getTournaments = getTournaments;
 exports.getTournamentById = getTournamentById;
+exports.getTournamentLeaderboardController = getTournamentLeaderboardController;
+exports.updateParticipantScoreController = updateParticipantScoreController;
+exports.getTournamentsByGameController = getTournamentsByGameController;
 const database_1 = require("firebase/database");
-const firebase_1 = require("../config/firebase"); // Assuming db is your Firebase database instance
+const firebase_1 = require("../config/firebase");
 const services_1 = require("./services");
+const leaderboardService_1 = require("./leaderboardService");
 const web3_js_1 = require("@solana/web3.js");
 const node_schedule_1 = __importDefault(require("node-schedule"));
 function getAllGames(req, res) {
     return __awaiter(this, void 0, void 0, function* () {
         try {
-            const gamesRef = (0, database_1.ref)(firebase_1.db, 'games');
+            const gamesRef = (0, database_1.ref)(firebase_1.db, "games");
             const gamesSnapshot = yield (0, database_1.get)(gamesRef);
             if (!gamesSnapshot.exists()) {
                 return res.status(404).json({ message: "No games found" });
             }
-            const games = gamesSnapshot.val();
-            return res.status(200).json({ games });
+            const gamesObject = gamesSnapshot.val(); // Object with game IDs as keys
+            const gamesArray = Object.keys(gamesObject).map((gameId) => (Object.assign({ id: gameId }, gamesObject[gameId])));
+            return res.status(200).json({ games: gamesArray });
         }
         catch (error) {
             console.error(error);
@@ -210,7 +215,7 @@ const initializeTournamentPoolController = (req, res) => __awaiter(void 0, void 
     }
 });
 exports.initializeTournamentPoolController = initializeTournamentPoolController;
-// Controller to handle the register for tournament logic
+// Modification to the registerForTournamentController in gamehubController.ts
 const registerForTournamentController = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { tournamentId, userPublicKey } = req.body;
@@ -241,17 +246,24 @@ const registerForTournamentController = (req, res) => __awaiter(void 0, void 0, 
             });
         }
         const userPubKey = new web3_js_1.PublicKey(userPublicKey);
-        // Call the service to register for the tournament
-        const result = yield (0, services_1.registerForTournament)(tournamentId, userPubKey, new web3_js_1.PublicKey(adminPublicKey))
-            .then((tx) => __awaiter(void 0, void 0, void 0, function* () {
-            const participants = tournament.participants || {}; // Ensure it exists
-            participants[userPublicKey] = true;
+        // First register on blockchain (maintains existing functionality)
+        const blockchainResult = yield (0, services_1.registerForTournament)(tournamentId, userPubKey, new web3_js_1.PublicKey(adminPublicKey));
+        // Then update Firebase to add participant with initial score
+        if (blockchainResult.success) {
+            const participants = tournament.participants || {};
+            // Initialize the participant with a score of 0 (in Firebase )
+            participants[userPublicKey] = {
+                score: 0
+            };
             yield (0, database_1.update)(tournamentRef, {
                 participants,
-                participantsCount: Object.keys(participants).length, // Update count
+                participantsCount: Object.keys(participants).length
             });
-            return res.status(200).json(tx);
-        }));
+            return res.status(200).json(blockchainResult);
+        }
+        else {
+            return res.status(400).json(blockchainResult);
+        }
     }
     catch (error) {
         console.error("❌ Error in registerForTournament controller:", error);
@@ -293,4 +305,70 @@ const getTournamentPoolController = (req, res) => __awaiter(void 0, void 0, void
     }
 });
 exports.getTournamentPoolController = getTournamentPoolController;
+// Get tournament leaderboard
+function getTournamentLeaderboardController(req, res) {
+    return __awaiter(this, void 0, void 0, function* () {
+        try {
+            const { id } = req.params;
+            if (!id) {
+                return res.status(400).json({ message: "Tournament ID is required" });
+            }
+            const result = yield (0, leaderboardService_1.getTournamentLeaderboard)(id);
+            if (result.success) {
+                return res.status(200).json(result);
+            }
+            else {
+                return res.status(404).json(result);
+            }
+        }
+        catch (error) {
+            console.error("Error in getTournamentLeaderboardController:", error);
+            return res.status(500).json({ message: "Internal Server Error" });
+        }
+    });
+}
+// Update participant score
+function updateParticipantScoreController(req, res) {
+    return __awaiter(this, void 0, void 0, function* () {
+        try {
+            const { tournamentId, participantId, score } = req.body;
+            if (!tournamentId || !participantId || score === undefined) {
+                return res.status(400).json({ message: "Missing required fields" });
+            }
+            const result = yield (0, leaderboardService_1.updateParticipantScore)(tournamentId, participantId, score);
+            if (result.success) {
+                return res.status(200).json(result);
+            }
+            else {
+                return res.status(400).json(result);
+            }
+        }
+        catch (error) {
+            console.error("Error in updateParticipantScoreController:", error);
+            return res.status(500).json({ message: "Internal Server Error" });
+        }
+    });
+}
+// Get tournaments by game
+function getTournamentsByGameController(req, res) {
+    return __awaiter(this, void 0, void 0, function* () {
+        try {
+            const { gameId } = req.params;
+            if (!gameId) {
+                return res.status(400).json({ message: "Game ID is required" });
+            }
+            const result = yield (0, leaderboardService_1.getTournamentsByGame)(gameId);
+            if (result.success) {
+                return res.status(200).json(result);
+            }
+            else {
+                return res.status(500).json(result);
+            }
+        }
+        catch (error) {
+            console.error("Error in getTournamentsByGameController:", error);
+            return res.status(500).json({ message: "Internal Server Error" });
+        }
+    });
+}
 //# sourceMappingURL=gamehubController.js.map

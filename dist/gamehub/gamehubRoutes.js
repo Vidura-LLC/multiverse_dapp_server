@@ -23,7 +23,14 @@ router.get('/tournaments', gamehubController_1.getTournaments);
 router.get('/tournament/:id', gamehubController_1.getTournamentById);
 router.get('/active-tournament', gamehubController_1.getActiveTournament);
 router.post('/user-participation', gamehubController_1.registerForTournamentController);
-router.post('/all-games', gamehubController_1.getAllGames);
+router.get('/all-games', gamehubController_1.getAllGames);
+//Leaderboard Routes
+// Route to get tournament leaderboard
+router.get('/tournament-leaderboard/:id', gamehubController_1.getTournamentLeaderboardController);
+// Route to update participant score (protected)
+router.post('/score/update', middleware_1.verifyUser, gamehubController_1.updateParticipantScoreController);
+// Route to get tournaments by game
+router.get('/get-tournaments-by-game/:gameId', gamehubController_1.getTournamentsByGameController);
 exports.default = router;
 // Define the route to fetch active tournament data
 router.get("/active-tournament", middleware_1.verifyUser, gamehubController_1.getActiveTournament);
