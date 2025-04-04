@@ -19,7 +19,7 @@ dotenv.config();
 // 🔹 Helper function to get the program
 const getProgram = () => {
   const idl = require("../gamehub/gamehub_idl.json");
-  const walletKeypair = require("../staking/cosRayAdmin.json");
+  const walletKeypair = require("../staking/saadat7s-wallet-keypair.json");
 
   const adminKeypair = Keypair.fromSecretKey(new Uint8Array(walletKeypair));
   const adminPublicKey = adminKeypair.publicKey;
@@ -354,6 +354,198 @@ export const cancelTournament = async (tournamentId: string) => {
   }
 };
 
+/**
+ * Initialize the global revenue pool
+ * @param mintPublicKey - The token mint address
+ * @returns Result object with transaction details and addresses
+ */
+export const initializeRevenuePoolService = async (mintPublicKey: PublicKey) => {
+  try {
+    const { program, adminPublicKey, adminKeypair, connection } = getProgram();
+
+    // Log initial parameters for clarity
+    console.log("Initializing Revenue Pool:");
+    console.log("Admin PublicKey:", adminPublicKey.toBase58());
+    console.log("Mint PublicKey:", mintPublicKey.toBase58());
+
+    // Derive the PDA for the revenue pool
+    const [revenuePoolPublicKey] = PublicKey.findProgramAddressSync(
+      [Buffer.from("revenue_pool"), adminPublicKey.toBuffer()],
+      program.programId
+    );
+
+    // Derive the PDA for the revenue escrow account
+    const [revenueEscrowPublicKey] = PublicKey.findProgramAddressSync(
+      [Buffer.from("revenue_escrow"), revenuePoolPublicKey.toBuffer()],
+      program.programId
+    );
+
+    console.log("🔹 Revenue Pool PDA Address:", revenuePoolPublicKey.toString());
+    console.log("🔹 Revenue Escrow PDA Address:", revenueEscrowPublicKey.toString());
+
+    // Get the latest blockhash
+    const { blockhash } = await connection.getLatestBlockhash("finalized");
+    console.log("Latest Blockhash:", blockhash);
+
+    // Create the transaction
+    const transaction = await program.methods
+      .initializeRevenuePool()
+      .accounts({
+        revenuePool: revenuePoolPublicKey,
+        revenueEscrowAccount: revenueEscrowPublicKey,
+        mint: mintPublicKey,
+        admin: adminPublicKey,
+        systemProgram: anchor.web3.SystemProgram.programId,
+        tokenProgram: TOKEN_2022_PROGRAM_ID,
+      })
+      .transaction();
+
+    // Set recent blockhash and fee payer
+    transaction.recentBlockhash = blockhash;
+    transaction.feePayer = adminPublicKey;
+
+    // Sign and send the transaction
+    transaction.sign(adminKeypair);
+    
+    console.log("Sending transaction...");
+    const signature = await connection.sendRawTransaction(
+      transaction.serialize(),
+      { skipPreflight: false, preflightCommitment: "confirmed" }
+    );
+    
+    console.log("Transaction sent, signature:", signature);
+    
+    // Wait for confirmation
+    const confirmation = await connection.confirmTransaction(signature, "confirmed");
+    console.log("Transaction confirmed:", confirmation);
+
+    return {
+      success: true,
+      message: "Revenue pool initialized successfully!",
+      signature: signature,
+      revenuePoolAddress: revenuePoolPublicKey.toString(),
+      revenueEscrowAddress: revenueEscrowPublicKey.toString()
+    };
+  } catch (err) {
+    console.error("❌ Error initializing revenue pool:", err);
+    return {
+      success: false,
+      message: `Error initializing revenue pool: ${err.message || err}`
+    };
+  }
+};
+
+/**
+ * Initialize a prize pool for a specific tournament
+ * @param tournamentId - The tournament ID
+ * @param mintPublicKey - The token mint address
+ * @returns Result object with transaction details and addresses
+ */
+export const initializePrizePoolService = async (tournamentId: string, mintPublicKey: PublicKey) => {
+  try {
+    const { program, adminPublicKey, adminKeypair, connection } = getProgram();
+
+    // Log initial parameters for clarity
+    console.log("Initializing Prize Pool for Tournament:");
+    console.log("Tournament ID:", tournamentId);
+    console.log("Admin PublicKey:", adminPublicKey.toBase58());
+    console.log("Mint PublicKey:", mintPublicKey.toBase58());
+
+    // First, derive the tournament pool PDA to ensure it exists
+    const tournamentIdBytes = Buffer.from(tournamentId, "utf8");
+    const [tournamentPoolPublicKey] = PublicKey.findProgramAddressSync(
+      [Buffer.from("tournament_pool"), adminPublicKey.toBuffer(), tournamentIdBytes],
+      program.programId
+    );
+    
+    console.log("🔹 Tournament Pool PDA Address:", tournamentPoolPublicKey.toString());
+    
+    // Add this to initializePrizePoolService
+    console.log("Full tournament pool key:", tournamentPoolPublicKey.toString());
+    console.log("Tournament ID bytes:", tournamentIdBytes);
+    console.log("Admin pubkey:", adminPublicKey.toString());
+
+    // Derive the PDA for the prize pool (now derived from tournament pool)
+    const [prizePoolPublicKey] = PublicKey.findProgramAddressSync(
+      [Buffer.from("prize_pool"), tournamentPoolPublicKey.toBuffer()],
+      program.programId
+    );
+
+    // Derive the PDA for the prize escrow account
+    const [prizeEscrowPublicKey] = PublicKey.findProgramAddressSync(
+      [Buffer.from("prize_escrow"), prizePoolPublicKey.toBuffer()],
+      program.programId
+    );
+
+    console.log("🔹 Prize Pool PDA Address:", prizePoolPublicKey.toString());
+    console.log("🔹 Prize Escrow PDA Address:", prizeEscrowPublicKey.toString());
+
+    // Get the latest blockhash
+    const { blockhash } = await connection.getLatestBlockhash("finalized");
+    console.log("Latest Blockhash:", blockhash);
+
+    // Create the transaction
+    const transaction = await program.methods
+      .initializePrizePool(tournamentId)
+      .accounts({
+        prizePool: prizePoolPublicKey,
+        tournamentPool: tournamentPoolPublicKey,
+        prizeEscrowAccount: prizeEscrowPublicKey,
+        mint: mintPublicKey,
+        admin: adminPublicKey,
+        systemProgram: anchor.web3.SystemProgram.programId,
+        tokenProgram: TOKEN_2022_PROGRAM_ID,
+      })
+      .transaction();
+
+    // Set recent blockhash and fee payer
+    transaction.recentBlockhash = blockhash;
+    transaction.feePayer = adminPublicKey;
+
+    // Sign and send the transaction
+    transaction.sign(adminKeypair);
+    
+    console.log("Sending transaction...");
+    const signature = await connection.sendRawTransaction(
+      transaction.serialize(),
+      { skipPreflight: false, preflightCommitment: "confirmed" }
+    );
+    
+    console.log("Transaction sent, signature:", signature);
+    
+    // Wait for confirmation
+    const confirmation = await connection.confirmTransaction(signature, "confirmed");
+    console.log("Transaction confirmed:", confirmation);
+
+    return {
+      success: true,
+      message: `Prize pool for tournament ${tournamentId} initialized successfully!`,
+      signature: signature,
+      tournamentId,
+      tournamentPoolAddress: tournamentPoolPublicKey.toString(),
+      prizePoolAddress: prizePoolPublicKey.toString(),
+      prizeEscrowAddress: prizeEscrowPublicKey.toString()
+    };
+  } catch (err) {
+    console.error("❌ Error initializing prize pool:", err);
+    return {
+      success: false,
+      message: `Error initializing prize pool: ${err.message || err}`
+    };
+  }
+};
+
+
+
+
+
+
+
+
+
+
+
+
 // Helper function to create a token account if it doesn't exist
 export const createTokenAccountIfNeeded = async (
   owner: PublicKey,
@@ -461,220 +653,150 @@ async function getOrCreateAssociatedTokenAccount(
   return associatedTokenAddress;
 }
 
-
-// // Fetch the Tournament Pool Account
-// export const getTournamentPool = async (
+// // ✅ Function to initialize the tournament pool
+// export const initializeTournamentPoolWithKeypair = async (
 //   adminPublicKey: PublicKey,
-//   tournamentId: string
+//   tournamentId: string,
+//   entryFee: number,
+//   maxParticipants: number,
+//   endTime: number,
+//   mintPublicKey: PublicKey
 // ) => {
 //   try {
-//     const { program, connection } = getProgram();
+//     const { program, connection, adminKeypair } = getProgram();
 
-//     // 🔹 Convert `tournamentId` to a fixed 10-byte buffer
-//     const toFixedSizeBytes = (str: string, size: number): Buffer => {
-//       const buffer = Buffer.alloc(size);
-//       Buffer.from(str).copy(buffer);
-//       return buffer;
-//     };
+//     // 🔹 Convert tournamentId correctly
+//     const tournamentIdBytes = Buffer.from(tournamentId, "utf8"); // Ensure UTF-8 encoding
 
-//     const tournamentIdBytes = toFixedSizeBytes(tournamentId, 10);
-
-//     // 🔹 Derive the PDA for the tournament pool using `tournamentId`
+//     // 🔹 Derive the correct PDA for the tournament pool
 //     const [tournamentPoolPublicKey] = PublicKey.findProgramAddressSync(
 //       [Buffer.from("tournament_pool"), adminPublicKey.toBuffer(), tournamentIdBytes],
 //       program.programId
 //     );
 
-//     console.log("🔹 Tournament Pool PublicKey:", tournamentPoolPublicKey.toBase58());
-
-//     // 🔹 Check if the tournament pool account exists
-//     const accountExists = await connection.getAccountInfo(tournamentPoolPublicKey);
-//     if (!accountExists) {
-//       return { success: false, message: "Tournament pool does not exist." };
-//     }
-
-//     // 🔹 Fetch the tournament pool data
-//     const tournamentPool = (await program.account.tournamentPool.fetch(
-//       tournamentPoolPublicKey
-//     )) as TournamentPoolAccount;
-
-//     console.log("📜 Tournament Pool:", tournamentPool);
-
-//     // 🔹 Convert entryFee to a readable format (assuming 9 decimal places)
-//     const tokenDecimals = 9;
-//     const readableEntryFee = tournamentPool.entryFee.toNumber() / 10 ** tokenDecimals;
-
-//     // 🔹 Ensure all fields are defined and safely converted to strings
-//     const rawData = {
-//       tournamentId: tournamentId, // Convert bytes back to string
-//       entryFee: readableEntryFee, // Convert entryFee to human-readable format
-//       totalFunds: tournamentPool.totalFunds.toString(),
-//       admin: tournamentPool.admin.toBase58(),
-//     };
-
-//     console.log("✅ Tournament Pool Data:", rawData);
-
-//     return { success: true, data: rawData };
-//   } catch (err) {
-//     console.error("❌ Error fetching tournament pool:", err);
-//     return { success: false, message: "Error fetching tournament pool." };
-//   }
-// };
-
-
-// export const registerForTournamentService = async (
-//   mintPublicKey: PublicKey,
-//   userPublicKey: PublicKey,
-//   adminPublicKey: PublicKey
-
-// ) => {
-//   try {
-//     const { program, connection  } = getProgram();
-
-//     // Fetch the tournament pool details (including entryFee)
-//     const tournamentPoolData = await getTournamentPool(adminPublicKey);
-
-//     if (!tournamentPoolData.success) {
-//       return { success: false, message: tournamentPoolData.message };
-//     }
-
-//     const entryFee = tournamentPoolData.data.entryFee;
-
-//     // Derive the program addresses (PDAs) for the tournament pool and escrow account
-//     const [tournamentPoolPublicKey] = PublicKey.findProgramAddressSync(
-//       [Buffer.from("tournament_pool"), adminPublicKey.toBuffer()],
-//       program.programId
-//     );
-
+//     // 🔹 Derive the escrow PDA correctly
 //     const [poolEscrowAccountPublicKey] = PublicKey.findProgramAddressSync(
 //       [Buffer.from("escrow"), tournamentPoolPublicKey.toBuffer()],
 //       program.programId
 //     );
 
-//     console.log("🔹 tournamentPool PDA Address:", tournamentPoolPublicKey.toString());
-//     console.log("🔹 Pool Escrow Account Address:", poolEscrowAccountPublicKey.toString());
+//     console.log("✅ Tournament Pool PDA:", tournamentPoolPublicKey.toString());
+//     console.log("✅ Pool Escrow PDA:", poolEscrowAccountPublicKey.toString());
 
-//     // Get the user's token account (create if it doesn't exist)
-//     const userTokenAccountPublicKey = await getOrCreateAssociatedTokenAccount(
-//       connection,
-//       mintPublicKey,
-//       userPublicKey
-//     );
+//     const slot = await connection.getSlot();
+//     const blockTime = await connection.getBlockTime(slot);
+//     console.log("Current Solana blockchain time:", blockTime);
+//     console.log("Provided end time:", endTime);
+//     console.log("Time difference (seconds):", endTime - blockTime);
+//     console.log("Time difference (days):", (endTime - blockTime) / 86400);
 
-//     console.log('User PublicKey:', userPublicKey.toBase58());
-//     console.log('Tournament Pool PublicKey:', tournamentPoolPublicKey.toBase58());
-//     console.log('Escrow Account PublicKey:', poolEscrowAccountPublicKey.toBase58());
+//     const { blockhash } = await connection.getLatestBlockhash("finalized");
+//     const entryFeeBN = new BN(entryFee);
+//     const maxParticipantsBN = new BN(maxParticipants);
+//     const endTimeBN = new BN(endTime);
 
-//     // Ensure the user has enough balance for the entry fee
-//     const userTokenAccountInfo = await connection.getAccountInfo(userTokenAccountPublicKey);
-//     const userBalance = userTokenAccountInfo?.lamports || 0; // Fetch user's balance in token units
-//     const entryFeeLamports = new BN(entryFee * 10 ** 9); // Convert entry fee to lamports (considering decimals)
-
-//     if (userBalance < entryFeeLamports.toNumber()) {
-//       return { success: false, message: 'Insufficient funds for registration' };
-//     }
-
-//     // Get the latest blockhash
-//     const { blockhash } = await connection.getLatestBlockhash('finalized');
-
-//     // Create the unsigned transaction for registering the user
+//     // 🔹 Create and sign the transaction
 //     const transaction = await program.methods
-//       .registerForTournament() // No need to pass entryFee since it's fetched from the pool
+//       .createTournamentPool(
+//         tournamentId,
+//         entryFeeBN,
+//         maxParticipantsBN,
+//         endTimeBN
+//       )
 //       .accounts({
-//         user: userPublicKey,
+//         admin: adminPublicKey,
 //         tournamentPool: tournamentPoolPublicKey,
-//         userTokenAccount: userTokenAccountPublicKey,
-//         poolEscrowAccount: poolEscrowAccountPublicKey, // Ensure escrow account is passed here
+//         poolEscrowAccount: poolEscrowAccountPublicKey,
 //         mint: mintPublicKey,
-//         tokenProgram: TOKEN_2022_PROGRAM_ID,
 //         systemProgram: SystemProgram.programId,
-//       })
-//       .transaction(); // Create the transaction, don't sign it
-
-//     transaction.recentBlockhash = blockhash;
-//     transaction.feePayer = userPublicKey;
-
-//     // Serialize transaction and send it to the frontend
-//     return {
-//       success: true,
-//       message: "Transaction created successfully!",
-//       transaction: transaction.serialize({ requireAllSignatures: false })
-//     };
-//   } catch (err) {
-//     console.error("❌ Error creating staking transaction:", err);
-//     return { success: false, message: "Error creating staking transaction" };
-//   }
-// };
-
-
-// export const registerForTournamentServiceWithKeypair = async (
-//   mintPublicKey: PublicKey
-// ) => {
-//   try {
-//     const { program, adminKeypair, connection, adminPublicKey } = getProgram();
-
-//     // Fetch the tournament pool details (including entryFee)
-//     const tournamentPoolData = await getTournamentPool(adminPublicKey);
-
-//     if (!tournamentPoolData.success) {
-//       return { success: false, message: tournamentPoolData.message };
-//     }
-
-//     const entryFee = tournamentPoolData.data.entryFee;
-
-//     // Derive the program addresses (PDAs) for the tournament pool and escrow account
-//     const [tournamentPoolPublicKey] = PublicKey.findProgramAddressSync(
-//       [Buffer.from("tournament_pool"), adminPublicKey.toBuffer()],
-//       program.programId
-//     );
-
-//     const [poolEscrowAccountPublicKey] = PublicKey.findProgramAddressSync(
-//       [Buffer.from("escrow"), tournamentPoolPublicKey.toBuffer()],
-//       program.programId
-//     );
-
-//     console.log("🔹 tournamentPool PDA Address:", tournamentPoolPublicKey.toString());
-//     console.log("🔹 Pool Escrow Account Address:", poolEscrowAccountPublicKey.toString());
-
-//     // Get the user's token account (create if it doesn't exist)
-//     const userTokenAccountPublicKey = await getOrCreateAssociatedTokenAccount(
-//       connection,
-//       mintPublicKey,
-//       adminPublicKey
-//     );
-
-//     console.log('User PublicKey:', adminPublicKey.toBase58());
-//     console.log('Tournament Pool PublicKey:', tournamentPoolPublicKey.toBase58());
-//     console.log('Escrow Account PublicKey:', poolEscrowAccountPublicKey.toBase58());
-
-//     // Ensure the user has enough balance for the entry fee
-//     const userTokenAccountInfo = await connection.getAccountInfo(userTokenAccountPublicKey);
-//     const userBalance = userTokenAccountInfo?.lamports || 0; // Fetch user's balance in token units
-//     const entryFeeLamports = new BN(entryFee * 10 ** 9); // Convert entry fee to lamports (considering decimals)
-
-//     if (userBalance < entryFeeLamports.toNumber()) {
-//       return { success: false, message: 'Insufficient funds for registration' };
-//     }
-
-//     // Get the latest blockhash
-//     const { blockhash } = await connection.getLatestBlockhash('finalized');
-
-//     // Create the unsigned transaction for registering the user
-//     const transaction = await program.methods
-//       .registerForTournament() // No need to pass entryFee since it's fetched from the pool
-//       .accounts({
-//         user: adminPublicKey,
-//         tournamentPool: tournamentPoolPublicKey,
-//         userTokenAccount: userTokenAccountPublicKey,
-//         poolEscrowAccount: poolEscrowAccountPublicKey, // Ensure escrow account is passed here
-//         mint: mintPublicKey,
 //         tokenProgram: TOKEN_2022_PROGRAM_ID,
-//         systemProgram: SystemProgram.programId,
 //       })
-//       .transaction(); // Create the transaction, don't sign it
+//       .transaction();
 
 //     transaction.recentBlockhash = blockhash;
 //     transaction.feePayer = adminPublicKey;
+//     // Sign the transaction with the user's keypair
+//     await transaction.sign(adminKeypair); // Sign the transaction with the user keypair
+
+//     // Send the transaction to the Solana network and get the signature
+//     const transactionSignature = await connection.sendTransaction(transaction, [adminKeypair], {
+//       skipPreflight: false,
+//       preflightCommitment: 'processed',
+//     });
+
+//  // Confirm the transaction
+//  const confirmation = await connection.confirmTransaction(transactionSignature, 'confirmed');
+
+//     return {
+//       success: true,
+//       message: "Tournament pool created successfully",
+//       transactionSignature
+//     };
+//   } catch (err) {
+//     console.error("❌ Error creating tournament pool:", err);
+//     return {
+//       success: false,
+//       message: `Error creating tournament pool: ${err.message || err}`
+//     };
+//   }
+// };
+
+
+
+// export const registerForTournamentServiceWithKeypair = async (
+//   tournamentId: string,
+//   userPublicKey: PublicKey,
+//   adminPublicKey: PublicKey
+// ) => {
+//   try {
+//     const { program, connection, adminKeypair } = getProgram();
+
+//     const tournamentIdBytes = Buffer.from(tournamentId, "utf8");
+
+//     // Get tournament pool PDA
+//     const [tournamentPoolPublicKey] = PublicKey.findProgramAddressSync(
+//       [Buffer.from("tournament_pool"), adminPublicKey.toBuffer(), tournamentIdBytes],
+//       program.programId
+//     );
+//     // 🔹 Fetch the tournament pool data
+//     const tournamentPoolData = (await program.account.tournamentPool.fetch(
+//       tournamentPoolPublicKey
+//     )) as TournamentPoolAccount;
+//     const mintPublicKey = tournamentPoolData.mint;
+
+//     // Get escrow PDA
+//     const [poolEscrowAccountPublicKey] = PublicKey.findProgramAddressSync(
+//       [Buffer.from("escrow"), tournamentPoolPublicKey.toBuffer()],
+//       program.programId
+//     );
+
+//     // Get registration PDA
+//     const [registrationAccountPublicKey] = PublicKey.findProgramAddressSync(
+//       [Buffer.from("registration"), tournamentPoolPublicKey.toBuffer(), userPublicKey.toBuffer()],
+//       program.programId
+//     );
+
+//     const userTokenAccount = await getOrCreateAssociatedTokenAccount(connection, mintPublicKey, userPublicKey);
+
+//     console.log('User Token Account Public:', userTokenAccount);
+
+//     const transaction = await program.methods
+//       .registerForTournament(tournamentId)
+//       .accounts({
+//         user: userPublicKey,
+//         tournamentPool: tournamentPoolPublicKey,
+//         registrationAccount: registrationAccountPublicKey,
+//         userTokenAccount: userTokenAccount,
+//         poolEscrowAccount: poolEscrowAccountPublicKey,
+//         mint: mintPublicKey,
+//         tokenProgram: TOKEN_2022_PROGRAM_ID,
+//         systemProgram: SystemProgram.programId,
+//       })
+//       .transaction();
+
+//     const { blockhash } = await connection.getLatestBlockhash("finalized");
+//     transaction.recentBlockhash = blockhash;
+//     transaction.feePayer = userPublicKey;
 
 //     // Sign the transaction with the user's keypair
 //     await transaction.sign(adminKeypair); // Sign the transaction with the user keypair
