@@ -24,8 +24,8 @@ dotenv.config();
 const DEFAULT_SPLITS = {
   PRIZE_POOL: 40,    // 40% to tournament's prize pool
   REVENUE_POOL: 50,  // 50% to global revenue pool
-  STAKING_POOL: 10,   // 5% to staking pool
-  // BURN: 5            // 5% to burn (2.5% Kaya and 2.5% CRD)
+  STAKING_POOL: 5,   // 5% to staking pool
+  BURN: 5            // 5% to burn (2.5% Kaya and 2.5% CRD)
 };
 
 
@@ -260,7 +260,7 @@ export const initializeRevenuePoolService = async (mintPublicKey: PublicKey) => 
     prizePercentage: number = DEFAULT_SPLITS.PRIZE_POOL,
     revenuePercentage: number = DEFAULT_SPLITS.REVENUE_POOL,
     stakingPercentage: number = DEFAULT_SPLITS.STAKING_POOL,
-    // burnPercentage: number = DEFAULT_SPLITS.BURN
+    burnPercentage: number = DEFAULT_SPLITS.BURN
   ) => {
     try {
       const { program, adminPublicKey, adminKeypair, burnPublicKey, burnKeypair, connection } = getProgram();
@@ -427,7 +427,7 @@ export const initializeRevenuePoolService = async (mintPublicKey: PublicKey) => 
       prizePercentage,
       revenuePercentage,
       stakingPercentage,
-      // burnPercentage
+      burnPercentage
     )
     .accounts({
       admin: adminPublicKey,
@@ -470,7 +470,7 @@ export const initializeRevenuePoolService = async (mintPublicKey: PublicKey) => 
         const prizeAmount = Math.floor((totalFunds * prizePercentage) / 100);
         const revenueAmount = Math.floor((totalFunds * revenuePercentage) / 100);
         const stakingAmount = Math.floor((totalFunds * stakingPercentage) / 100);
-        // const burnAmount = Math.floor((totalFunds * burnPercentage) / 100);
+        const burnAmount = Math.floor((totalFunds * burnPercentage) / 100);
   
         // 7. Update tournament status in Firebase
         console.log("Updating tournament status in Firebase...");
@@ -483,7 +483,7 @@ export const initializeRevenuePoolService = async (mintPublicKey: PublicKey) => 
             prizeAmount,
             revenueAmount,
             stakingAmount,
-            // burnAmount,
+            burnAmount,
             transactionSignature: signature
           }
         });
@@ -498,7 +498,7 @@ export const initializeRevenuePoolService = async (mintPublicKey: PublicKey) => 
             prizeAmount,
             revenueAmount,
             stakingAmount,
-            // burnAmount
+            burnAmount
           }
         };
       } catch (err) {
