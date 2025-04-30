@@ -90,6 +90,7 @@ export const initializePrizePoolController = async (req: Request, res: Response)
 
 
 
+
 /**
  * Controller function to distribute tournament revenue according to the updated percentages
  */
@@ -99,7 +100,8 @@ export const distributeTournamentRevenueController = async (req: Request, res: R
       tournamentId, 
       prizePercentage, 
       revenuePercentage, 
-      stakingPercentage, 
+      stakingPercentage,
+      burnPercentage
     } = req.body;
 
     // Validate tournament ID
@@ -112,15 +114,16 @@ export const distributeTournamentRevenueController = async (req: Request, res: R
 
     // Validate custom percentages if provided
     const useCustomPercentages = prizePercentage !== undefined || 
-                                revenuePercentage !== undefined || 
-                                stakingPercentage !== undefined
+                               revenuePercentage !== undefined || 
+                               stakingPercentage !== undefined ||
+                               burnPercentage !== undefined;
     
     if (useCustomPercentages) {
       // Ensure all percentages are provided if any are provided
       if (prizePercentage === undefined || 
           revenuePercentage === undefined || 
-          stakingPercentage === undefined 
-          ) {
+          stakingPercentage === undefined ||
+          burnPercentage === undefined) {
         return res.status(400).json({
           success: false,
           message: "If custom percentages are provided, all percentages (prize, revenue, staking, and burn) must be specified"
@@ -128,7 +131,7 @@ export const distributeTournamentRevenueController = async (req: Request, res: R
       }
       
       // Validate percentages add up to 100
-      if (prizePercentage + revenuePercentage + stakingPercentage) {
+      if (prizePercentage + revenuePercentage + stakingPercentage + burnPercentage !== 100) {
         return res.status(400).json({
           success: false,
           message: "Percentages must add up to 100%"
@@ -138,8 +141,8 @@ export const distributeTournamentRevenueController = async (req: Request, res: R
       // Validate individual percentages are within reasonable ranges
       if (prizePercentage < 0 || prizePercentage > 100 ||
           revenuePercentage < 0 || revenuePercentage > 100 ||
-          stakingPercentage < 0 || stakingPercentage > 100)
-         {
+          stakingPercentage < 0 || stakingPercentage > 100 ||
+          burnPercentage < 0 || burnPercentage > 100) {
         return res.status(400).json({
           success: false,
           message: "All percentages must be between 0 and 100"
@@ -147,12 +150,14 @@ export const distributeTournamentRevenueController = async (req: Request, res: R
       }
     }
 
-    // Call the service function to distribute revenue
+    // Call the service function to distribute revenue with burn functionality
     const result = await distributeTournamentRevenueService(
       tournamentId,
       prizePercentage,
       revenuePercentage,
-      stakingPercentage    );
+      stakingPercentage,
+      burnPercentage
+    );
 
     // Return the result
     if (result.success) {
@@ -172,6 +177,7 @@ export const distributeTournamentRevenueController = async (req: Request, res: R
 
 /**
  * Controller function to get tournament distribution details
+ * Updated to include burn information
  */
 export const getTournamentDistributionController = async (req: Request, res: Response) => {
   try {
@@ -206,7 +212,7 @@ export const getTournamentDistributionController = async (req: Request, res: Res
       });
     }
 
-    // Format and return distribution details
+    // Format and return distribution details including burn information
     return res.status(200).json({
       success: true,
       tournamentId,
@@ -217,6 +223,7 @@ export const getTournamentDistributionController = async (req: Request, res: Res
         prizeAmount: tournament.distributionDetails.prizeAmount,
         revenueAmount: tournament.distributionDetails.revenueAmount,
         stakingAmount: tournament.distributionDetails.stakingAmount,
+        burnAmount: tournament.distributionDetails.burnAmount, // New field
         transactionSignature: tournament.distributionDetails.transactionSignature,
       }
     });
@@ -229,4 +236,3 @@ export const getTournamentDistributionController = async (req: Request, res: Res
     });
   }
 };
-
