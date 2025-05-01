@@ -4,7 +4,7 @@ import { ref, get } from "firebase/database";
 import { db } from "../config/firebase";
 import { Request, Response } from 'express';
 import { PublicKey } from '@solana/web3.js';
-import { initializeRevenuePoolService, initializePrizePoolService, distributeTournamentRevenueService } from '../../src/revenue/services';
+import { initializeRevenuePoolService, initializePrizePoolService, distributeTournamentRevenueService, distributeTournamentPrizesService } from '../../src/revenue/services';
 
 
 /**
@@ -232,6 +232,146 @@ export const getTournamentDistributionController = async (req: Request, res: Res
     return res.status(500).json({ 
       success: false, 
       message: 'Failed to get tournament distribution details',
+      error: err.message || err
+    });
+  }
+};
+
+
+/**
+ * Controller function to distribute prizes to tournament winners
+ */
+export const distributeTournamentPrizesController = async (req: Request, res: Response) => {
+  try {
+    const { tournamentId, firstPlacePublicKey, secondPlacePublicKey, thirdPlacePublicKey } = req.body;
+
+    // Validate tournament ID
+    if (!tournamentId) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Tournament ID is required' 
+      });
+    }
+
+    // Validate winner public keys
+    if (!firstPlacePublicKey || !secondPlacePublicKey || !thirdPlacePublicKey) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Public keys for all three winners are required' 
+      });
+    }
+
+    // Verify tournament exists
+    const tournamentRef = ref(db, `tournaments/${tournamentId}`);
+    const tournamentSnapshot = await get(tournamentRef);
+    
+    if (!tournamentSnapshot.exists()) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Tournament not found' 
+      });
+    }
+    
+    // Verify tournament has ended
+    const tournament = tournamentSnapshot.val();
+    if (tournament.status !== 'Ended' && tournament.status !== 'Completed') {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Cannot distribute prizes for an active tournament' 
+      });
+    }
+    
+    // Verify tournament revenue has been distributed
+    if (!tournament.distributionCompleted) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Tournament revenue must be distributed before prizes can be distributed' 
+      });
+    }
+    
+    // Convert string public keys to PublicKey objects
+    const firstPlacePubkey = new PublicKey(firstPlacePublicKey);
+    const secondPlacePubkey = new PublicKey(secondPlacePublicKey);
+    const thirdPlacePubkey = new PublicKey(thirdPlacePublicKey);
+
+    // Call the service function to distribute prizes
+    const result = await distributeTournamentPrizesService(
+      tournamentId,
+      firstPlacePubkey,
+      secondPlacePubkey,
+      thirdPlacePubkey
+    );
+
+    // Return the result
+    if (result.success) {
+      return res.status(200).json(result);
+    } else {
+      return res.status(400).json(result);
+    }
+  } catch (err) {
+    console.error('Error in distribute tournament prizes controller:', err);
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Failed to distribute tournament prizes',
+      error: err.message || err
+    });
+  }
+};
+
+/**
+ * Controller function to get tournament prizes distribution details
+ */
+export const getTournamentPrizesDistributionController = async (req: Request, res: Response) => {
+  try {
+    const { tournamentId } = req.params;
+
+    // Validate tournament ID
+    if (!tournamentId) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Tournament ID is required' 
+      });
+    }
+
+    // Get tournament data from Firebase
+    const tournamentRef = ref(db, `tournaments/${tournamentId}`);
+    const tournamentSnapshot = await get(tournamentRef);
+    
+    if (!tournamentSnapshot.exists()) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Tournament not found' 
+      });
+    }
+    
+    const tournament = tournamentSnapshot.val();
+    
+    // Check if prizes have been distributed
+    if (!tournament.prizesDistributed) {
+      return res.status(404).json({
+        success: false,
+        message: 'Tournament prizes have not been distributed yet'
+      });
+    }
+
+    // Format and return distribution details
+    return res.status(200).json({
+      success: true,
+      tournamentId,
+      tournamentName: tournament.name,
+      prizesDistribution: {
+        completedAt: new Date(tournament.prizesDistributionTimestamp).toISOString(),
+        firstPlace: tournament.prizesDistributionDetails.firstPlace,
+        secondPlace: tournament.prizesDistributionDetails.secondPlace,
+        thirdPlace: tournament.prizesDistributionDetails.thirdPlace,
+        transactionSignature: tournament.prizesDistributionDetails.transactionSignature,
+      }
+    });
+  } catch (err) {
+    console.error('Error in get tournament prizes distribution controller:', err);
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Failed to get tournament prizes distribution details',
       error: err.message || err
     });
   }
