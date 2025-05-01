@@ -1,10 +1,12 @@
-// src/revenue/revenueRoutes.ts
+// src/revenue/revenueRoutes.ts - Update with these new routes
 
 import { Router, RequestHandler } from 'express';
 import { 
   initializeRevenuePoolController,
   initializePrizePoolController,
-  distributeTournamentRevenueController
+  distributeTournamentRevenueController,
+  distributeTournamentPrizesController,
+  getTournamentPrizesDistributionController
 } from './revenueController';
 
 const router = Router();
@@ -19,4 +21,15 @@ router.post('/initialize-prize-pool', initializePrizePoolController as unknown a
 router.post('/distribute-tournament', 
   distributeTournamentRevenueController as unknown as RequestHandler
 );
+
+// Route for distributing tournament prizes
+router.post('/distribute-prizes', 
+  distributeTournamentPrizesController as unknown as RequestHandler
+);
+
+// Route for getting prize distribution details
+router.get('/prize-distribution/:tournamentId', 
+  getTournamentPrizesDistributionController as unknown as RequestHandler
+);
+
 export default router;
