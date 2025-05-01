@@ -17,6 +17,7 @@ import {
   import { db } from "../config/firebase";
   import { getUserStakingAccount } from "../staking/services";
 import { getTournamentPool } from "../gamehub/services";
+import { getTournamentLeaderboard } from "../gamehub/leaderboardService";
 
 dotenv.config();
 
@@ -517,3 +518,225 @@ export const initializeRevenuePoolService = async (mintPublicKey: PublicKey) => 
     }
   };
   
+
+
+
+
+
+/**
+ * Distributes prizes to tournament winners
+ * @param tournamentId - The ID of the tournament
+ * @param firstPlacePublicKey - Public key of the first place winner
+ * @param secondPlacePublicKey - Public key of the second place winner
+ * @param thirdPlacePublicKey - Public key of the third place winner
+ * @returns Result object with transaction details
+ */
+export const distributeTournamentPrizesService = async (
+  tournamentId: string,
+  firstPlacePublicKey: PublicKey,
+  secondPlacePublicKey: PublicKey,
+  thirdPlacePublicKey: PublicKey
+) => {
+  try {
+    const { program, adminPublicKey, adminKeypair, connection } = getProgram();
+
+    console.log("Starting prize distribution for tournament:", tournamentId);
+    console.log("Winners:");
+    console.log("1st Place:", firstPlacePublicKey.toString());
+    console.log("2nd Place:", secondPlacePublicKey.toString());
+    console.log("3rd Place:", thirdPlacePublicKey.toString());
+
+
+    const tournamentPoolResult = await getTournamentPool(tournamentId, adminPublicKey);
+
+
+    // 1. First, check if tournament exists and has been distributed in Firebase
+    console.log("Verifying tournament in Firebase...");
+    const tournamentRef = ref(db, `tournaments/${tournamentId}`);
+    const tournamentSnapshot = await get(tournamentRef);
+    
+    if (!tournamentSnapshot.exists()) {
+      return {
+        success: false,
+        message: `Tournament with ID ${tournamentId} not found in database`
+      };
+    }
+    
+    const tournament = tournamentSnapshot.val();
+    
+    // Check if prizes have already been distributed
+    if (tournament.prizesDistributed) {
+      return {
+        success: false,
+        message: "Tournament prizes have already been distributed"
+      };
+    }
+
+    // Check if the tournament revenue has been distributed (required before prize distribution)
+    if (!tournament.distributionCompleted) {
+      return {
+        success: false,
+        message: "Tournament revenue must be distributed before prizes can be distributed"
+      };
+    }
+
+    // 2. Derive all the necessary PDAs
+    console.log("Deriving program addresses...");
+    const tournamentIdBytes = Buffer.from(tournamentId, "utf8");
+
+    // Tournament Pool PDA
+    const [tournamentPoolPublicKey] = PublicKey.findProgramAddressSync(
+      [Buffer.from("tournament_pool"), adminPublicKey.toBuffer(), tournamentIdBytes],
+      program.programId
+    );
+    console.log("🔹 Tournament Pool PDA:", tournamentPoolPublicKey.toString());
+
+    // Prize Pool PDA (derived from tournament pool)
+    const [prizePoolPublicKey] = PublicKey.findProgramAddressSync(
+      [Buffer.from("prize_pool"), tournamentPoolPublicKey.toBuffer()],
+      program.programId
+    );
+    console.log("🔹 Prize Pool PDA:", prizePoolPublicKey.toString());
+
+    // Prize Escrow PDA
+    const [prizeEscrowPublicKey] = PublicKey.findProgramAddressSync(
+      [Buffer.from("prize_escrow"), prizePoolPublicKey.toBuffer()],
+      program.programId
+    );
+    console.log("🔹 Prize Escrow PDA:", prizeEscrowPublicKey.toString());
+
+    // 3. Get the mint address from the tournament data
+    const mintPublicKey = new PublicKey(tournamentPoolResult.data.mint);
+    console.log("🔹 Token Mint:", mintPublicKey.toString());
+
+    // 4. Get token accounts for the winners
+    console.log("Getting associated token accounts for winners...");
+
+    // First place token account
+    const firstPlaceTokenAccount = await getOrCreateAssociatedTokenAccount(
+      connection,
+      mintPublicKey,
+      firstPlacePublicKey
+    );
+    console.log("1st Place Token Account:", firstPlaceTokenAccount.toString());
+
+    // Second place token account
+    const secondPlaceTokenAccount = await getOrCreateAssociatedTokenAccount(
+      connection,
+      mintPublicKey,
+      secondPlacePublicKey
+    );
+    console.log("2nd Place Token Account:", secondPlaceTokenAccount.toString());
+
+    // Third place token account
+    const thirdPlaceTokenAccount = await getOrCreateAssociatedTokenAccount(
+      connection,
+      mintPublicKey,
+      thirdPlacePublicKey
+    );
+    console.log("3rd Place Token Account:", thirdPlaceTokenAccount.toString());
+
+    // 5. Create the transaction
+    console.log("Creating prize distribution transaction...");
+    const tx = await program.methods
+      .distributeTournamentPrizes(tournamentId)
+      .accounts({
+        admin: adminPublicKey,
+        tournamentPool: tournamentPoolPublicKey,
+        prizePool: prizePoolPublicKey,
+        prizeEscrowAccount: prizeEscrowPublicKey,
+        firstPlaceTokenAccount: firstPlaceTokenAccount,
+        secondPlaceTokenAccount: secondPlaceTokenAccount,
+        thirdPlaceTokenAccount: thirdPlaceTokenAccount,
+        mint: mintPublicKey,
+        tokenProgram: TOKEN_2022_PROGRAM_ID,
+        systemProgram: anchor.web3.SystemProgram.programId,
+      })
+      .transaction();
+
+    // 6. Set recent blockhash and fee payer
+    const { blockhash } = await connection.getLatestBlockhash("finalized");
+    tx.recentBlockhash = blockhash;
+    tx.feePayer = adminPublicKey;
+
+    // 7. Sign the transaction
+    tx.sign(adminKeypair);
+
+    // 8. Send and confirm transaction
+    console.log("Sending transaction...");
+    const signature = await connection.sendRawTransaction(tx.serialize(), {
+      skipPreflight: false,
+      preflightCommitment: "confirmed",
+    });
+    console.log("Transaction sent with signature:", signature);
+    
+    // 9. Wait for confirmation
+    console.log("Waiting for transaction confirmation...");
+    const confirmation = await connection.confirmTransaction(signature, "confirmed");
+    console.log("Transaction confirmed:", confirmation);
+
+    // 10. Update Firebase to mark prizes as distributed
+    console.log("Updating tournament status in Firebase...");
+    await update(tournamentRef, {
+      prizesDistributed: true,
+      prizesDistributionTimestamp: Date.now(),
+      prizesDistributionDetails: {
+        transactionSignature: signature,
+        firstPlace: firstPlacePublicKey.toString(),
+        secondPlace: secondPlacePublicKey.toString(),
+        thirdPlace: thirdPlacePublicKey.toString()
+      }
+    });
+
+    return {
+      success: true,
+      message: "Tournament prizes distributed successfully!",
+      signature,
+      tournamentId,
+      winners: {
+        firstPlace: firstPlacePublicKey.toString(),
+        secondPlace: secondPlacePublicKey.toString(),
+        thirdPlace: thirdPlacePublicKey.toString()
+      }
+    };
+  } catch (err) {
+    console.error("❌ Error distributing tournament prizes:", err);
+    return {
+      success: false,
+      message: `Error distributing tournament prizes: ${err.message || err}`
+    };
+  }
+};
+
+// Helper function to get or create an associated token account
+async function getOrCreateAssociatedTokenAccount(
+  connection: Connection,
+  mint: PublicKey,
+  owner: PublicKey
+): Promise<PublicKey> {
+  try {
+    // Use getAssociatedTokenAddressSync from @solana/spl-token
+    const associatedTokenAddress = getAssociatedTokenAddressSync(
+      mint,
+      owner,
+      false,
+      TOKEN_2022_PROGRAM_ID  // Use TOKEN_2022_PROGRAM_ID as we're working with token-2022
+    );
+
+    console.log(`Token address for ${owner.toString()}: ${associatedTokenAddress.toString()}`);
+
+    // Check if the account exists
+    const accountInfo = await connection.getAccountInfo(associatedTokenAddress);
+    
+    if (!accountInfo) {
+      console.log(`Token account for ${owner.toString()} does not exist. It will be created during the transaction.`);
+    } else {
+      console.log(`Token account for ${owner.toString()} exists with ${accountInfo.lamports} lamports`);
+    }
+
+    return associatedTokenAddress;
+  } catch (err) {
+    console.error("Error in getOrCreateAssociatedTokenAccount:", err);
+    throw err;
+  }
+}
