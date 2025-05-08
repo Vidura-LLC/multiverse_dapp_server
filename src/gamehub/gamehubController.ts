@@ -5,6 +5,9 @@ import { getTournamentPool, registerForTournament, initializeTournamentPool } fr
 import { getTournamentLeaderboard, updateParticipantScore, getTournamentsByGame } from "./leaderboardService";
 import { PublicKey } from "@solana/web3.js";
 import schedule from 'node-schedule'
+import { initializePrizePoolService } from '../revenue/services';
+import { distributeTournamentRevenueService, distributeTournamentPrizesService } from '../revenue/services';
+
 // Define Tournament interface
 interface Tournament {
   id: string;
@@ -56,6 +59,7 @@ export async function createTournament(req: Request, res: Response) {
 
     const endTimeInUnix = Math.floor(new Date(endTime).getTime() / 1000);
     const pubKey = new PublicKey(adminPublicKey);
+    const mintPubKey = new PublicKey(mint);
 
     const tournamentsRef = ref(db, "tournaments");
     const newTournamentRef = push(tournamentsRef);
@@ -65,20 +69,34 @@ export async function createTournament(req: Request, res: Response) {
       return res.status(500).json({ message: "Failed to generate tournament ID" });
     }
 
-    const tx = await initializeTournamentPool(
+    // Step 1: Initialize tournament pool on Solana
+    const tournamentPoolResult = await initializeTournamentPool(
       pubKey,
       tournamentId,
       entryFee,
       maxParticipants,
       endTimeInUnix,
-      mint
+      mintPubKey
     );
 
-    res.status(201).json({
-      message: "Tournament created successfully",
-      tx
-    });
+    if (!tournamentPoolResult.success) {
+      return res.status(500).json({ 
+        message: "Failed to initialize tournament pool",
+        error: tournamentPoolResult.message 
+      });
+    }
 
+    // Step 2: Initialize prize pool for the tournament
+    const prizePoolResult = await initializePrizePoolService(tournamentId, mintPubKey);
+
+    if (!prizePoolResult.success) {
+      return res.status(500).json({ 
+        message: "Failed to initialize prize pool",
+        error: prizePoolResult.message 
+      });
+    }
+
+    // Step 3: Create tournament in Firebase
     const tournament = {
       id: tournamentId,
       name,
@@ -92,29 +110,20 @@ export async function createTournament(req: Request, res: Response) {
       participants: {},
       participantsCount: 0,
       status: "Not Started",
-      createdBy: adminPublicKey
+      createdBy: adminPublicKey,
+      tournamentPoolSignature: tournamentPoolResult.transactionSignature,
+      prizePoolSignature: prizePoolResult.signature,
+      prizePoolAddress: prizePoolResult.prizePoolAddress,
+      prizeEscrowAddress: prizePoolResult.prizeEscrowAddress
     };
 
     await set(newTournamentRef, tournament);
 
-    const tournamentRef = ref(db, `tournaments/${tournamentId}`);
-
-    schedule.scheduleJob(new Date(startTime), async () => {
-      try {
-        await update(tournamentRef, { status: "Active" });
-        console.log(`Tournament ${tournamentId} has started.`);
-      } catch (error) {
-        console.error(`Failed to start tournament ${tournamentId}:`, error);
-      }
-    });
-
-    schedule.scheduleJob(new Date(endTime), async () => {
-      try {
-        await update(tournamentRef, { status: "Ended" });
-        console.log(`Tournament ${tournamentId} has ended.`);
-      } catch (error) {
-        console.error(`Failed to end tournament ${tournamentId}:`, error);
-      }
+    return res.status(201).json({
+      message: "Tournament created successfully",
+      tournamentId,
+      tournamentPool: tournamentPoolResult,
+      prizePool: prizePoolResult
     });
 
   } catch (error) {
@@ -418,3 +427,192 @@ export async function getTournamentsByGameController(req: Request, res: Response
     return res.status(500).json({ message: "Internal Server Error" });
   }
 }
+
+// New function to manually start a tournament
+export const startTournamentController = async (req: Request, res: Response) => {
+  try {
+    const { tournamentId } = req.params;
+    const { adminPublicKey } = req.body;
+
+    if (!tournamentId || !adminPublicKey) {
+      return res.status(400).json({
+        success: false,
+        message: "Missing required fields: tournamentId or adminPublicKey"
+      });
+    }
+
+    // Get tournament data
+    const tournamentRef = ref(db, `tournaments/${tournamentId}`);
+    const tournamentSnapshot = await get(tournamentRef);
+
+    if (!tournamentSnapshot.exists()) {
+      return res.status(404).json({
+        success: false,
+        message: "Tournament not found"
+      });
+    }
+
+    const tournament = tournamentSnapshot.val();
+
+    // Verify admin
+    if (tournament.createdBy !== adminPublicKey) {
+      return res.status(403).json({
+        success: false,
+        message: "Only tournament creator can start the tournament"
+      });
+    }
+
+    // Check if tournament is already started or ended
+    if (tournament.status === "Active") {
+      return res.status(400).json({
+        success: false,
+        message: "Tournament is already active"
+      });
+    }
+
+    if (tournament.status === "Completed") {
+      return res.status(400).json({
+        success: false,
+        message: "Tournament is already completed"
+      });
+    }
+
+    // Update tournament status to Active
+    await update(tournamentRef, {
+      status: "Active",
+      startedAt: new Date().toISOString()
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Tournament started successfully",
+      tournamentId
+    });
+
+  } catch (error) {
+    console.error("Error starting tournament:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: error.message
+    });
+  }
+};
+
+// New function to manually end a tournament
+export const endTournamentController = async (req: Request, res: Response) => {
+  try {
+    const { tournamentId } = req.params;
+    const { adminPublicKey } = req.body;
+
+    if (!tournamentId || !adminPublicKey) {
+      return res.status(400).json({
+        success: false,
+        message: "Missing required fields: tournamentId or adminPublicKey"
+      });
+    }
+
+    // Get tournament data
+    const tournamentRef = ref(db, `tournaments/${tournamentId}`);
+    const tournamentSnapshot = await get(tournamentRef);
+
+    if (!tournamentSnapshot.exists()) {
+      return res.status(404).json({
+        success: false,
+        message: "Tournament not found"
+      });
+    }
+
+    const tournament = tournamentSnapshot.val();
+
+    // Verify admin
+    if (tournament.createdBy !== adminPublicKey) {
+      return res.status(403).json({
+        success: false,
+        message: "Only tournament creator can end the tournament"
+      });
+    }
+
+    // Check if tournament is active
+    if (tournament.status !== "Active") {
+      return res.status(400).json({
+        success: false,
+        message: "Tournament must be active to end it"
+      });
+    }
+
+    // Step 1: Distribute tournament revenue
+    const revenueResult = await distributeTournamentRevenueService(tournamentId);
+    if (!revenueResult.success) {
+      return res.status(500).json({
+        success: false,
+        message: "Failed to distribute tournament revenue",
+        error: revenueResult.message
+      });
+    }
+
+    // Step 2: Get tournament leaderboard to determine winners
+    const leaderboardResult = await getTournamentLeaderboard(tournamentId);
+    if (!leaderboardResult.success) {
+      return res.status(500).json({
+        success: false,
+        message: "Failed to get tournament leaderboard",
+        error: leaderboardResult.message
+      });
+    }
+
+    // Get top 3 winners
+    const winners = leaderboardResult.data?.leaderboard?.slice(0, 3) || [];
+    if (winners.length < 3) {
+      return res.status(400).json({
+        success: false,
+        message: "Not enough participants to end tournament"
+      });
+    }
+
+    // Step 3: Distribute prizes
+    const prizeResult = await distributeTournamentPrizesService(
+      tournamentId,
+      new PublicKey(winners[0].playerId),
+      new PublicKey(winners[1].playerId),
+      new PublicKey(winners[2].playerId)
+    );
+
+    if (!prizeResult.success) {
+      return res.status(500).json({
+        success: false,
+        message: "Failed to distribute tournament prizes",
+        error: prizeResult.message
+      });
+    }
+
+    // Update tournament status to Completed
+    await update(tournamentRef, {
+      status: "Completed",
+      endedAt: new Date().toISOString(),
+      winners: {
+        firstPlace: winners[0].playerId, // Assuming 'id' is a valid property of 'LeaderboardEntry'
+        secondPlace: winners[1].playerId,
+        thirdPlace: winners[2].playerId
+      },
+      revenueDistribution: revenueResult,
+      prizeDistribution: prizeResult
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Tournament ended successfully",
+      tournamentId,
+      revenueDistribution: revenueResult,
+      prizeDistribution: prizeResult
+    });
+
+  } catch (error) {
+    console.error("Error ending tournament:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: error.message
+    });
+  }
+};
