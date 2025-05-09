@@ -112,7 +112,7 @@ export async function createTournament(req: Request, res: Response) {
       status: "Not Started",
       createdBy: adminPublicKey,
       tournamentPoolSignature: tournamentPoolResult.transaction,
-      prizePoolSignature: prizePoolResult.signature,
+      prizePoolSignature: prizePoolResult.transaction,
       prizePoolAddress: prizePoolResult.prizePoolAddress,
       prizeEscrowAddress: prizePoolResult.prizeEscrowAddress
     };

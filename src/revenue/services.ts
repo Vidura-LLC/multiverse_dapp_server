@@ -72,7 +72,7 @@ const getProgram = () => {
  */
 export const initializeRevenuePoolService = async (mintPublicKey: PublicKey) => {
     try {
-      const { program, adminPublicKey, adminKeypair, connection } = getProgram();
+      const { program, adminPublicKey, connection } = getProgram();
   
       // Log initial parameters for clarity
       console.log("Initializing Revenue Pool:");
@@ -115,25 +115,11 @@ export const initializeRevenuePoolService = async (mintPublicKey: PublicKey) => 
       transaction.recentBlockhash = blockhash;
       transaction.feePayer = adminPublicKey;
   
-      // Sign and send the transaction
-      transaction.sign(adminKeypair);
-      
-      console.log("Sending transaction...");
-      const signature = await connection.sendRawTransaction(
-        transaction.serialize(),
-        { skipPreflight: false, preflightCommitment: "confirmed" }
-      );
-      
-      console.log("Transaction sent, signature:", signature);
-      
-      // Wait for confirmation
-      const confirmation = await connection.confirmTransaction(signature, "confirmed");
-      console.log("Transaction confirmed:", confirmation);
-  
+      // Return the unsigned transaction for frontend to sign
       return {
         success: true,
-        message: "Revenue pool initialized successfully!",
-        signature: signature,
+        message: "Revenue pool transaction created successfully",
+        transaction: transaction.serialize({ requireAllSignatures: false }),
         revenuePoolAddress: revenuePoolPublicKey.toString(),
         revenueEscrowAddress: revenueEscrowPublicKey.toString()
       };
@@ -154,7 +140,7 @@ export const initializeRevenuePoolService = async (mintPublicKey: PublicKey) => 
    */
   export const initializePrizePoolService = async (tournamentId: string, mintPublicKey: PublicKey) => {
     try {
-      const { program, adminPublicKey, adminKeypair, connection } = getProgram();
+      const { program, adminPublicKey, connection } = getProgram();
   
       // Log initial parameters for clarity
       console.log("Initializing Prize Pool for Tournament:");
@@ -213,25 +199,11 @@ export const initializeRevenuePoolService = async (mintPublicKey: PublicKey) => 
       transaction.recentBlockhash = blockhash;
       transaction.feePayer = adminPublicKey;
   
-      // Sign and send the transaction
-      transaction.sign(adminKeypair);
-      
-      console.log("Sending transaction...");
-      const signature = await connection.sendRawTransaction(
-        transaction.serialize(),
-        { skipPreflight: false, preflightCommitment: "confirmed" }
-      );
-      
-      console.log("Transaction sent, signature:", signature);
-      
-      // Wait for confirmation
-      const confirmation = await connection.confirmTransaction(signature, "confirmed");
-      console.log("Transaction confirmed:", confirmation);
-  
+      // Return the unsigned transaction for frontend to sign
       return {
         success: true,
-        message: `Prize pool for tournament ${tournamentId} initialized successfully!`,
-        signature: signature,
+        message: "Prize pool transaction created successfully",
+        transaction: transaction.serialize({ requireAllSignatures: false }),
         tournamentId,
         tournamentPoolAddress: tournamentPoolPublicKey.toString(),
         prizePoolAddress: prizePoolPublicKey.toString(),
@@ -264,8 +236,7 @@ export const initializeRevenuePoolService = async (mintPublicKey: PublicKey) => 
     burnPercentage: number = DEFAULT_SPLITS.BURN
   ) => {
     try {
-      const { program, adminPublicKey, adminKeypair, burnPublicKey, burnKeypair, connection } = getProgram();
-  
+      const { program, adminPublicKey, connection } = getProgram();
   
       // 1. First, check if tournament exists and is active in Firebase
       console.log("Verifying tournament in Firebase...");
@@ -356,8 +327,6 @@ export const initializeRevenuePoolService = async (mintPublicKey: PublicKey) => 
   
       console.log("🔹 Staking Escrow PDA:", stakingEscrowAccountPublicKey.toString());
   
-  
-      
       // 4. Fetch tournament data using getTournamentPool
       console.log("Fetching tournament data from blockchain...");
       try {
@@ -388,84 +357,37 @@ export const initializeRevenuePoolService = async (mintPublicKey: PublicKey) => 
           };
         }
   
-        // // 5. Create or get the burn token account
-        // console.log("Setting up burn token account...");
-        // const burnTokenAccount = getAssociatedTokenAddressSync(
-        //   mintPublicKey,
-        //   burnPublicKey,
-        //   false,
-        //   TOKEN_2022_PROGRAM_ID
-        // );
-        
-        // // Check if the burn token account exists and create it if not
-        // const burnTokenAccountInfo = await connection.getAccountInfo(burnTokenAccount);
-        // if (!burnTokenAccountInfo) {
-        //   console.log("Creating burn token account...");
-        //   const createATAIx = createAssociatedTokenAccountInstruction(
-        //     adminPublicKey,
-        //     burnTokenAccount,
-        //     burnPublicKey,
-        //     mintPublicKey,
-        //     TOKEN_2022_PROGRAM_ID
-        //   );
-          
-        //   const createATATx = new anchor.web3.Transaction().add(createATAIx);
-        //   createATATx.feePayer = adminPublicKey;
-        //   createATATx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
-          
-        //   await connection.sendTransaction(createATATx, [adminKeypair]);
-        //   console.log("Burn token account created:", burnTokenAccount.toString());
-        // } else {
-        //   console.log("Burn token account exists:", burnTokenAccount.toString());
-        // }
+
   
         // 6. Execute the transaction
         console.log("Creating distribution transaction...");
-           // Create transaction
-    const tx = await program.methods
-    .distributeTournamentRevenue(
-      tournamentId,
-      prizePercentage,
-      revenuePercentage,
-      stakingPercentage,
-      burnPercentage
-    )
-    .accounts({
-      admin: adminPublicKey,
-      tournamentPool: tournamentPoolPublicKey,
-      prizePool: prizePoolPublicKey,
-      revenuePool: revenuePoolPublicKey,
-      stakingPool: stakingPoolPublicKey,
-      tournamentEscrowAccount: tournamentEscrowPublicKey,
-      prizeEscrowAccount: prizeEscrowPublicKey,
-      revenueEscrowAccount: revenueEscrowPublicKey,
-      stakingEscrowAccount: stakingEscrowAccountPublicKey,
-      // burnTokenAccount: burnTokenAccount,
-      // burnAuthority: burnPublicKey,
-      mint: mintPublicKey,
-      tokenProgram: TOKEN_2022_PROGRAM_ID,
-    })
-    .transaction();
-
-  // Set recent blockhash and fee payer
-  const { blockhash } = await connection.getLatestBlockhash("finalized");
-  tx.recentBlockhash = blockhash;
-  tx.feePayer = adminPublicKey;
-
-  // Make sure transaction is properly signed
-  tx.sign(adminKeypair);
-
-  // Send and confirm transaction
-  const signature = await connection.sendRawTransaction(tx.serialize(), {
-    skipPreflight: false,
-    preflightCommitment: "confirmed",
-  });
-  console.log("Transaction sent with signature:", signature);
-        
-        // Wait for confirmation
-        console.log("Waiting for transaction confirmation...");
-        const confirmation = await connection.confirmTransaction(signature, "confirmed");
-        console.log("Transaction confirmed:", confirmation);
+        const tx = await program.methods
+          .distributeTournamentRevenue(
+            tournamentId,
+            prizePercentage,
+            revenuePercentage,
+            stakingPercentage,
+            burnPercentage
+          )
+          .accounts({
+            admin: adminPublicKey,
+            tournamentPool: tournamentPoolPublicKey,
+            prizePool: prizePoolPublicKey,
+            revenuePool: revenuePoolPublicKey,
+            stakingPool: stakingPoolPublicKey,
+            tournamentEscrowAccount: tournamentEscrowPublicKey,
+            prizeEscrowAccount: prizeEscrowPublicKey,
+            revenueEscrowAccount: revenueEscrowPublicKey,
+            stakingEscrowAccount: stakingEscrowAccountPublicKey,
+            mint: mintPublicKey,
+            tokenProgram: TOKEN_2022_PROGRAM_ID,
+          })
+          .transaction();
+  
+        // Set recent blockhash and fee payer
+        const { blockhash } = await connection.getLatestBlockhash("finalized");
+        tx.recentBlockhash = blockhash;
+        tx.feePayer = adminPublicKey;
   
         // Calculate actual distribution amounts
         const prizeAmount = Math.floor((totalFunds * prizePercentage) / 100);
@@ -473,26 +395,11 @@ export const initializeRevenuePoolService = async (mintPublicKey: PublicKey) => 
         const stakingAmount = Math.floor((totalFunds * stakingPercentage) / 100);
         const burnAmount = Math.floor((totalFunds * burnPercentage) / 100);
   
-        // 7. Update tournament status in Firebase
-        console.log("Updating tournament status in Firebase...");
-        await update(tournamentRef, {
-          status: "Completed",
-          distributionCompleted: true,
-          distributionTimestamp: Date.now(),
-          distributionDetails: {
-            totalDistributed: totalFunds,
-            prizeAmount,
-            revenueAmount,
-            stakingAmount,
-            burnAmount,
-            transactionSignature: signature
-          }
-        });
-  
+        // Return the unsigned transaction for frontend to sign
         return {
           success: true,
-          message: "Tournament revenue distributed successfully!",
-          signature,
+          message: "Tournament revenue distribution transaction created successfully",
+          transaction: tx.serialize({ requireAllSignatures: false }),
           tournamentId,
           distribution: {
             totalFunds,
