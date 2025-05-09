@@ -63,7 +63,7 @@ export const initializeTournamentPool = async (
   mintPublicKey: PublicKey
 ) => {
   try {
-    const { program, connection, adminKeypair } = getProgram();
+    const { program, connection } = getProgram();
 
     // 🔹 Convert tournamentId correctly
     const tournamentIdBytes = Buffer.from(tournamentId, "utf8"); // Ensure UTF-8 encoding
@@ -88,7 +88,7 @@ export const initializeTournamentPool = async (
     const maxParticipantsBN = new BN(maxParticipants);
     const endTimeBN = new BN(endTime);
 
-    // 🔹 Create and sign the transaction
+    // 🔹 Create the transaction without signing it
     const transaction = await program.methods
       .createTournamentPool(
         tournamentId,
@@ -105,34 +105,24 @@ export const initializeTournamentPool = async (
         tokenProgram: TOKEN_2022_PROGRAM_ID,
       })
       .transaction();
-      transaction.recentBlockhash = blockhash;
-      transaction.feePayer = adminPublicKey;
-      // Sign the transaction with the user's keypair
-      await transaction.sign(adminKeypair); // Sign the transaction with the user keypair
-  
-      // Send the transaction to the Solana network and get the signature
-      const transactionSignature = await connection.sendTransaction(transaction, [adminKeypair], {
-        skipPreflight: false,
-        preflightCommitment: 'processed',
-      });
-  
-   // Confirm the transaction
-   const confirmation = await connection.confirmTransaction(transactionSignature, 'confirmed');
-  
-      return {
-        success: true,
-        message: "Tournament pool created successfully",
-        transactionSignature
-      };
-    } catch (err) {
-      console.error("❌ Error creating tournament pool:", err);
-      return {
-        success: false,
-        message: `Error creating tournament pool: ${err.message || err}`
-      };
-    }
-  };
-  
+
+    transaction.recentBlockhash = blockhash;
+    transaction.feePayer = adminPublicKey;
+
+    // Return the unsigned transaction for frontend to sign
+    return {
+      success: true,
+      message: "Tournament pool transaction created successfully",
+      transaction: transaction.serialize({ requireAllSignatures: false })
+    };
+  } catch (err) {
+    console.error("❌ Error creating tournament pool:", err);
+    return {
+      success: false,
+      message: `Error creating tournament pool: ${err.message || err}`
+    };
+  }
+};
 
 // Get tournament pool data
 export const getTournamentPool = async (tournamentId: string, adminPublicKey: PublicKey) => {
