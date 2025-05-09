@@ -616,3 +616,51 @@ export const endTournamentController = async (req: Request, res: Response) => {
     });
   }
 };
+
+
+/**
+ * Delete a tournament from the database
+ * @param tournamentId - The ID of the tournament to delete
+ * @returns Result object with deletion status
+ */
+export const deleteTournament = async (tournamentId: string) => {
+  try {
+    // 1. First, check if tournament exists in Firebase
+    console.log("Verifying tournament in Firebase...");
+    const tournamentRef = ref(db, `tournaments/${tournamentId}`);
+    const tournamentSnapshot = await get(tournamentRef);
+    
+    if (!tournamentSnapshot.exists()) {
+      return {
+        success: false,
+        message: `Tournament with ID ${tournamentId} not found in database`
+      };
+    }
+    
+    const tournament = tournamentSnapshot.val();
+    
+    // 2. Check if tournament can be deleted (only allow deletion if not completed)
+    if (tournament.status === "Completed" || tournament.distributionCompleted) {
+      return {
+        success: false,
+        message: "Cannot delete a completed tournament or one that has been distributed"
+      };
+    }
+
+    // 3. Delete the tournament from Firebase
+    console.log("Deleting tournament from database...");
+    await update(tournamentRef, null);
+
+    return {
+      success: true,
+      message: `Tournament ${tournamentId} deleted successfully`,
+      tournamentId
+    };
+  } catch (err) {
+    console.error("❌ Error deleting tournament:", err);
+    return {
+      success: false,
+      message: `Error deleting tournament: ${err.message || err}`
+    };
+  }
+};
