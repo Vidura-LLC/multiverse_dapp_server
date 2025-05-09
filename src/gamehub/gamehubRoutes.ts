@@ -66,7 +66,7 @@ router.get('/tournaments', getTournaments as unknown as RequestHandler);
 router.get('/tournaments/:id', getTournamentById as unknown as RequestHandler);
 router.post('/tournaments/:tournamentId/start', startTournamentController as unknown as RequestHandler);
 router.post('/tournaments/:tournamentId/end', endTournamentController as unknown as RequestHandler);
-router.post('/tournaments/:tournamentId/delete', deleteTournament as unknown as RequestHandler);
+router.delete('/tournaments/:tournamentId/delete', deleteTournament as unknown as RequestHandler);
 
 // Tournament pool routes
 router.post('/tournament-pool/initialize', initializeTournamentPoolController as unknown as RequestHandler);
