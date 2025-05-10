@@ -20,7 +20,7 @@ interface Tournament {
   max_participants: number,
   participants: { [key: string]: { joinedAt: string; score: number } };
   participantsCount: number;
-  status: "Active" | "Paused" | "Ended",
+  status: "Active" | "Paused" | "Ended" | "Not Started",
   createdBy: string
 }
 
@@ -49,11 +49,11 @@ export async function getAllGames(req: Request, res: Response) {
 
 export async function createTournament(req: Request, res: Response) {
   try {
-    const { name, description, startTime, endTime, gameId } = req.body as Tournament;
+    const { id, name, description, startTime, endTime, gameId } = req.body as Tournament;
     const { mint, adminPublicKey, entryFee } = req.body;
     const maxParticipants = 100;
 
-    if (!name || !gameId || !startTime || !endTime || !adminPublicKey || !entryFee || !mint) {
+    if (!id || !name || !gameId || !startTime || !endTime || !adminPublicKey || !entryFee || !mint) {
       return res.status(400).json({ message: "Missing required fields" });
     }
 
@@ -63,16 +63,15 @@ export async function createTournament(req: Request, res: Response) {
 
     const tournamentsRef = ref(db, "tournaments");
     const newTournamentRef = push(tournamentsRef);
-    const tournamentId = newTournamentRef.key;
 
-    if (!tournamentId) {
+    if (!id) {
       return res.status(500).json({ message: "Failed to generate tournament ID" });
     }
 
     // Step 1: Initialize tournament pool on Solana
     const tournamentPoolResult = await initializeTournamentPool(
       pubKey,
-      tournamentId,
+      id,
       entryFee,
       maxParticipants,
       endTimeInUnix,
@@ -87,7 +86,7 @@ export async function createTournament(req: Request, res: Response) {
     }
 
     // Step 2: Initialize prize pool for the tournament
-    const prizePoolResult = await initializePrizePoolService(tournamentId, mintPubKey);
+    const prizePoolResult = await initializePrizePoolService(id, mintPubKey);
 
     if (!prizePoolResult.success) {
       return res.status(500).json({ 
@@ -98,7 +97,7 @@ export async function createTournament(req: Request, res: Response) {
 
     // Step 3: Create tournament in Firebase
     const tournament = {
-      id: tournamentId,
+      id: id,
       name,
       description,
       startTime,
@@ -121,7 +120,7 @@ export async function createTournament(req: Request, res: Response) {
 
     return res.status(201).json({
       message: "Tournament created successfully",
-      tournamentId,
+      id,
       tournamentPool: tournamentPoolResult,
       prizePool: prizePoolResult
     });
