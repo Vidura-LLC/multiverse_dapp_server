@@ -12,21 +12,22 @@ import { initializeRevenuePoolService, initializePrizePoolService, distributeTou
  */
 export const initializeRevenuePoolController = async (req: Request, res: Response) => {
   try {
-    const { mintPublicKey } = req.body;
+    const { mintPublicKey, adminPublicKey } = req.body;
 
     // Validate the mint address
-    if (!mintPublicKey) {
+    if (!mintPublicKey || !adminPublicKey) {
       return res.status(400).json({ 
         success: false, 
-        message: 'Mint public key is required' 
+        message: 'Mint and Admin public key is required' 
       });
     }
 
     // Convert string public key to PublicKey object
     const mintPubkey = new PublicKey(mintPublicKey);
+    const adminPubKey = new PublicKey(adminPublicKey);
 
     // Call the service function to initialize revenue pool
-    const result = await initializeRevenuePoolService(mintPubkey);
+    const result = await initializeRevenuePoolService(mintPubkey, adminPubKey);
 
     // Return the result
     if (result.success) {
@@ -49,7 +50,7 @@ export const initializeRevenuePoolController = async (req: Request, res: Respons
  */
 export const initializePrizePoolController = async (req: Request, res: Response) => {
   try {
-    const { tournamentId, mintPublicKey } = req.body;
+    const { tournamentId, mintPublicKey, adminPublicKey } = req.body;
 
     // Validate required fields
     if (!tournamentId) {
@@ -59,18 +60,20 @@ export const initializePrizePoolController = async (req: Request, res: Response)
       });
     }
 
-    if (!mintPublicKey) {
+    if (!mintPublicKey || !adminPublicKey) {
       return res.status(400).json({ 
         success: false, 
-        message: 'Mint public key is required' 
+        message: 'Mint public key and Admin Public Key is required' 
       });
     }
 
     // Convert string public key to PublicKey object
     const mintPubkey = new PublicKey(mintPublicKey);
+    const adminPubKey = new PublicKey(adminPublicKey);
+
 
     // Call the service function to initialize prize pool for the tournament
-    const result = await initializePrizePoolService(tournamentId, mintPubkey);
+    const result = await initializePrizePoolService(tournamentId, mintPubkey, adminPubKey);
 
     // Return the result
     if (result.success) {
@@ -101,8 +104,12 @@ export const distributeTournamentRevenueController = async (req: Request, res: R
       prizePercentage, 
       revenuePercentage, 
       stakingPercentage,
-      burnPercentage
+      burnPercentage,
+      adminPublicKey
     } = req.body;
+
+    const adminPubKey = new PublicKey(adminPublicKey);
+
 
     // Validate tournament ID
     if (!tournamentId) {
@@ -156,7 +163,8 @@ export const distributeTournamentRevenueController = async (req: Request, res: R
       prizePercentage,
       revenuePercentage,
       stakingPercentage,
-      burnPercentage
+      burnPercentage,
+      adminPubKey
     );
 
     // Return the result
@@ -243,7 +251,7 @@ export const getTournamentDistributionController = async (req: Request, res: Res
  */
 export const distributeTournamentPrizesController = async (req: Request, res: Response) => {
   try {
-    const { tournamentId, firstPlacePublicKey, secondPlacePublicKey, thirdPlacePublicKey } = req.body;
+    const { tournamentId, firstPlacePublicKey, secondPlacePublicKey, thirdPlacePublicKey, adminPublicKey } = req.body;
 
     // Validate tournament ID
     if (!tournamentId) {
@@ -254,7 +262,7 @@ export const distributeTournamentPrizesController = async (req: Request, res: Re
     }
 
     // Validate winner public keys
-    if (!firstPlacePublicKey || !secondPlacePublicKey || !thirdPlacePublicKey) {
+    if (!firstPlacePublicKey || !secondPlacePublicKey || !thirdPlacePublicKey || adminPublicKey) {
       return res.status(400).json({ 
         success: false, 
         message: 'Public keys for all three winners are required' 
@@ -293,13 +301,15 @@ export const distributeTournamentPrizesController = async (req: Request, res: Re
     const firstPlacePubkey = new PublicKey(firstPlacePublicKey);
     const secondPlacePubkey = new PublicKey(secondPlacePublicKey);
     const thirdPlacePubkey = new PublicKey(thirdPlacePublicKey);
+    const adminPubKey = new PublicKey(adminPublicKey);
 
     // Call the service function to distribute prizes
     const result = await distributeTournamentPrizesService(
       tournamentId,
       firstPlacePubkey,
       secondPlacePubkey,
-      thirdPlacePubkey
+      thirdPlacePubkey,
+      adminPubKey
     );
 
     // Return the result

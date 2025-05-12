@@ -70,9 +70,9 @@ const getProgram = () => {
  * @param mintPublicKey - The token mint address
  * @returns Result object with transaction details and addresses
  */
-export const initializeRevenuePoolService = async (mintPublicKey: PublicKey) => {
+export const initializeRevenuePoolService = async (mintPublicKey: PublicKey, adminPublicKey: PublicKey) => {
     try {
-      const { program, adminPublicKey, adminKeypair, connection } = getProgram();
+      const { program, connection } = getProgram();
   
       // Log initial parameters for clarity
       console.log("Initializing Revenue Pool:");
@@ -115,28 +115,12 @@ export const initializeRevenuePoolService = async (mintPublicKey: PublicKey) => 
       transaction.recentBlockhash = blockhash;
       transaction.feePayer = adminPublicKey;
   
-      // Sign and send the transaction
-      transaction.sign(adminKeypair);
-      
-      console.log("Sending transaction...");
-      const signature = await connection.sendRawTransaction(
-        transaction.serialize(),
-        { skipPreflight: false, preflightCommitment: "confirmed" }
-      );
-      
-      console.log("Transaction sent, signature:", signature);
-      
-      // Wait for confirmation
-      const confirmation = await connection.confirmTransaction(signature, "confirmed");
-      console.log("Transaction confirmed:", confirmation);
-  
-      return {
-        success: true,
-        message: "Revenue pool initialized successfully!",
-        signature: signature,
-        revenuePoolAddress: revenuePoolPublicKey.toString(),
-        revenueEscrowAddress: revenueEscrowPublicKey.toString()
-      };
+    // Serialize transaction and send it to the frontend
+    return {
+      success: true,
+      message: "Transaction created successfully!",
+      transaction: transaction.serialize({ requireAllSignatures: false }).toString('base64'),
+    };
     } catch (err) {
       console.error("❌ Error initializing revenue pool:", err);
       return {
@@ -152,9 +136,9 @@ export const initializeRevenuePoolService = async (mintPublicKey: PublicKey) => 
    * @param mintPublicKey - The token mint address
    * @returns Result object with transaction details and addresses
    */
-  export const initializePrizePoolService = async (tournamentId: string, mintPublicKey: PublicKey) => {
+  export const initializePrizePoolService = async (tournamentId: string, mintPublicKey: PublicKey, adminPublicKey: PublicKey) => {
     try {
-      const { program, adminPublicKey, adminKeypair, connection } = getProgram();
+      const { program, connection } = getProgram();
   
       // Log initial parameters for clarity
       console.log("Initializing Prize Pool for Tournament:");
@@ -212,32 +196,13 @@ export const initializeRevenuePoolService = async (mintPublicKey: PublicKey) => 
       // Set recent blockhash and fee payer
       transaction.recentBlockhash = blockhash;
       transaction.feePayer = adminPublicKey;
-  
-      // Sign and send the transaction
-      transaction.sign(adminKeypair);
-      
-      console.log("Sending transaction...");
-      const signature = await connection.sendRawTransaction(
-        transaction.serialize(),
-        { skipPreflight: false, preflightCommitment: "confirmed" }
-      );
-      
-      console.log("Transaction sent, signature:", signature);
-      
-      // Wait for confirmation
-      const confirmation = await connection.confirmTransaction(signature, "confirmed");
-      console.log("Transaction confirmed:", confirmation);
-  
-      return {
-        success: true,
-        message: `Prize pool for tournament ${tournamentId} initialized successfully!`,
-        signature: signature,
-        tournamentId,
-        tournamentPoolAddress: tournamentPoolPublicKey.toString(),
-        prizePoolAddress: prizePoolPublicKey.toString(),
-        prizeEscrowAddress: prizeEscrowPublicKey.toString()
-      };
-    } catch (err) {
+      // Serialize transaction and send it to the frontend
+    return {
+      success: true,
+      message: "Transaction created successfully!",
+      transaction: transaction.serialize({ requireAllSignatures: false }).toString('base64'),
+    };
+  } catch (err) {
       console.error("❌ Error initializing prize pool:", err);
       return {
         success: false,
@@ -248,307 +213,254 @@ export const initializeRevenuePoolService = async (mintPublicKey: PublicKey) => 
   
   
   /**
-   * Distribute tournament revenue according to the specified percentages
-   * @param tournamentId - The tournament ID
-   * @param prizePercentage - Percentage for prize pool (default 40%)
-   * @param revenuePercentage - Percentage for revenue pool (default 50%)
-   * @param stakingPercentage - Percentage for staking pool (default 5%)
-   * @param burnPercentage - Percentage for burn (default 5%)
-   * @returns Result object with distribution details
-   */
-  export const distributeTournamentRevenueService = async (
-    tournamentId: string,
-    prizePercentage: number = DEFAULT_SPLITS.PRIZE_POOL,
-    revenuePercentage: number = DEFAULT_SPLITS.REVENUE_POOL,
-    stakingPercentage: number = DEFAULT_SPLITS.STAKING_POOL,
-    burnPercentage: number = DEFAULT_SPLITS.BURN
-  ) => {
-    try {
-      const { program, adminPublicKey, adminKeypair, burnPublicKey, burnKeypair, connection } = getProgram();
-  
-  
-      // 1. First, check if tournament exists and is active in Firebase
-      console.log("Verifying tournament in Firebase...");
-      const tournamentRef = ref(db, `tournaments/${tournamentId}`);
-      const tournamentSnapshot = await get(tournamentRef);
-      
-      if (!tournamentSnapshot.exists()) {
-        return {
-          success: false,
-          message: `Tournament with ID ${tournamentId} not found in database`
-        };
-      }
-      
-      const tournament = tournamentSnapshot.val();
-      
-      if (tournament.status !== "Active" && tournament.status !== "Ended") {
-        return {
-          success: false,
-          message: `Tournament cannot be distributed because it is in '${tournament.status}' status`
-        };
-      }
-  
-      // Check if tournament has already been distributed
-      if (tournament.distributionCompleted) {
-        return {
-          success: false,
-          message: "Tournament revenue has already been distributed"
-        };
-      }
-  
-      // 2. Derive all the necessary PDAs
-      console.log("Deriving program addresses...");
-      const tournamentIdBytes = Buffer.from(tournamentId, "utf8");
-  
-      // Tournament Pool PDA
-      const [tournamentPoolPublicKey] = PublicKey.findProgramAddressSync(
-        [Buffer.from("tournament_pool"), adminPublicKey.toBuffer(), tournamentIdBytes],
-        program.programId
-      );
-      console.log("🔹 Tournament Pool PDA:", tournamentPoolPublicKey.toString());
-  
-      // Prize Pool PDA (derived from tournament pool)
-      const [prizePoolPublicKey] = PublicKey.findProgramAddressSync(
-        [Buffer.from("prize_pool"), tournamentPoolPublicKey.toBuffer()],
-        program.programId
-      );
-      console.log("🔹 Prize Pool PDA:", prizePoolPublicKey.toString());
-  
-      // Revenue Pool PDA
-      const [revenuePoolPublicKey] = PublicKey.findProgramAddressSync(
-        [Buffer.from("revenue_pool"), adminPublicKey.toBuffer()],
-        program.programId
-      );
-      console.log("🔹 Revenue Pool PDA:", revenuePoolPublicKey.toString());
+ * Distribute tournament revenue according to the specified percentages
+ * @param tournamentId - The tournament ID
+ * @param prizePercentage - Percentage for prize pool (default 40%)
+ * @param revenuePercentage - Percentage for revenue pool (default 50%)
+ * @param stakingPercentage - Percentage for staking pool (default 5%)
+ * @param burnPercentage - Percentage for burn (default 5%)
+ * @param adminPublicKey - The admin's public key
+ * @returns Result object with the unsigned transaction for frontend signing
+ */
+export const distributeTournamentRevenueService = async (
+  tournamentId: string,
+  prizePercentage: number = DEFAULT_SPLITS.PRIZE_POOL,
+  revenuePercentage: number = DEFAULT_SPLITS.REVENUE_POOL,
+  stakingPercentage: number = DEFAULT_SPLITS.STAKING_POOL,
+  burnPercentage: number = DEFAULT_SPLITS.BURN,
+  adminPublicKey: PublicKey
+) => {
+  try {
+    const { program, connection } = getProgram();
 
+    // 1. First, check if tournament exists and is active in Firebase
+    console.log("Verifying tournament in Firebase...");
+    const tournamentRef = ref(db, `tournaments/${tournamentId}`);
+    const tournamentSnapshot = await get(tournamentRef);
+    
+    if (!tournamentSnapshot.exists()) {
+      return {
+        success: false,
+        message: `Tournament with ID ${tournamentId} not found in database`
+      };
+    }
+    
+    const tournament = tournamentSnapshot.val();
+    
+    if (tournament.status !== "Active" && tournament.status !== "Ended") {
+      return {
+        success: false,
+        message: `Tournament cannot be distributed because it is in '${tournament.status}' status`
+      };
+    }
 
-      const [stakingPoolPublicKey] = PublicKey.findProgramAddressSync(
+    // Check if tournament has already been distributed
+    if (tournament.distributionCompleted) {
+      return {
+        success: false,
+        message: "Tournament revenue has already been distributed"
+      };
+    }
+
+    // 2. Derive all the necessary PDAs
+    console.log("Deriving program addresses...");
+    const tournamentIdBytes = Buffer.from(tournamentId, "utf8");
+
+    // Tournament Pool PDA
+    const [tournamentPoolPublicKey] = PublicKey.findProgramAddressSync(
+      [Buffer.from("tournament_pool"), adminPublicKey.toBuffer(), tournamentIdBytes],
+      program.programId
+    );
+    console.log("🔹 Tournament Pool PDA:", tournamentPoolPublicKey.toString());
+
+    // Prize Pool PDA (derived from tournament pool)
+    const [prizePoolPublicKey] = PublicKey.findProgramAddressSync(
+      [Buffer.from("prize_pool"), tournamentPoolPublicKey.toBuffer()],
+      program.programId
+    );
+    console.log("🔹 Prize Pool PDA:", prizePoolPublicKey.toString());
+
+    // Revenue Pool PDA
+    const [revenuePoolPublicKey] = PublicKey.findProgramAddressSync(
+      [Buffer.from("revenue_pool"), adminPublicKey.toBuffer()],
+      program.programId
+    );
+    console.log("🔹 Revenue Pool PDA:", revenuePoolPublicKey.toString());
+
+    // Staking Pool PDA
+    const [stakingPoolPublicKey] = PublicKey.findProgramAddressSync(
       [Buffer.from("staking_pool"), adminPublicKey.toBuffer()],
       program.programId
     );
     console.log("🔹 Staking Pool PDA Address:", stakingPoolPublicKey.toString());
 
+    // 3. Derive escrow accounts
+    const [tournamentEscrowPublicKey] = PublicKey.findProgramAddressSync(
+      [Buffer.from("escrow"), tournamentPoolPublicKey.toBuffer()],
+      program.programId
+    );
+    console.log("🔹 Tournament Escrow PDA:", tournamentEscrowPublicKey.toString());
 
-  
-      // 3. Derive escrow accounts
-      const [tournamentEscrowPublicKey] = PublicKey.findProgramAddressSync(
-        [Buffer.from("escrow"), tournamentPoolPublicKey.toBuffer()],
-        program.programId
-      );
-      console.log("🔹 Tournament Escrow PDA:", tournamentEscrowPublicKey.toString());
-  
-      const [prizeEscrowPublicKey] = PublicKey.findProgramAddressSync(
-        [Buffer.from("prize_escrow"), prizePoolPublicKey.toBuffer()],
-        program.programId
-      );
-      console.log("🔹 Prize Escrow PDA:", prizeEscrowPublicKey.toString());
-  
-      const [revenueEscrowPublicKey] = PublicKey.findProgramAddressSync(
-        [Buffer.from("revenue_escrow"), revenuePoolPublicKey.toBuffer()],
-        program.programId
-      );
-      console.log("🔹 Revenue Escrow PDA:", revenueEscrowPublicKey.toString());
-  
-      const [stakingEscrowAccountPublicKey] = PublicKey.findProgramAddressSync(
-        [Buffer.from("escrow"), stakingPoolPublicKey.toBuffer()],
-        program.programId
-      );
-  
-      console.log("🔹 Staking Escrow PDA:", stakingEscrowAccountPublicKey.toString());
-  
-  
+    const [prizeEscrowPublicKey] = PublicKey.findProgramAddressSync(
+      [Buffer.from("prize_escrow"), prizePoolPublicKey.toBuffer()],
+      program.programId
+    );
+    console.log("🔹 Prize Escrow PDA:", prizeEscrowPublicKey.toString());
+
+    const [revenueEscrowPublicKey] = PublicKey.findProgramAddressSync(
+      [Buffer.from("revenue_escrow"), revenuePoolPublicKey.toBuffer()],
+      program.programId
+    );
+    console.log("🔹 Revenue Escrow PDA:", revenueEscrowPublicKey.toString());
+
+    const [stakingEscrowAccountPublicKey] = PublicKey.findProgramAddressSync(
+      [Buffer.from("escrow"), stakingPoolPublicKey.toBuffer()],
+      program.programId
+    );
+    console.log("🔹 Staking Escrow PDA:", stakingEscrowAccountPublicKey.toString());
+    
+    // 4. Fetch tournament data using getTournamentPool
+    console.log("Fetching tournament data from blockchain...");
+    try {
+      // Use the getTournamentPool function instead of directly fetching
+      const tournamentPoolResult = await getTournamentPool(tournamentId, adminPublicKey);
       
-      // 4. Fetch tournament data using getTournamentPool
-      console.log("Fetching tournament data from blockchain...");
-      try {
-        // Use the getTournamentPool function instead of directly fetching
-        const tournamentPoolResult = await getTournamentPool(tournamentId, adminPublicKey);
-        
-        if (!tournamentPoolResult.success) {
-          return {
-            success: false,
-            message: `Failed to fetch tournament data: ${tournamentPoolResult.message || "Unknown error"}`
-          };
-        }
-        
-        const tournamentPoolData = tournamentPoolResult.data;
-        
-        // Get mint address from tournament data
-        const mintPublicKey = new PublicKey(tournamentPoolData.mint);
-        console.log("🔹 Token Mint:", mintPublicKey.toString());
-        
-        // Calculate total funds
-        const totalFunds = Number(tournamentPoolData.totalFunds);
-        console.log("🔹 Total Tournament Funds:", totalFunds);
-        
-        if (totalFunds <= 0) {
-          return {
-            success: false,
-            message: "Tournament has no funds to distribute"
-          };
-        }
-  
-        // // 5. Create or get the burn token account
-        // console.log("Setting up burn token account...");
-        // const burnTokenAccount = getAssociatedTokenAddressSync(
-        //   mintPublicKey,
-        //   burnPublicKey,
-        //   false,
-        //   TOKEN_2022_PROGRAM_ID
-        // );
-        
-        // // Check if the burn token account exists and create it if not
-        // const burnTokenAccountInfo = await connection.getAccountInfo(burnTokenAccount);
-        // if (!burnTokenAccountInfo) {
-        //   console.log("Creating burn token account...");
-        //   const createATAIx = createAssociatedTokenAccountInstruction(
-        //     adminPublicKey,
-        //     burnTokenAccount,
-        //     burnPublicKey,
-        //     mintPublicKey,
-        //     TOKEN_2022_PROGRAM_ID
-        //   );
-          
-        //   const createATATx = new anchor.web3.Transaction().add(createATAIx);
-        //   createATATx.feePayer = adminPublicKey;
-        //   createATATx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
-          
-        //   await connection.sendTransaction(createATATx, [adminKeypair]);
-        //   console.log("Burn token account created:", burnTokenAccount.toString());
-        // } else {
-        //   console.log("Burn token account exists:", burnTokenAccount.toString());
-        // }
-  
-        // 6. Execute the transaction
-        console.log("Creating distribution transaction...");
-           // Create transaction
-    const tx = await program.methods
-    .distributeTournamentRevenue(
-      tournamentId,
-      prizePercentage,
-      revenuePercentage,
-      stakingPercentage,
-      burnPercentage
-    )
-    .accounts({
-      admin: adminPublicKey,
-      tournamentPool: tournamentPoolPublicKey,
-      prizePool: prizePoolPublicKey,
-      revenuePool: revenuePoolPublicKey,
-      stakingPool: stakingPoolPublicKey,
-      tournamentEscrowAccount: tournamentEscrowPublicKey,
-      prizeEscrowAccount: prizeEscrowPublicKey,
-      revenueEscrowAccount: revenueEscrowPublicKey,
-      stakingEscrowAccount: stakingEscrowAccountPublicKey,
-      // burnTokenAccount: burnTokenAccount,
-      // burnAuthority: burnPublicKey,
-      mint: mintPublicKey,
-      tokenProgram: TOKEN_2022_PROGRAM_ID,
-    })
-    .transaction();
-
-  // Set recent blockhash and fee payer
-  const { blockhash } = await connection.getLatestBlockhash("finalized");
-  tx.recentBlockhash = blockhash;
-  tx.feePayer = adminPublicKey;
-
-  // Make sure transaction is properly signed
-  tx.sign(adminKeypair);
-
-  // Send and confirm transaction
-  const signature = await connection.sendRawTransaction(tx.serialize(), {
-    skipPreflight: false,
-    preflightCommitment: "confirmed",
-  });
-  console.log("Transaction sent with signature:", signature);
-        
-        // Wait for confirmation
-        console.log("Waiting for transaction confirmation...");
-        const confirmation = await connection.confirmTransaction(signature, "confirmed");
-        console.log("Transaction confirmed:", confirmation);
-  
-        // Calculate actual distribution amounts
-        const prizeAmount = Math.floor((totalFunds * prizePercentage) / 100);
-        const revenueAmount = Math.floor((totalFunds * revenuePercentage) / 100);
-        const stakingAmount = Math.floor((totalFunds * stakingPercentage) / 100);
-        const burnAmount = Math.floor((totalFunds * burnPercentage) / 100);
-  
-        // 7. Update tournament status in Firebase
-        console.log("Updating tournament status in Firebase...");
-        await update(tournamentRef, {
-          status: "Completed",
-          distributionCompleted: true,
-          distributionTimestamp: Date.now(),
-          distributionDetails: {
-            totalDistributed: totalFunds,
-            prizeAmount,
-            revenueAmount,
-            stakingAmount,
-            burnAmount,
-            transactionSignature: signature
-          }
-        });
-  
-        return {
-          success: true,
-          message: "Tournament revenue distributed successfully!",
-          signature,
-          tournamentId,
-          distribution: {
-            totalFunds,
-            prizeAmount,
-            revenueAmount,
-            stakingAmount,
-            burnAmount
-          }
-        };
-      } catch (err) {
-        console.error("❌ Error fetching tournament data or executing transaction:", err);
+      if (!tournamentPoolResult.success) {
         return {
           success: false,
-          message: `Error with tournament data or transaction: ${err.message || err}`
+          message: `Failed to fetch tournament data: ${tournamentPoolResult.message || "Unknown error"}`
         };
       }
+      
+      const tournamentPoolData = tournamentPoolResult.data;
+      
+      // Get mint address from tournament data
+      const mintPublicKey = new PublicKey(tournamentPoolData.mint);
+      console.log("🔹 Token Mint:", mintPublicKey.toString());
+      
+      // Calculate total funds
+      const totalFunds = Number(tournamentPoolData.totalFunds);
+      console.log("🔹 Total Tournament Funds:", totalFunds);
+      
+      if (totalFunds <= 0) {
+        return {
+          success: false,
+          message: "Tournament has no funds to distribute"
+        };
+      }
+
+      // 5. Create an unsigned transaction
+      console.log("Creating unsigned distribution transaction...");
+      const transaction = await program.methods
+        .distributeTournamentRevenue(
+          tournamentId,
+          prizePercentage,
+          revenuePercentage,
+          stakingPercentage,
+          burnPercentage
+        )
+        .accounts({
+          admin: adminPublicKey,
+          tournamentPool: tournamentPoolPublicKey,
+          prizePool: prizePoolPublicKey,
+          revenuePool: revenuePoolPublicKey,
+          stakingPool: stakingPoolPublicKey,
+          tournamentEscrowAccount: tournamentEscrowPublicKey,
+          prizeEscrowAccount: prizeEscrowPublicKey,
+          revenueEscrowAccount: revenueEscrowPublicKey,
+          stakingEscrowAccount: stakingEscrowAccountPublicKey,
+          mint: mintPublicKey,
+          tokenProgram: TOKEN_2022_PROGRAM_ID,
+        })
+        .transaction(); // Get the transaction object without signing
+
+      // Set recent blockhash and fee payer
+      const { blockhash } = await connection.getLatestBlockhash("finalized");
+      transaction.recentBlockhash = blockhash;
+      transaction.feePayer = adminPublicKey;
+
+      // Calculate potential distribution amounts (for display purposes on frontend)
+      const prizeAmount = Math.floor((totalFunds * prizePercentage) / 100);
+      const revenueAmount = Math.floor((totalFunds * revenuePercentage) / 100);
+      const stakingAmount = Math.floor((totalFunds * stakingPercentage) / 100);
+      const burnAmount = Math.floor((totalFunds * burnPercentage) / 100);
+
+      // Serialize the unsigned transaction
+      const serializedTransaction = transaction.serialize({
+        requireAllSignatures: false, // Important: Don't require signatures for serialization
+        verifySignatures: false
+      }).toString('base64');
+
+      // Return transaction data to be signed by the frontend
+      return {
+        success: true,
+        message: "Tournament revenue distribution transaction created successfully!",
+        tournamentId,
+        serializedTransaction, // Base64 encoded serialized transaction
+        distribution: {
+          totalFunds,
+          prizeAmount,
+          revenueAmount,
+          stakingAmount,
+          burnAmount
+        },
+        // Include references to update database after frontend confirms transaction
+        tournamentRef: tournamentRef.toString(),
+        status: "Pending Signature"
+      };
     } catch (err) {
-      console.error("❌ Error distributing tournament revenue:", err);
+      console.error("❌ Error preparing distribution transaction:", err);
       return {
         success: false,
-        message: `Error distributing tournament revenue: ${err.message || err}`
+        message: `Error preparing distribution transaction: ${err.message || err}`
       };
     }
-  };
-  
+  } catch (err) {
+    console.error("❌ Error distributing tournament revenue:", err);
+    return {
+      success: false,
+      message: `Error distributing tournament revenue: ${err.message || err}`
+    };
+  }
+};
 
 
 
 
 
 /**
- * Distributes prizes to tournament winners
+ * Prepares an unsigned transaction to distribute prizes to tournament winners
  * @param tournamentId - The ID of the tournament
  * @param firstPlacePublicKey - Public key of the first place winner
  * @param secondPlacePublicKey - Public key of the second place winner
  * @param thirdPlacePublicKey - Public key of the third place winner
- * @returns Result object with transaction details
+ * @param adminPublicKey - The admin's public key who will sign the transaction
+ * @returns Result object with unsigned transaction for frontend signing
  */
 export const distributeTournamentPrizesService = async (
   tournamentId: string,
   firstPlacePublicKey: PublicKey,
   secondPlacePublicKey: PublicKey,
-  thirdPlacePublicKey: PublicKey
+  thirdPlacePublicKey: PublicKey,
+  adminPublicKey: PublicKey
 ) => {
   try {
-    const { program, adminPublicKey, adminKeypair, connection } = getProgram();
+    const { program, connection } = getProgram();
 
-    console.log("Starting prize distribution for tournament:", tournamentId);
+    console.log("Preparing prize distribution for tournament:", tournamentId);
     console.log("Winners:");
     console.log("1st Place:", firstPlacePublicKey.toString());
     console.log("2nd Place:", secondPlacePublicKey.toString());
     console.log("3rd Place:", thirdPlacePublicKey.toString());
 
-
+    // Get tournament data
     const tournamentPoolResult = await getTournamentPool(tournamentId, adminPublicKey);
-
+    if (!tournamentPoolResult.success) {
+      return {
+        success: false,
+        message: `Failed to fetch tournament data: ${tournamentPoolResult.message || "Unknown error"}`
+      };
+    }
 
     // 1. First, check if tournament exists and has been distributed in Firebase
     console.log("Verifying tournament in Firebase...");
@@ -636,9 +548,9 @@ export const distributeTournamentPrizesService = async (
     );
     console.log("3rd Place Token Account:", thirdPlaceTokenAccount.toString());
 
-    // 5. Create the transaction
-    console.log("Creating prize distribution transaction...");
-    const tx = await program.methods
+    // 5. Create the transaction (but don't sign it)
+    console.log("Creating unsigned prize distribution transaction...");
+    const transaction = await program.methods
       .distributeTournamentPrizes(tournamentId)
       .accounts({
         admin: adminPublicKey,
@@ -656,54 +568,60 @@ export const distributeTournamentPrizesService = async (
 
     // 6. Set recent blockhash and fee payer
     const { blockhash } = await connection.getLatestBlockhash("finalized");
-    tx.recentBlockhash = blockhash;
-    tx.feePayer = adminPublicKey;
+    transaction.recentBlockhash = blockhash;
+    transaction.feePayer = adminPublicKey;
 
-    // 7. Sign the transaction
-    tx.sign(adminKeypair);
+    // 7. Serialize the transaction WITHOUT signing
+    const serializedTransaction = transaction.serialize({
+      requireAllSignatures: false,
+      verifySignatures: false
+    }).toString('base64');
 
-    // 8. Send and confirm transaction
-    console.log("Sending transaction...");
-    const signature = await connection.sendRawTransaction(tx.serialize(), {
-      skipPreflight: false,
-      preflightCommitment: "confirmed",
-    });
-    console.log("Transaction sent with signature:", signature);
+    // 8. Calculate prize amounts (if needed for frontend display)
+    // You can calculate these based on your distribution logic
+    const distributionDetails = tournament.distributionDetails || {};
+    const totalPrizeAmount = distributionDetails.prizeAmount || 0;
     
-    // 9. Wait for confirmation
-    console.log("Waiting for transaction confirmation...");
-    const confirmation = await connection.confirmTransaction(signature, "confirmed");
-    console.log("Transaction confirmed:", confirmation);
+    // Example split: 50% for 1st, 30% for 2nd, 20% for 3rd
+    const firstPlaceAmount = Math.floor(totalPrizeAmount * 0.5);
+    const secondPlaceAmount = Math.floor(totalPrizeAmount * 0.3);
+    const thirdPlaceAmount = Math.floor(totalPrizeAmount * 0.2);
 
-    // 10. Update Firebase to mark prizes as distributed
-    console.log("Updating tournament status in Firebase...");
-    await update(tournamentRef, {
-      prizesDistributed: true,
-      prizesDistributionTimestamp: Date.now(),
-      prizesDistributionDetails: {
-        transactionSignature: signature,
-        firstPlace: firstPlacePublicKey.toString(),
-        secondPlace: secondPlacePublicKey.toString(),
-        thirdPlace: thirdPlacePublicKey.toString()
-      }
-    });
-
+    // 9. Return the unsigned transaction and metadata for frontend
     return {
       success: true,
-      message: "Tournament prizes distributed successfully!",
-      signature,
+      message: "Prize distribution transaction created successfully!",
+      serializedTransaction,
       tournamentId,
-      winners: {
-        firstPlace: firstPlacePublicKey.toString(),
-        secondPlace: secondPlacePublicKey.toString(),
-        thirdPlace: thirdPlacePublicKey.toString()
-      }
+      tournamentData: {
+        name: tournament.name,
+        totalPrizeAmount,
+      },
+      winnerData: {
+        firstPlace: {
+          publicKey: firstPlacePublicKey.toString(),
+          tokenAccount: firstPlaceTokenAccount.toString(),
+          amount: firstPlaceAmount
+        },
+        secondPlace: {
+          publicKey: secondPlacePublicKey.toString(),
+          tokenAccount: secondPlaceTokenAccount.toString(),
+          amount: secondPlaceAmount
+        },
+        thirdPlace: {
+          publicKey: thirdPlacePublicKey.toString(),
+          tokenAccount: thirdPlaceTokenAccount.toString(),
+          amount: thirdPlaceAmount
+        }
+      },
+      status: "Pending Signature"
     };
+
   } catch (err) {
-    console.error("❌ Error distributing tournament prizes:", err);
+    console.error("❌ Error preparing tournament prize distribution:", err);
     return {
       success: false,
-      message: `Error distributing tournament prizes: ${err.message || err}`
+      message: `Error preparing tournament prize distribution: ${err.message || err}`
     };
   }
 };
