@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import { ref, get, set, push, update } from "firebase/database";
 import { db } from "../config/firebase";
-import { getTournamentPool, registerForTournament, initializeTournamentPool } from './services';
+import { getTournamentPool, registerForTournamentService, initializeTournamentPoolService } from './services';
 import { getTournamentLeaderboard, updateParticipantScore, getTournamentsByGame } from "./leaderboardService";
 import { PublicKey } from "@solana/web3.js";
 import schedule from 'node-schedule'
@@ -65,7 +65,7 @@ export async function createTournament(req: Request, res: Response) {
       return res.status(500).json({ message: "Failed to generate tournament ID" });
     }
 
-    const tx = await initializeTournamentPool(
+    const transaction = await initializeTournamentPoolService(
       pubKey,
       tournamentId,
       entryFee,
@@ -76,7 +76,7 @@ export async function createTournament(req: Request, res: Response) {
 
     res.status(201).json({
       message: "Tournament created successfully",
-      tx
+      transaction
     });
 
     const tournament = {
@@ -225,7 +225,7 @@ export const initializeTournamentPoolController = async (req: Request, res: Resp
     const mintPubKey = new PublicKey(mintPublicKey);
 
     // Call the service to initialize the tournament pool
-    const result = await initializeTournamentPool(
+    const result = await initializeTournamentPoolService(
       adminPubKey,
       tournamentId,
       entryFee,
@@ -289,7 +289,7 @@ export const registerForTournamentController = async (req: Request, res: Respons
     const userPubKey = new PublicKey(userPublicKey);
 
     // First register on blockchain (maintains existing functionality)
-    const blockchainResult = await registerForTournament(tournamentId, userPubKey, new PublicKey(adminPublicKey));
+    const blockchainResult = await registerForTournamentService(tournamentId, userPubKey, new PublicKey(adminPublicKey));
 
     // Then update Firebase to add participant with initial score
     if (blockchainResult.success) {
