@@ -1,19 +1,19 @@
 import { Router, RequestHandler } from 'express';
-import { initializeAccountsController, stakeTokens, unstakeTokens, fetchUserStakingAccount, createTokenAccountController, createTokenAccountControllerWithKeypair } from './stakingController';
+import { initializeStakingPoolController, stakeTokensController, unstakeTokensController, fetchUserStakingAccountController, createTokenAccountController, createTokenAccountControllerWithKeypair } from './stakingController';
 
 const router = Router();
 
 // Route for initializing the staking pool
-router.post('/initialize', initializeAccountsController as unknown as RequestHandler);
+router.post('/initialize', initializeStakingPoolController as unknown as RequestHandler);
 
 //Route to handle staking tokens
-router.post('/stake', stakeTokens as unknown as RequestHandler);
+router.post('/stake', stakeTokensController as unknown as RequestHandler);
 
 //Route to handle unstaking tokens
-router.post('/unstake', unstakeTokens as unknown as RequestHandler);
+router.post('/unstake', unstakeTokensController as unknown as RequestHandler);
 
 // Route to get user staking account
-router.get('/user-staked-amount/:userPublicKey', fetchUserStakingAccount as unknown as RequestHandler);
+router.get('/user-staked-amount/:userPublicKey', fetchUserStakingAccountController as unknown as RequestHandler);
 
 // Route to create ATA
 router.post('/create-ATA', createTokenAccountController as unknown as RequestHandler);
