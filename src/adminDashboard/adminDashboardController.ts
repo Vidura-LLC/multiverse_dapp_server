@@ -87,18 +87,14 @@ export const initializeRevenuePoolController = async (req: Request, res: Respons
             });
         }
 
-        // Convert string public key to PublicKey object
-        const mintPubkey = new PublicKey(mintPublicKey);
-        const adminPubKey = new PublicKey(adminPublicKey);
-
         // Call the service function to initialize revenue pool
-        const result = await initializeRevenuePoolService(mintPubkey, adminPubKey);
+        const result = await initializeRevenuePoolService(new PublicKey(mintPublicKey), new PublicKey(adminPublicKey));
 
         // Return the result
         if (result.success) {
-            return res.status(200).json(result);
+            return res.status(200).json({data: result});
         } else {
-            return res.status(500).json(result);
+            return res.status(500).json({ error: result.message });
         }
     } catch (err) {
         console.error('Error in initialize revenue pool controller:', err);
