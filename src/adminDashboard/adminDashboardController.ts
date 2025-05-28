@@ -7,7 +7,7 @@ import { Request, Response } from 'express';
 
 export const checkStakingPoolStatusController = async (req: Request, res: Response) => {
     try {
-        const { adminPublicKey } = req.body;
+        const { adminPublicKey } = req.params;
 
         // Validate the admin public key
         if (!adminPublicKey) {
