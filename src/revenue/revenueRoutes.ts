@@ -1,8 +1,7 @@
 // src/revenue/revenueRoutes.ts - Update with these new routes
 
 import { Router, RequestHandler } from 'express';
-import { 
-  initializeRevenuePoolController,
+import {
   initializePrizePoolController,
   distributeTournamentRevenueController,
   distributeTournamentPrizesController,
@@ -11,8 +10,6 @@ import {
 
 const router = Router();
 
-// Route for initializing the global revenue pool
-router.post('/initialize-revenue-pool', initializeRevenuePoolController as unknown as RequestHandler);
 
 // Route for initializing a prize pool for a specific tournament
 router.post('/initialize-prize-pool', initializePrizePoolController as unknown as RequestHandler);

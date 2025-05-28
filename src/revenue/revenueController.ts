@@ -4,46 +4,10 @@ import { ref, get } from "firebase/database";
 import { db } from "../config/firebase";
 import { Request, Response } from 'express';
 import { PublicKey } from '@solana/web3.js';
-import { initializeRevenuePoolService, initializePrizePoolService, distributeTournamentRevenueService, distributeTournamentPrizesService } from '../../src/revenue/services';
+import { initializePrizePoolService, distributeTournamentRevenueService, distributeTournamentPrizesService } from '../../src/revenue/services';
 
 
-/**
- * Controller function for initializing the global revenue pool
- */
-export const initializeRevenuePoolController = async (req: Request, res: Response) => {
-  try {
-    const { mintPublicKey, adminPublicKey } = req.body;
 
-    // Validate the mint address
-    if (!mintPublicKey || !adminPublicKey) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Mint and Admin public key is required' 
-      });
-    }
-
-    // Convert string public key to PublicKey object
-    const mintPubkey = new PublicKey(mintPublicKey);
-    const adminPubKey = new PublicKey(adminPublicKey);
-
-    // Call the service function to initialize revenue pool
-    const result = await initializeRevenuePoolService(mintPubkey, adminPubKey);
-
-    // Return the result
-    if (result.success) {
-      return res.status(200).json(result);
-    } else {
-      return res.status(500).json(result);
-    }
-  } catch (err) {
-    console.error('Error in initialize revenue pool controller:', err);
-    return res.status(500).json({ 
-      success: false, 
-      message: 'Failed to initialize revenue pool',
-      error: err.message || err
-    });
-  }
-};
 
 /**
  * Controller function for initializing a prize pool for a specific tournament
