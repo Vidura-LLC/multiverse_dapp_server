@@ -1,36 +1,10 @@
 //backend/src/staking/stakingController.ts
 
 import { Request, Response } from 'express';
-import { initializeStakingPoolService, unstakeTokenService, getUserStakingAccount, createAssociatedTokenAccount, createAssociatedTokenAccountWithKeypair, stakeTokenService } from './services';
+import { unstakeTokenService, getUserStakingAccount, createAssociatedTokenAccount, createAssociatedTokenAccountWithKeypair, stakeTokenService } from './services';
 import { PublicKey } from '@solana/web3.js';
 
-// Controller function for initializing the staking pool
-export const initializeStakingPoolController = async (req: Request, res: Response) => {
-  try {
-    const { mintPublicKey, adminPublicKey } = req.body;  // Get mint address from request body
 
-    // Validate the mint address
-    if (!mintPublicKey || !adminPublicKey) {
-      return res.status(400).json({ error: 'Mint public key is required' });
-    }
-
-    const mintAddress = new PublicKey(mintPublicKey);
-    const adminAddress = new PublicKey(adminPublicKey);
-
-    // Call the staking pool initialization service
-    const result = await initializeStakingPoolService(mintAddress, adminAddress);
-
-    // Return the result
-    if (result.success) {
-      return res.status(200).json({ data: result});
-    } else {
-      return res.status(500).json({ error: result.message });
-    }
-  } catch (err) {
-    console.error('Error in initialize staking pool controller:', err);
-    return res.status(500).json({ error: 'Failed to initialize staking pool' });
-  }
-};
 
 
 // Controller to handle staking requests

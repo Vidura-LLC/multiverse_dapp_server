@@ -1,10 +1,8 @@
 import { Router, RequestHandler } from 'express';
-import { initializeStakingPoolController, stakeTokensController, unstakeTokensController, fetchUserStakingAccountController, createTokenAccountController, createTokenAccountControllerWithKeypair } from './stakingController';
+import { stakeTokensController, unstakeTokensController, fetchUserStakingAccountController, createTokenAccountController, createTokenAccountControllerWithKeypair } from './stakingController';
 
 const router = Router();
 
-// Route for initializing the staking pool
-router.post('/initialize', initializeStakingPoolController as unknown as RequestHandler);
 
 //Route to handle staking tokens
 router.post('/stake', stakeTokensController as unknown as RequestHandler);

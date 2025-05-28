@@ -22,7 +22,7 @@ import dotenv from "dotenv";
 dotenv.config();
 
 // Helper function to get the program
-const getProgram = () => {
+export const getProgram = () => {
   const idl = require("../gamehub/gamehub_idl.json");
   const walletKeypair = require("../staking/saadat7s-wallet-keypair.json");
 
@@ -57,64 +57,6 @@ const getProgram = () => {
   };
 };
 
-
-// ✅ Function to initialize the staking pool and escrow account
-export const initializeStakingPoolService = async (mintPublicKey: PublicKey, adminPublicKey: PublicKey) => {
-  try {
-    const { program, connection } = getProgram();
-
-    // Log initial parameters for clarity
-    console.log("Initializing Staking Pool:");
-    console.log("Admin PublicKey:", adminPublicKey.toBase58());
-
-    const [stakingPoolPublicKey] = PublicKey.findProgramAddressSync(
-      [Buffer.from("staking_pool"), adminPublicKey.toBuffer()],
-      program.programId
-    );
-
-    const [poolEscrowAccountPublicKey] = PublicKey.findProgramAddressSync(
-      [Buffer.from("escrow"), stakingPoolPublicKey.toBuffer()],
-      program.programId
-    );
-
-    console.log("🔹 Staking Pool PDA Address:", stakingPoolPublicKey.toString());
-    console.log("🔹 Pool Escrow Account Address:", poolEscrowAccountPublicKey.toString());
-
-    // Get the latest blockhash
-    const { blockhash } = await connection.getLatestBlockhash("finalized");
-    console.log("Latest Blockhash:", blockhash);
-
-    // Create the transaction
-    const transaction = await program.methods
-      .initializeAccounts()
-      .accounts({
-        admin: adminPublicKey,
-        stakingPool: stakingPoolPublicKey,
-        mint: mintPublicKey,
-        poolEscrowAccount: poolEscrowAccountPublicKey,
-        systemProgram: SystemProgram.programId,
-        tokenProgram: TOKEN_2022_PROGRAM_ID,
-      })
-      .transaction();
-
-    // Set recent blockhash and fee payer
-    transaction.recentBlockhash = blockhash;
-    transaction.feePayer = adminPublicKey;
-    
-    // Serialize transaction and send it to the frontend
-    return {
-      success: true,
-      message: "Transaction created successfully!",
-      transaction: transaction.serialize({ requireAllSignatures: false }).toString('base64'),
-    };
-  } catch (err) {
-    console.error("❌ Error initializing staking pool:", err);
-    return { 
-      success: false, 
-      message: `Error initializing staking pool: ${err.message || err}` 
-    };
-  }
-};
 
 
 // ✅ Function to stake tokens into the staking pool
