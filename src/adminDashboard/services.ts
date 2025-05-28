@@ -14,51 +14,76 @@ dotenv.config();
 
 
 
-// ✅ Function to check if staking pool exists for an admin
-export const checkStakingPoolStatus = async (adminPublicKey: PublicKey) => {
+// ✅ Function to check pool status for staking, revenue, and prize pools
+export const checkPoolStatus = async (adminPublicKey: PublicKey, tournamentId?: string) => {
     try {
         const { program } = getProgram();
 
-        // Derive the staking pool PDA
+        const result = {
+            success: true,
+            stakingPool: {
+                status: false, // false = needs initialization, true = exists
+                stakingPoolAddress: '',
+                poolEscrowAccountAddress: '',
+            },
+            revenuePool: {
+                status: false, // false = needs initialization, true = exists
+                revenuePoolAddress: '',
+                revenueEscrowAccountAddress: '',
+            },
+            adminAddress: adminPublicKey.toString()
+        };
+
+        // ✅ 1. Check Staking Pool
         const [stakingPoolPublicKey] = PublicKey.findProgramAddressSync(
             [Buffer.from("staking_pool"), adminPublicKey.toBuffer()],
             program.programId
         );
 
-        // Derive the pool escrow account PDA
-        const [poolEscrowAccountPublicKey] = PublicKey.findProgramAddressSync(
+        const [stakingEscrowAccountPublicKey] = PublicKey.findProgramAddressSync(
             [Buffer.from("escrow"), stakingPoolPublicKey.toBuffer()],
             program.programId
         );
 
         console.log("🔹 Checking Staking Pool PDA:", stakingPoolPublicKey.toString());
 
-        // Try to fetch the staking pool account
         const stakingPoolAccount = await program.account.stakingPool.fetchNullable(stakingPoolPublicKey);
 
-        if (stakingPoolAccount) {
-            // Staking pool already exists
-            return {
-                success: true,
-                status: true,
-                stakingPoolAddress: stakingPoolPublicKey.toString(),
-                poolEscrowAccountAddress: poolEscrowAccountPublicKey.toString(),
-                adminAddress: adminPublicKey.toString(),
-        
-            };
-        } else {
-            // Staking pool doesn't exist - needs initialization
-            return {
-                success: true,
-                status: false, 
-            };
+        result.stakingPool = {
+            status: stakingPoolAccount !== null,
+            stakingPoolAddress: stakingPoolPublicKey.toString(),
+            poolEscrowAccountAddress: stakingEscrowAccountPublicKey.toString(),
+        };
+
+        // ✅ 2. Check Revenue Pool
+        const [revenuePoolPublicKey] = PublicKey.findProgramAddressSync(
+            [Buffer.from("revenue_pool"), adminPublicKey.toBuffer()],
+            program.programId
+        );
+
+        const [revenueEscrowAccountPublicKey] = PublicKey.findProgramAddressSync(
+            [Buffer.from("revenue_escrow"), revenuePoolPublicKey.toBuffer()],
+            program.programId
+        );
+
+        console.log("🔹 Checking Revenue Pool PDA:", revenuePoolPublicKey.toString());
+
+        const revenuePoolAccount = await program.account.revenuePool.fetchNullable(revenuePoolPublicKey);
+
+        result.revenuePool = {
+            status: revenuePoolAccount !== null,
+            revenuePoolAddress: revenuePoolPublicKey.toString(),
+            revenueEscrowAccountAddress: revenueEscrowAccountPublicKey.toString(),
+
         }
 
+        return result;
+
     } catch (err) {
-        console.error("❌ Error checking staking pool status:", err);
+        console.error("❌ Error checking pool status:", err);
         return {
             success: false,
-            message: `Error checking staking pool status: ${err.message || err}`
+            message: `Error checking pool status: ${err.message || err}`
         };
     }
 };

@@ -1,11 +1,11 @@
 import { PublicKey } from '@solana/web3.js';
-import { checkStakingPoolStatus, initializeStakingPoolService } from "./services";
+import { checkPoolStatus, initializeStakingPoolService } from "./services";
 import { Request, Response } from 'express';
 
 
 // In adminDashboard/adminDashboardController.ts - Add this controller
 
-export const checkStakingPoolStatusController = async (req: Request, res: Response) => {
+export const checkPoolStatusController = async (req: Request, res: Response) => {
     try {
         const { adminPublicKey } = req.params;
 
@@ -28,7 +28,7 @@ export const checkStakingPoolStatusController = async (req: Request, res: Respon
         }
 
         // Check staking pool status
-        const result = await checkStakingPoolStatus(new PublicKey(adminPublicKey));
+        const result = await checkPoolStatus(new PublicKey(adminPublicKey));
 
         if (result.success) {
             return res.status(200).json({
