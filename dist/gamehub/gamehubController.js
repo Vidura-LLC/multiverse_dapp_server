@@ -20,6 +20,7 @@ exports.getTournamentById = getTournamentById;
 exports.getTournamentLeaderboardController = getTournamentLeaderboardController;
 exports.updateParticipantScoreController = updateParticipantScoreController;
 exports.getTournamentsByGameController = getTournamentsByGameController;
+exports.updateTournamentStatus = updateTournamentStatus;
 const database_1 = require("firebase/database");
 const firebase_1 = require("../config/firebase");
 const services_1 = require("./services");
@@ -61,10 +62,11 @@ function createTournament(req, res) {
             if (!tournamentId) {
                 return res.status(500).json({ message: "Failed to generate tournament ID" });
             }
-            const tx = yield (0, services_1.initializeTournamentPool)(pubKey, tournamentId, entryFee, maxParticipants, endTimeInUnix, mint);
+            const transaction = yield (0, services_1.initializeTournamentPoolService)(pubKey, tournamentId, entryFee, maxParticipants, endTimeInUnix, mint);
             res.status(201).json({
                 message: "Tournament created successfully",
-                tx
+                transaction,
+                tournamentId,
             });
             const tournament = {
                 id: tournamentId,
@@ -73,25 +75,16 @@ function createTournament(req, res) {
                 startTime,
                 endTime,
                 gameId,
-                maxParticipants,
+                max_participants: maxParticipants,
                 entryFee,
                 createdAt: new Date().toISOString(),
                 participants: {},
                 participantsCount: 0,
-                status: "Not Started",
+                status: "Draft",
                 createdBy: adminPublicKey
             };
             yield (0, database_1.set)(newTournamentRef, tournament);
             const tournamentRef = (0, database_1.ref)(firebase_1.db, `tournaments/${tournamentId}`);
-            node_schedule_1.default.scheduleJob(new Date(startTime), () => __awaiter(this, void 0, void 0, function* () {
-                try {
-                    yield (0, database_1.update)(tournamentRef, { status: "Active" });
-                    console.log(`Tournament ${tournamentId} has started.`);
-                }
-                catch (error) {
-                    console.error(`Failed to start tournament ${tournamentId}:`, error);
-                }
-            }));
             node_schedule_1.default.scheduleJob(new Date(endTime), () => __awaiter(this, void 0, void 0, function* () {
                 try {
                     yield (0, database_1.update)(tournamentRef, { status: "Ended" });
@@ -197,7 +190,7 @@ const initializeTournamentPoolController = (req, res) => __awaiter(void 0, void 
         const adminPubKey = new web3_js_1.PublicKey(adminPublicKey);
         const mintPubKey = new web3_js_1.PublicKey(mintPublicKey);
         // Call the service to initialize the tournament pool
-        const result = yield (0, services_1.initializeTournamentPool)(adminPubKey, tournamentId, entryFee, maxParticipants, endTime, mintPubKey);
+        const result = yield (0, services_1.initializeTournamentPoolService)(adminPubKey, tournamentId, entryFee, maxParticipants, endTime, mintPubKey);
         if (result.success) {
             return res.status(200).json(result);
         }
@@ -247,7 +240,7 @@ const registerForTournamentController = (req, res) => __awaiter(void 0, void 0, 
         }
         const userPubKey = new web3_js_1.PublicKey(userPublicKey);
         // First register on blockchain (maintains existing functionality)
-        const blockchainResult = yield (0, services_1.registerForTournament)(tournamentId, userPubKey, new web3_js_1.PublicKey(adminPublicKey));
+        const blockchainResult = yield (0, services_1.registerForTournamentService)(tournamentId, userPubKey, new web3_js_1.PublicKey(adminPublicKey));
         // Then update Firebase to add participant with initial score
         if (blockchainResult.success) {
             const participants = tournament.participants || {};
@@ -367,6 +360,27 @@ function getTournamentsByGameController(req, res) {
         }
         catch (error) {
             console.error("Error in getTournamentsByGameController:", error);
+            return res.status(500).json({ message: "Internal Server Error" });
+        }
+    });
+}
+function updateTournamentStatus(req, res) {
+    return __awaiter(this, void 0, void 0, function* () {
+        try {
+            const { tournamentId, status } = req.body;
+            if (!tournamentId || !status) {
+                return res.status(400).json({ message: "Missing required fields" });
+            }
+            const tournamentRef = (0, database_1.ref)(firebase_1.db, `tournaments/${tournamentId}`);
+            const tournamentSnapshot = yield (0, database_1.get)(tournamentRef);
+            if (!tournamentSnapshot.exists()) {
+                return res.status(404).json({ message: "Tournament not found" });
+            }
+            yield (0, database_1.update)(tournamentRef, { status });
+            return res.status(200).json({ message: "Tournament status updated successfully" });
+        }
+        catch (error) {
+            console.error("Error updating tournament status:", error);
             return res.status(500).json({ message: "Internal Server Error" });
         }
     });

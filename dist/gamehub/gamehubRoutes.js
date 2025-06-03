@@ -7,6 +7,8 @@ const gamehubController_1 = require("./gamehubController");
 const router = (0, express_1.Router)();
 // Route to create tournament pool
 router.post('/create-tournament', gamehubController_1.createTournament);
+// Route to update tournament status
+router.post('/update-tournament-status', gamehubController_1.updateTournamentStatus);
 router.post('/get-tournament-pool', gamehubController_1.getTournamentPoolController);
 // Route to create tournament
 router.post('/create-tournament-pool', gamehubController_1.initializeTournamentPoolController);
