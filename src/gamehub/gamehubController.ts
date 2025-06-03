@@ -77,7 +77,8 @@ export async function createTournament(req: Request, res: Response) {
 
     res.status(201).json({
       message: "Tournament created successfully",
-      transaction
+      transaction,
+      tournamentId,
     });
 
     const tournament: Tournament = {
@@ -99,15 +100,6 @@ export async function createTournament(req: Request, res: Response) {
     await set(newTournamentRef, tournament);
 
     const tournamentRef = ref(db, `tournaments/${tournamentId}`);
-
-    schedule.scheduleJob(new Date(startTime), async () => {
-      try {
-        await update(tournamentRef, { status: "Active" });
-        console.log(`Tournament ${tournamentId} has started.`);
-      } catch (error) {
-        console.error(`Failed to start tournament ${tournamentId}:`, error);
-      }
-    });
 
     schedule.scheduleJob(new Date(endTime), async () => {
       try {
