@@ -15,9 +15,10 @@ interface Tournament {
   endTime: string;
   gameId: string;
   max_participants: number,
+  createdAt: string;
   participants: { [key: string]: { joinedAt: string; score: number } };
   participantsCount: number;
-  status: "Active" | "Paused" | "Ended",
+  status: "Active" | "Paused" | "Ended" | "Draft";
   createdBy: string
 }
 
@@ -79,19 +80,19 @@ export async function createTournament(req: Request, res: Response) {
       transaction
     });
 
-    const tournament = {
+    const tournament: Tournament = {
       id: tournamentId,
       name,
       description,
       startTime,
       endTime,
       gameId,
-      maxParticipants,
+      max_participants: maxParticipants,
       entryFee,
       createdAt: new Date().toISOString(),
       participants: {},
       participantsCount: 0,
-      status: "Not Started",
+      status: "Draft",
       createdBy: adminPublicKey
     };
 
@@ -417,4 +418,31 @@ export async function getTournamentsByGameController(req: Request, res: Response
     console.error("Error in getTournamentsByGameController:", error);
     return res.status(500).json({ message: "Internal Server Error" });
   }
+}
+
+export async function updateTournamentStatus(req: Request, res: Response) {
+  try {
+    const { tournamentId, status } = req.body;
+
+    if (!tournamentId || !status) {
+      return res.status(400).json({ message: "Missing required fields" });
+    }
+
+    const tournamentRef = ref(db, `tournaments/${tournamentId}`);
+    const tournamentSnapshot = await get(tournamentRef);
+
+    if (!tournamentSnapshot.exists()) {
+      return res.status(404).json({ message: "Tournament not found" });
+    }
+
+    await update(tournamentRef, { status });
+
+    return res.status(200).json({ message: "Tournament status updated successfully" });
+  } catch (error) {
+    console.error("Error updating tournament status:", error);
+    return res.status(500).json({ message: "Internal Server Error" });
+  }
+
+
+
 }
