@@ -10,35 +10,11 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.createTokenAccountControllerWithKeypair = exports.createTokenAccountController = exports.fetchUserStakingAccount = exports.unstakeTokens = exports.stakeTokens = exports.initializeAccountsController = void 0;
+exports.createTokenAccountControllerWithKeypair = exports.createTokenAccountController = exports.fetchUserStakingAccountController = exports.unstakeTokensController = exports.stakeTokensController = void 0;
 const services_1 = require("./services");
 const web3_js_1 = require("@solana/web3.js");
-// Controller function for initializing the staking pool
-const initializeAccountsController = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const { mintPublicKey } = req.body; // Get mint address from request body
-        // Validate the mint address
-        if (!mintPublicKey) {
-            return res.status(400).json({ error: 'Mint public key is required' });
-        }
-        // Call the staking pool initialization service
-        const result = yield (0, services_1.initializeAccountsService)(mintPublicKey);
-        // Return the result
-        if (result.success) {
-            return res.status(200).json({ message: result.message });
-        }
-        else {
-            return res.status(500).json({ error: result.message });
-        }
-    }
-    catch (err) {
-        console.error('Error in initialize staking pool controller:', err);
-        return res.status(500).json({ error: 'Failed to initialize staking pool' });
-    }
-});
-exports.initializeAccountsController = initializeAccountsController;
 // Controller to handle staking requests
-const stakeTokens = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+const stakeTokensController = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     console.log('Staking invoked');
     try {
         const { mintPublicKey, userPublicKey, amount, duration } = req.body;
@@ -58,8 +34,8 @@ const stakeTokens = (req, res) => __awaiter(void 0, void 0, void 0, function* ()
         return res.status(500).json({ success: false, message: "Internal server error" });
     }
 });
-exports.stakeTokens = stakeTokens;
-const unstakeTokens = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+exports.stakeTokensController = stakeTokensController;
+const unstakeTokensController = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { mintPublicKey, userPublicKey, amount } = req.body;
         const mintAddress = new web3_js_1.PublicKey(mintPublicKey);
@@ -77,9 +53,9 @@ const unstakeTokens = (req, res) => __awaiter(void 0, void 0, void 0, function* 
         return res.status(500).json({ success: false, message: "Internal server error" });
     }
 });
-exports.unstakeTokens = unstakeTokens;
+exports.unstakeTokensController = unstakeTokensController;
 // ✅ Controller function to fetch user staking account
-const fetchUserStakingAccount = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+const fetchUserStakingAccountController = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { userPublicKey } = req.params;
         if (!userPublicKey) {
@@ -99,7 +75,7 @@ const fetchUserStakingAccount = (req, res) => __awaiter(void 0, void 0, void 0, 
         return res.status(500).json({ success: false, message: "Internal server error" });
     }
 });
-exports.fetchUserStakingAccount = fetchUserStakingAccount;
+exports.fetchUserStakingAccountController = fetchUserStakingAccountController;
 // Controller function to create token account
 const createTokenAccountController = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {

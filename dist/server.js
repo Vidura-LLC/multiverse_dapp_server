@@ -9,6 +9,8 @@ const body_parser_1 = __importDefault(require("body-parser"));
 const cors_1 = __importDefault(require("cors"));
 const stakingRoutes_1 = __importDefault(require("./staking/stakingRoutes"));
 const gamehubRoutes_1 = __importDefault(require("./gamehub/gamehubRoutes"));
+const revenueRoutes_1 = __importDefault(require("./revenue/revenueRoutes"));
+const adminDashboardRoutes_1 = __importDefault(require("./adminDashboard/adminDashboardRoutes"));
 // Load environment variables
 dotenv_1.default.config();
 const app = (0, express_1.default)();
@@ -20,8 +22,10 @@ app.use((0, cors_1.default)({
 }));
 app.use(body_parser_1.default.json());
 // Routes
+app.use("/api/admin", adminDashboardRoutes_1.default);
 app.use("/api/staking", stakingRoutes_1.default);
 app.use("/api/gamehub/", gamehubRoutes_1.default);
+app.use('/api/revenue/', revenueRoutes_1.default);
 // Server Port
 const PORT = process.env.PORT || 5000;
 app.get('/', (req, res) => {

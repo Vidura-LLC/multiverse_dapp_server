@@ -1,37 +1,14 @@
 //backend/src/staking/stakingController.ts
 
 import { Request, Response } from 'express';
-import { initializeAccountsService, unstakeTokenService, getUserStakingAccount, createAssociatedTokenAccount, createAssociatedTokenAccountWithKeypair, stakeTokenService, unstakeTokenServiceWithKeypair } from './services';
+import { unstakeTokenService, getUserStakingAccount, createAssociatedTokenAccount, createAssociatedTokenAccountWithKeypair, stakeTokenService } from './services';
 import { PublicKey } from '@solana/web3.js';
 
-// Controller function for initializing the staking pool
-export const initializeAccountsController = async (req: Request, res: Response) => {
-  try {
-    const { mintPublicKey } = req.body;  // Get mint address from request body
 
-    // Validate the mint address
-    if (!mintPublicKey) {
-      return res.status(400).json({ error: 'Mint public key is required' });
-    }
-
-    // Call the staking pool initialization service
-    const result = await initializeAccountsService(mintPublicKey);
-
-    // Return the result
-    if (result.success) {
-      return res.status(200).json({ message: result.message });
-    } else {
-      return res.status(500).json({ error: result.message });
-    }
-  } catch (err) {
-    console.error('Error in initialize staking pool controller:', err);
-    return res.status(500).json({ error: 'Failed to initialize staking pool' });
-  }
-};
 
 
 // Controller to handle staking requests
-export const stakeTokens = async (req: Request, res: Response) => {
+export const stakeTokensController = async (req: Request, res: Response) => {
   console.log('Staking invoked');
   try {
     const { mintPublicKey, userPublicKey, amount, duration } = req.body;
@@ -53,7 +30,7 @@ export const stakeTokens = async (req: Request, res: Response) => {
   }
 };
 
-export const unstakeTokens = async (req: Request, res: Response) => {
+export const unstakeTokensController = async (req: Request, res: Response) => {
   try {
     const { mintPublicKey, userPublicKey, amount } = req.body;
 
@@ -74,7 +51,7 @@ export const unstakeTokens = async (req: Request, res: Response) => {
 
 
 // ✅ Controller function to fetch user staking account
-export const fetchUserStakingAccount = async (req: Request, res: Response) => {
+export const fetchUserStakingAccountController = async (req: Request, res: Response) => {
   try {
     const { userPublicKey } = req.params;
 

@@ -4,6 +4,8 @@ import bodyParser from "body-parser";
 import cors from "cors";
 import stakingRoutes from "./staking/stakingRoutes";
 import gamehubRoutes from "./gamehub/gamehubRoutes";
+import revenueRoutes from './revenue/revenueRoutes';
+import adminDashboardRoutes from "./adminDashboard/adminDashboardRoutes";
 import { getUser } from "./utils/firebaseUtils";
 import { PublicKey } from "@solana/web3.js";
 
@@ -23,8 +25,10 @@ app.use(cors({
 app.use(bodyParser.json());
 
 // Routes
+app.use("/api/admin", adminDashboardRoutes);
 app.use("/api/staking", stakingRoutes);
 app.use("/api/gamehub/", gamehubRoutes);
+app.use('/api/revenue/', revenueRoutes);
 
 // Server Port
 const PORT = process.env.PORT || 5000;
