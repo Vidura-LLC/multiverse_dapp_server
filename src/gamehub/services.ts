@@ -119,7 +119,7 @@ export const initializeTournamentPoolService = async (
       adminPublicKey.toBase58(),
       serializedTx,
       {
-        tournamentId,
+        tournamentIdBytes,
         entryFee,
         maxParticipants,
         endTime: new Date(endTime * 1000).toISOString(),

@@ -33,7 +33,7 @@ app.use("/api/admin", adminDashboardRoutes);
 app.use("/api/staking", stakingRoutes);
 app.use("/api/gamehub/", gamehubRoutes);
 app.use('/api/revenue/', revenueRoutes);
-app.use('api/callbacks/', callbackRoutes);
+app.use('/api/callbacks/', callbackRoutes);
 
 // Server Port
 const PORT = process.env.PORT || 5000;

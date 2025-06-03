@@ -1,5 +1,5 @@
 // src/callbacks/callbackRoutes.ts
-import { Router, RequestHandler } from 'express';
+import { Router, RequestHandler, Request, Response } from 'express';
 import { 
   confirmTransactionController, 
   handleTransactionFailureController,

@@ -14,7 +14,7 @@ export const confirmTransactionController = async (req: Request, res: Response) 
     if (!transactionId || !signature) {
       return res.status(400).json({
         success: false,
-        message: "Transaction ID and signature are required"
+        message: "Transaction ID and signature are required"  
       });
     }
 
