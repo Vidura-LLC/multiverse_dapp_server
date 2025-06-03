@@ -18,6 +18,7 @@ import {
 } from "@solana/spl-token";
 import { bs58 } from "@project-serum/anchor/dist/cjs/utils/bytes";
 import dotenv from "dotenv";
+import { getTransactionTracker } from "../utils/transactionTracker";
 
 dotenv.config();
 
@@ -69,6 +70,7 @@ export const stakeTokenService = async (
   try {
     const { program, adminPublicKey, connection } = getProgram();
 
+    const tracker = getTransactionTracker();
     // Log initial parameters for clarity
     console.log("Staking Details:");
     console.log("User PublicKey:", userPublicKey.toBase58());
@@ -128,11 +130,25 @@ export const stakeTokenService = async (
     transaction.recentBlockhash = blockhash;
     transaction.feePayer = userPublicKey;
 
-    // Serialize transaction and send it to the frontend
+     // 🔹 NEW: Store transaction for tracking
+    const serializedTx = transaction.serialize({ requireAllSignatures: false }).toString('base64');
+    const transactionId = await tracker.storePendingTransaction(
+      'STAKE',
+      userPublicKey.toBase58(),
+      serializedTx,
+      {
+        amount,
+        lockDuration,
+        mintPublicKey: mintPublicKey.toBase58()
+      }
+    );
+
     return {
       success: true,
-      message: "Transaction created successfully!",
-      transaction: transaction.serialize({ requireAllSignatures: false }).toString('base64'),
+      message: "Staking transaction created successfully!",
+      transactionId, // 🔹 NEW: Return tracking ID
+      transaction: serializedTx,
+      expiresAt: Date.now() + (5 * 60 * 1000) // 5 minutes
     };
   } catch (err) {
     console.error("❌ Error creating staking transaction:", err);
@@ -151,6 +167,7 @@ export const unstakeTokenService = async (
 ) => {
   try {
     const { program, adminPublicKey, connection } = getProgram(); // Assuming getProgram() initializes necessary context
+    const tracker = getTransactionTracker();
 
     // Find the staking pool, user staking account, and escrow account
     const [stakingPoolPublicKey] = PublicKey.findProgramAddressSync(
@@ -202,11 +219,23 @@ export const unstakeTokenService = async (
     transaction.recentBlockhash = blockhash;
     transaction.feePayer = userPublicKey;
 
-    // Serialize transaction and send it to the frontend
+     // 🔹 NEW: Store transaction for tracking
+    const serializedTx = transaction.serialize({ requireAllSignatures: false }).toString('base64');
+    const transactionId = await tracker.storePendingTransaction(
+      'UNSTAKE',
+      userPublicKey.toBase58(),
+      serializedTx,
+      {
+        mintPublicKey: mintPublicKey.toBase58()
+      }
+    );
+
     return {
       success: true,
-      message: "Transaction created successfully!",
-      transaction: transaction.serialize({ requireAllSignatures: false }).toString('base64'),
+      message: "Unstaking transaction created successfully!",
+      transactionId, // 🔹 NEW: Return tracking ID
+      transaction: serializedTx,
+      expiresAt: Date.now() + (5 * 60 * 1000)
     };
   } catch (err) {
     console.error("❌ Error creating unstake transaction:", err);

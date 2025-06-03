@@ -11,6 +11,7 @@ import dotenv from "dotenv";
 import { getProgram } from "../staking/services";
 dotenv.config();
 import * as anchor from "@project-serum/anchor";
+import { getTransactionTracker } from "../utils/transactionTracker";
 
 
 
@@ -19,7 +20,6 @@ import * as anchor from "@project-serum/anchor";
 export const checkPoolStatus = async (adminPublicKey: PublicKey, tournamentId?: string) => {
     try {
         const { program } = getProgram();
-
         const result = {
             success: true,
             stakingPool: {
@@ -94,7 +94,7 @@ export const checkPoolStatus = async (adminPublicKey: PublicKey, tournamentId?: 
 export const initializeStakingPoolService = async (mintPublicKey: PublicKey, adminPublicKey: PublicKey) => {
     try {
         const { program, connection } = getProgram();
-
+        const tracker = getTransactionTracker();
         // ✅ Staking pool doesn't exist - create initialization transaction
         console.log("🔄 Creating staking pool initialization transaction...");
         
@@ -138,13 +138,27 @@ export const initializeStakingPoolService = async (mintPublicKey: PublicKey, adm
         transaction.recentBlockhash = blockhash;
         transaction.feePayer = adminPublicKey;
 
-        // Serialize transaction and send it to the frontend
+              // 🔹 NEW: Store transaction for tracking
+        const serializedTx = transaction.serialize({ requireAllSignatures: false }).toString("base64");
+        const transactionId = await tracker.storePendingTransaction(
+            'INITIALIZE_STAKING_POOL', // 🔹 NEW transaction type
+            adminPublicKey.toBase58(),
+            serializedTx,
+            {
+                mintPublicKey: mintPublicKey.toBase58(),
+                stakingPoolAddress: stakingPoolPublicKey.toString(),
+                poolEscrowAddress: poolEscrowAccountPublicKey.toString()
+            }
+        );
+
         return {
             success: true,
-            message: "Transaction created successfully!",
+            message: "Staking pool initialization transaction created successfully!",
+            transactionId, // 🔹 NEW: Return tracking ID
             stakingPoolPublicKey: stakingPoolPublicKey.toBase58(),
             poolEscrowAccountPublicKey: poolEscrowAccountPublicKey.toBase58(),
-            transaction: transaction.serialize({ requireAllSignatures: false }).toString("base64"),
+            transaction: serializedTx,
+            expiresAt: Date.now() + (5 * 60 * 1000) // 🔹 NEW: 5 minutes expiry
         };
     } catch (err) {
         console.error("❌ Error initializing staking pool:", err);
@@ -163,6 +177,7 @@ export const initializeStakingPoolService = async (mintPublicKey: PublicKey, adm
 export const initializeRevenuePoolService = async (mintPublicKey: PublicKey, adminPublicKey: PublicKey) => {
     try {
         const { program, connection } = getProgram();
+        const tracker = getTransactionTracker(); // 🔹 NEW: Get tracker instance
 
         // Log initial parameters for clarity
         console.log("Initializing Revenue Pool:");
@@ -204,12 +219,27 @@ export const initializeRevenuePoolService = async (mintPublicKey: PublicKey, adm
         // Set recent blockhash and fee payer
         transaction.recentBlockhash = blockhash;
         transaction.feePayer = adminPublicKey;
+        // 🔹 NEW: Store transaction for tracking
+        const serializedTx = transaction.serialize({ requireAllSignatures: false }).toString('base64');
+        const transactionId = await tracker.storePendingTransaction(
+            'INITIALIZE_REVENUE_POOL', // 🔹 NEW transaction type
+            adminPublicKey.toBase58(),
+            serializedTx,
+            {
+                mintPublicKey: mintPublicKey.toBase58(),
+                revenuePoolAddress: revenuePoolPublicKey.toString(),
+                revenueEscrowAddress: revenueEscrowPublicKey.toString()
+            }
+        );
 
-        // Serialize transaction and send it to the frontend
         return {
             success: true,
-            message: "Transaction created successfully!",
-            transaction: transaction.serialize({ requireAllSignatures: false }).toString('base64'),
+            message: "Revenue pool initialization transaction created successfully!",
+            transactionId, // 🔹 NEW: Return tracking ID
+            revenuePoolAddress: revenuePoolPublicKey.toString(),
+            revenueEscrowAddress: revenueEscrowPublicKey.toString(),
+            transaction: serializedTx,
+            expiresAt: Date.now() + (5 * 60 * 1000) // 🔹 NEW: 5 minutes expiry
         };
     } catch (err) {
         console.error("❌ Error initializing revenue pool:", err);

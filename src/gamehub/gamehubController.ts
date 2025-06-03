@@ -1,5 +1,7 @@
+//src/gamehub/gamehubController.ts
+
 import { Request, Response } from "express";
-import { ref, get, set, push, update } from "firebase/database";
+import { ref, get, set, push, update, remove } from "firebase/database";
 import { db } from "../config/firebase";
 import { getTournamentPool, registerForTournamentService, initializeTournamentPoolService } from './services';
 import { getTournamentLeaderboard, updateParticipantScore, getTournamentsByGame } from "./leaderboardService";
@@ -18,7 +20,13 @@ interface Tournament {
   participants: { [key: string]: { joinedAt: string; score: number } };
   participantsCount: number;
   status: "Active" | "Paused" | "Ended",
-  createdBy: string
+  createdBy: string,
+
+    // ✅ NEW: Blockchain tracking fields (that you're actually using)
+  blockchainStatus: "PENDING" | "CONFIRMED" | "FAILED";
+  blockchainSignature: string | null;
+  transactionId: string | null;
+  unsignedTransaction?: string;
 }
 
 
@@ -65,64 +73,106 @@ export async function createTournament(req: Request, res: Response) {
       return res.status(500).json({ message: "Failed to generate tournament ID" });
     }
 
-    const transaction = await initializeTournamentPoolService(
-      pubKey,
-      tournamentId,
-      entryFee,
-      maxParticipants,
-      endTimeInUnix,
-      mint
-    );
-
-    res.status(201).json({
-      message: "Tournament created successfully",
-      transaction
-    });
-
-    const tournament = {
+    // ✅ Create tournament object following the interface exactly
+    const tournament: Tournament = {
       id: tournamentId,
       name,
       description,
       startTime,
       endTime,
       gameId,
-      maxParticipants,
-      entryFee,
-      createdAt: new Date().toISOString(),
+      max_participants: maxParticipants,  // ✅ Using interface property name
+      entryFee: entryFee.toString(),      // ✅ Converting to string as per interface
       participants: {},
       participantsCount: 0,
-      status: "Not Started",
-      createdBy: adminPublicKey
+      status: "Paused",                   // ✅ Using valid status from interface (will update when blockchain confirms)
+      createdBy: adminPublicKey,
+      
+      // ✅ NEW: Initialize blockchain tracking fields
+      blockchainStatus: "PENDING",
+      blockchainSignature: null,
+      transactionId: null,
+      unsignedTransaction: undefined
     };
 
+    // Save tournament to Firebase first
     await set(newTournamentRef, tournament);
 
-    const tournamentRef = ref(db, `tournaments/${tournamentId}`);
+    // Create blockchain transaction
+    const transaction = await initializeTournamentPoolService(
+      pubKey,
+      tournamentId,
+      Number(entryFee), // Convert back to number for blockchain
+      maxParticipants,
+      endTimeInUnix,
+      new PublicKey(mint)
+    );
 
-    schedule.scheduleJob(new Date(startTime), async () => {
-      try {
-        await update(tournamentRef, { status: "Active" });
-        console.log(`Tournament ${tournamentId} has started.`);
-      } catch (error) {
-        console.error(`Failed to start tournament ${tournamentId}:`, error);
-      }
-    });
+    if (transaction.success) {
+      // Update tournament with transaction details
+      await update(newTournamentRef, {
+        transactionId: transaction.transactionId,
+        unsignedTransaction: transaction.transaction
+      });
 
-    schedule.scheduleJob(new Date(endTime), async () => {
-      try {
-        await update(tournamentRef, { status: "Ended" });
-        console.log(`Tournament ${tournamentId} has ended.`);
-      } catch (error) {
-        console.error(`Failed to end tournament ${tournamentId}:`, error);
-      }
-    });
+      // Schedule tournament status updates (only when blockchain confirms)
+      const tournamentRef = ref(db, `tournaments/${tournamentId}`);
+
+      schedule.scheduleJob(new Date(startTime), async () => {
+        try {
+          // Only start if blockchain transaction is confirmed
+          const snapshot = await get(tournamentRef);
+          if (snapshot.exists() && snapshot.val().blockchainStatus === 'CONFIRMED') {
+            await update(tournamentRef, { status: "Active" });
+            console.log(`Tournament ${tournamentId} has started.`);
+          } else {
+            console.log(`Tournament ${tournamentId} cannot start - blockchain transaction not confirmed`);
+          }
+        } catch (error) {
+          console.error(`Failed to start tournament ${tournamentId}:`, error);
+        }
+      });
+
+      schedule.scheduleJob(new Date(endTime), async () => {
+        try {
+          // Only end if tournament is active and blockchain confirmed
+          const snapshot = await get(tournamentRef);
+          if (snapshot.exists() && 
+              snapshot.val().blockchainStatus === 'CONFIRMED' && 
+              snapshot.val().status === 'Active') {
+            await update(tournamentRef, { status: "Ended" });
+            console.log(`Tournament ${tournamentId} has ended.`);
+          }
+        } catch (error) {
+          console.error(`Failed to end tournament ${tournamentId}:`, error);
+        }
+      });
+
+      // Return success response
+      return res.status(201).json({
+        message: "Tournament created successfully",
+        tournamentId,
+        transactionId: transaction.transactionId,
+        transaction: transaction.transaction,
+        expiresAt: transaction.expiresAt,
+        note: "Please sign and submit the transaction to complete tournament creation"
+      });
+
+    } else {
+      // If blockchain transaction creation failed, clean up tournament
+// ✅ New way (Firebase v9+)
+      await remove(newTournamentRef);
+        return res.status(500).json({
+        message: "Failed to create tournament blockchain transaction",
+        error: transaction.message
+      });
+    }
 
   } catch (error) {
     console.error("Error creating tournament:", error);
     return res.status(500).json({ message: "Internal Server Error" });
   }
 }
-
 // Controller function to retrieve active tournament data
 export const getActiveTournament = async (req: Request, res: Response) => {
   try {

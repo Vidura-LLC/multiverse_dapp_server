@@ -1,3 +1,5 @@
+//src/gamehub/services.ts
+
 import {
   Connection,
   PublicKey,
@@ -14,6 +16,7 @@ import {
 import dotenv from "dotenv";
 import { BN } from "bn.js";
 
+import {getTransactionTracker, TransactionTracker} from "../utils/transactionTracker"
 
 dotenv.config();
 
@@ -64,7 +67,7 @@ export const initializeTournamentPoolService = async (
 ) => {
   try {
     const { program, connection } = getProgram();
-
+    const tracker = getTransactionTracker();
     // 🔹 Convert tournamentId correctly
     const tournamentIdBytes = Buffer.from(tournamentId, "utf8"); // Ensure UTF-8 encoding
 
@@ -109,11 +112,27 @@ export const initializeTournamentPoolService = async (
     transaction.recentBlockhash = blockhash;
     transaction.feePayer = adminPublicKey;
 
-    // Return the unsigned transaction for frontend to sign
+    // 🔹 NEW: Store transaction for tracking
+    const serializedTx = transaction.serialize({ requireAllSignatures: false }).toString('base64');
+    const transactionId = await tracker.storePendingTransaction(
+      'CREATE_TOURNAMENT',
+      adminPublicKey.toBase58(),
+      serializedTx,
+      {
+        tournamentId,
+        entryFee,
+        maxParticipants,
+        endTime: new Date(endTime * 1000).toISOString(),
+        mintPublicKey: mintPublicKey.toBase58()
+      }
+    );
+
     return {
       success: true,
       message: "Tournament pool transaction created successfully",
-      transaction: transaction.serialize({ requireAllSignatures: false }).toString('base64'),
+      transactionId, // 🔹 NEW: Return tracking ID
+      transaction: serializedTx,
+      expiresAt: Date.now() + (5 * 60 * 1000)
     };
   } catch (err) {
     console.error("❌ Error creating tournament pool:", err);
@@ -168,7 +187,7 @@ export const registerForTournamentService = async (
 ) => {
   try {
     const { program, connection } = getProgram();
-
+    const tracker = getTransactionTracker();
     const tournamentIdBytes = Buffer.from(tournamentId, "utf8");
 
     // Get tournament pool PDA
@@ -217,11 +236,25 @@ export const registerForTournamentService = async (
     transaction.feePayer = userPublicKey;
 
 
+// 🔹 NEW: Store transaction for tracking
+    const serializedTx = transaction.serialize({ requireAllSignatures: false }).toString('base64');
+    const transactionId = await tracker.storePendingTransaction(
+      'REGISTER_TOURNAMENT',
+      userPublicKey.toBase58(),
+      serializedTx,
+      {
+        tournamentId,
+        adminPublicKey: adminPublicKey.toBase58(),
+        entryFee: tournamentPoolData.entryFee.toString()
+      }
+    );
 
     return {
       success: true,
-      message: "Successfully created transaction for registering for tournament",
-      transaction: transaction.serialize({ requireAllSignatures: false }).toString('base64'),
+      message: "Tournament registration transaction created successfully",
+      transactionId, // 🔹 NEW: Return tracking ID
+      transaction: serializedTx,
+      expiresAt: Date.now() + (5 * 60 * 1000)
     };
   } catch (err) {
     console.error("❌ Error registering for tournament:", err);

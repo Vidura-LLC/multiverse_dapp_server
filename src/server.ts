@@ -8,6 +8,10 @@ import revenueRoutes from './revenue/revenueRoutes';
 import adminDashboardRoutes from "./adminDashboard/adminDashboardRoutes";
 import { getUser } from "./utils/firebaseUtils";
 import { PublicKey } from "@solana/web3.js";
+// import { initializeTransactionMonitoring } from './utils/transactionMonitor'; // 🔹 NEW: Monitor service
+import callbackRoutes from './callbacks/callbackRoutes'; // 🔹 NEW: Callback routes
+
+
 
 // Load environment variables
 dotenv.config();
@@ -29,6 +33,7 @@ app.use("/api/admin", adminDashboardRoutes);
 app.use("/api/staking", stakingRoutes);
 app.use("/api/gamehub/", gamehubRoutes);
 app.use('/api/revenue/', revenueRoutes);
+app.use('api/callbacks/', callbackRoutes);
 
 // Server Port
 const PORT = process.env.PORT || 5000;
@@ -40,6 +45,9 @@ app.get('/', (req: Request, res: Response): any => {
 // Start the server
 app.listen(PORT, () => {
     console.log(`🚀 Server running on http://localhost:${PORT}`);
+
+// 🔹 NEW: Initialize transaction monitoring
+    // initializeTransactionMonitoring();
 });
 
 export default app;

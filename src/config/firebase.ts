@@ -1,7 +1,10 @@
 //src\config\firebase.ts
+import dotenv from "dotenv";
 
 import { initializeApp } from "firebase/app";
 import { getDatabase } from "firebase/database";
+
+dotenv.config();
 
 // TODO: Replace the following with your app's Firebase project configuration
 // See: https://firebase.google.com/docs/web/learn-more#config-object
