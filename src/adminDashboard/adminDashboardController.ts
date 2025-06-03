@@ -105,3 +105,7 @@ export const initializeRevenuePoolController = async (req: Request, res: Respons
         });
     }
 };
+
+
+export const initializationTest = async (req: Request, res: Response) => {
+}
