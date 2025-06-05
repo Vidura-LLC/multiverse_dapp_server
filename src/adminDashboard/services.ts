@@ -48,7 +48,7 @@ export const checkPoolStatus = async (adminPublicKey: PublicKey, tournamentId?: 
 
         console.log("🔹 Checking Staking Pool PDA:", stakingPoolPublicKey.toString());
 
-        const stakingPoolAccount = await program.account.stakingPool.fetchNullable(stakingPoolPublicKey);
+        const stakingPoolAccount = await program.account.stakingPool.fetch(stakingPoolPublicKey);
 
         result.stakingPool = {
             status: stakingPoolAccount !== null,
@@ -69,7 +69,7 @@ export const checkPoolStatus = async (adminPublicKey: PublicKey, tournamentId?: 
 
         console.log("🔹 Checking Revenue Pool PDA:", revenuePoolPublicKey.toString());
 
-        const revenuePoolAccount = await program.account.revenuePool.fetchNullable(revenuePoolPublicKey);
+        const revenuePoolAccount = await program.account.revenuePool.fetch(revenuePoolPublicKey);
 
         result.revenuePool = {
             status: revenuePoolAccount !== null,

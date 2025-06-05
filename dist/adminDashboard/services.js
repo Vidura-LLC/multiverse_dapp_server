@@ -74,7 +74,7 @@ const checkPoolStatus = (adminPublicKey, tournamentId) => __awaiter(void 0, void
         const [stakingPoolPublicKey] = web3_js_1.PublicKey.findProgramAddressSync([Buffer.from("staking_pool"), adminPublicKey.toBuffer()], program.programId);
         const [stakingEscrowAccountPublicKey] = web3_js_1.PublicKey.findProgramAddressSync([Buffer.from("escrow"), stakingPoolPublicKey.toBuffer()], program.programId);
         console.log("🔹 Checking Staking Pool PDA:", stakingPoolPublicKey.toString());
-        const stakingPoolAccount = yield program.account.stakingPool.fetchNullable(stakingPoolPublicKey);
+        const stakingPoolAccount = yield program.account.stakingPool.fetch(stakingPoolPublicKey);
         result.stakingPool = {
             status: stakingPoolAccount !== null,
             stakingPoolAddress: stakingPoolPublicKey.toString(),
@@ -84,7 +84,7 @@ const checkPoolStatus = (adminPublicKey, tournamentId) => __awaiter(void 0, void
         const [revenuePoolPublicKey] = web3_js_1.PublicKey.findProgramAddressSync([Buffer.from("revenue_pool"), adminPublicKey.toBuffer()], program.programId);
         const [revenueEscrowAccountPublicKey] = web3_js_1.PublicKey.findProgramAddressSync([Buffer.from("revenue_escrow"), revenuePoolPublicKey.toBuffer()], program.programId);
         console.log("🔹 Checking Revenue Pool PDA:", revenuePoolPublicKey.toString());
-        const revenuePoolAccount = yield program.account.revenuePool.fetchNullable(revenuePoolPublicKey);
+        const revenuePoolAccount = yield program.account.revenuePool.fetch(revenuePoolPublicKey);
         result.revenuePool = {
             status: revenuePoolAccount !== null,
             revenuePoolAddress: revenuePoolPublicKey.toString(),
