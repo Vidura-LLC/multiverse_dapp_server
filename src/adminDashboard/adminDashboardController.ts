@@ -125,9 +125,9 @@ export const initializeRevenuePoolController = async (req: Request, res: Respons
 export const getStakingStatsController = async (req: Request, res: Response) => {
     try {
 
-        const { adminPublicKey } = req.body;
+        const { adminPublicKey } = req.params;
         console.log('📊 Fetching staking statistics...');
-        // Validate the mint address
+        // Validate the admin address
         if (!adminPublicKey) {
             return res.status(400).json({
                 success: false,

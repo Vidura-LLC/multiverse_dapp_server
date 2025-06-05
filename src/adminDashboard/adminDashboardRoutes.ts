@@ -16,7 +16,7 @@ router.post('/initialize-staking-pool', initializeStakingPoolController as unkno
 router.post('/initialize-revenue-pool', initializeRevenuePoolController as unknown as RequestHandler);
 
 // Main route to get comprehensive staking statistics (for your dashboard)
-router.get('/staking/stats', getStakingStatsController as unknown as RequestHandler);
+router.get('/staking/stats/:adminPublicKey', getStakingStatsController as unknown as RequestHandler);
 
 // Route to get staking pool data only
 router.get('/staking/pool-data', getStakingPoolController as unknown as RequestHandler);
