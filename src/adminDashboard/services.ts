@@ -62,7 +62,7 @@ export const checkPoolStatus = async (adminPublicKey: PublicKey, tournamentId?: 
 
         console.log("🔹 Checking Staking Pool PDA:", stakingPoolPublicKey.toString());
 
-        const stakingPoolAccount = await program.account.stakingPool.fetch(stakingPoolPublicKey);
+        const stakingPoolAccount = await program.account.stakingPool.fetch(stakingPoolPublicKey) as StakingPoolAccount;
 
         result.stakingPool = {
             status: stakingPoolAccount !== null,
