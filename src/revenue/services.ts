@@ -137,6 +137,7 @@ const getProgram = () => {
       success: true,
       message: "Transaction created successfully!",
       transaction: transaction.serialize({ requireAllSignatures: false }).toString('base64'),
+      prizePool: prizePoolPublicKey.toString(),
     };
   } catch (err) {
       console.error("❌ Error initializing prize pool:", err);

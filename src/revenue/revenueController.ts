@@ -1,6 +1,6 @@
 // src/revenue/revenueController.ts
 
-import { ref, get } from "firebase/database";
+import { ref, get, set } from "firebase/database";
 import { db } from "../config/firebase";
 import { Request, Response } from 'express';
 import { PublicKey } from '@solana/web3.js';
@@ -35,12 +35,26 @@ export const initializePrizePoolController = async (req: Request, res: Response)
     const mintPubkey = new PublicKey(mintPublicKey);
     const adminPubKey = new PublicKey(adminPublicKey);
 
-
     // Call the service function to initialize prize pool for the tournament
     const result = await initializePrizePoolService(tournamentId, mintPubkey, adminPubKey);
 
-    // Return the result
     if (result.success) {
+      const tournamentRef = ref(db, `tournaments/${tournamentId}`);
+      const tournamentSnapshot = await get(tournamentRef);
+
+      if (!tournamentSnapshot.exists()) {
+        return res.status(404).json({
+          success: false,
+          message: 'Tournament not found'
+        });
+      }
+
+      const tournament = tournamentSnapshot.val();
+      tournament.prizePool = result.prizePool;
+
+      // Save the updated tournament data back to Firebase
+      await set(tournamentRef, tournament);
+
       return res.status(200).json(result);
     } else {
       return res.status(500).json(result);
