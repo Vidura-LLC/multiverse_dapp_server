@@ -322,18 +322,13 @@ export const distributeTournamentRevenueService = async (
       const stakingAmount = Math.floor((totalFunds * stakingPercentage) / 100);
       const burnAmount = Math.floor((totalFunds * burnPercentage) / 100);
 
-      // Serialize the unsigned transaction
-      const serializedTransaction = transaction.serialize({
-        requireAllSignatures: false, // Important: Don't require signatures for serialization
-        verifySignatures: false
-      }).toString('base64');
 
       // Return transaction data to be signed by the frontend
       return {
         success: true,
         message: "Tournament revenue distribution transaction created successfully!",
         tournamentId,
-        serializedTransaction, // Base64 encoded serialized transaction
+        transaction: transaction.serialize({ requireAllSignatures: false }).toString('base64'), // Base64 encoded serialized transaction
         distribution: {
           totalFunds,
           prizeAmount,

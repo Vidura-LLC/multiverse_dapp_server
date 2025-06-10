@@ -1,10 +1,11 @@
 // src/revenue/revenueController.ts
 
-import { ref, get, set } from "firebase/database";
+import { ref, get, set, update } from "firebase/database";
 import { db } from "../config/firebase";
 import { Request, Response } from 'express';
 import { PublicKey } from '@solana/web3.js';
 import { initializePrizePoolService, distributeTournamentRevenueService, distributeTournamentPrizesService } from '../../src/revenue/services';
+import { getProgram } from "../staking/services";
 
 
 
@@ -360,6 +361,98 @@ export const getTournamentPrizesDistributionController = async (req: Request, re
     return res.status(500).json({ 
       success: false, 
       message: 'Failed to get tournament prizes distribution details',
+      error: err.message || err
+    });
+  }
+};
+
+
+/**
+ * Controller function to confirm tournament revenue distribution after frontend signs transaction
+ */
+export const confirmDistributionController = async (req: Request, res: Response) => {
+  try {
+    const {
+      tournamentId,
+      transactionSignature,
+      distribution
+    } = req.body;
+
+    // Validate required fields
+    if (!tournamentId || !transactionSignature) {
+      return res.status(400).json({
+        success: false,
+        message: 'Tournament ID and transaction signature are required'
+      });
+    }
+
+    // Verify transaction exists on blockchain (optional but recommended)
+    const { connection } = getProgram();
+    try {
+      const txInfo = await connection.getTransaction(transactionSignature);
+      if (!txInfo) {
+        return res.status(400).json({
+          success: false,
+          message: 'Transaction not found on blockchain'
+        });
+      }
+    } catch (err) {
+      console.warn('Could not verify transaction on blockchain:', err);
+      // Continue anyway - transaction might be too recent
+    }
+
+
+    // Update tournament status in Firebase
+    console.log("Updating tournament status in Firebase...");
+    const tournamentRef = ref(db, `tournaments/${tournamentId}`);
+
+    // Check if tournament exists
+    const tournamentSnapshot = await get(tournamentRef);
+    if (!tournamentSnapshot.exists()) {
+      return res.status(404).json({
+        success: false,
+        message: 'Tournament not found'
+      });
+    }
+
+    const tournament = tournamentSnapshot.val();
+
+    // Check if already distributed
+    if (tournament.distributionCompleted) {
+      return res.status(400).json({
+        success: false,
+        message: 'Tournament revenue has already been distributed'
+      });
+    }
+
+    // Update tournament with distribution details
+    await update(tournamentRef, {
+      status: "Completed",
+      distributionCompleted: true,
+      distributionTimestamp: Date.now(),
+      distributionDetails: {
+        totalDistributed: distribution.totalFunds,
+        prizeAmount: distribution.prizeAmount,
+        revenueAmount: distribution.revenueAmount,
+        stakingAmount: distribution.stakingAmount,
+        burnAmount: distribution.burnAmount,
+        transactionSignature: transactionSignature
+      }
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Tournament distribution confirmed successfully',
+      tournamentId,
+      transactionSignature,
+      distribution
+    });
+
+  } catch (err) {
+    console.error('Error in confirm distribution controller:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to confirm tournament distribution',
       error: err.message || err
     });
   }

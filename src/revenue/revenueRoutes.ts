@@ -5,7 +5,8 @@ import {
   initializePrizePoolController,
   distributeTournamentRevenueController,
   distributeTournamentPrizesController,
-  getTournamentPrizesDistributionController
+  getTournamentPrizesDistributionController,
+  confirmDistributionController
 } from './revenueController';
 
 const router = Router();
@@ -17,6 +18,11 @@ router.post('/initialize-prize-pool', initializePrizePoolController as unknown a
 // Route for distributing tournament revenue
 router.post('/distribute-tournament', 
   distributeTournamentRevenueController as unknown as RequestHandler
+);
+
+// Route for confirming tournament revenue distribution
+router.post('/confirm-distribution',
+  confirmDistributionController as unknown as RequestHandler
 );
 
 // Route for distributing tournament prizes

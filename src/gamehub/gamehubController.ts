@@ -18,7 +18,7 @@ interface Tournament {
   createdAt: string;
   participants: { [key: string]: { joinedAt: string; score: number } };
   participantsCount: number;
-  status: "Active" | "Paused" | "Ended" | "Draft";
+  status: "Active" | "Paused" | "Ended" | "Draft" | "Distributed";
   createdBy: string
 }
 
