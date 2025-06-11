@@ -6,7 +6,8 @@ import {
   distributeTournamentRevenueController,
   distributeTournamentPrizesController,
   getTournamentPrizesDistributionController,
-  confirmDistributionController
+  confirmDistributionController,
+  confirmPrizeDistributionController
 } from './revenueController';
 
 const router = Router();
@@ -33,6 +34,11 @@ router.post('/distribute-prizes',
 // Route for getting prize distribution details
 router.get('/prize-distribution/:tournamentId', 
   getTournamentPrizesDistributionController as unknown as RequestHandler
+);
+
+//Router for confirming prize distribution
+router.post('/confirm-prize-distribution',
+  confirmPrizeDistributionController as unknown as RequestHandler
 );
 
 export default router;

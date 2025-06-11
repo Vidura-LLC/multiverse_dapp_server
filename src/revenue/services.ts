@@ -503,11 +503,6 @@ export const distributeTournamentPrizesService = async (
     transaction.recentBlockhash = blockhash;
     transaction.feePayer = adminPublicKey;
 
-    // 7. Serialize the transaction WITHOUT signing
-    const serializedTransaction = transaction.serialize({
-      requireAllSignatures: false,
-      verifySignatures: false
-    }).toString('base64');
 
     // 8. Calculate prize amounts (if needed for frontend display)
     // You can calculate these based on your distribution logic
@@ -523,12 +518,7 @@ export const distributeTournamentPrizesService = async (
     return {
       success: true,
       message: "Prize distribution transaction created successfully!",
-      serializedTransaction,
-      tournamentId,
-      tournamentData: {
-        name: tournament.name,
-        totalPrizeAmount,
-      },
+      transaction: transaction.serialize({ requireAllSignatures: false }).toString('base64'),
       winnerData: {
         firstPlace: {
           publicKey: firstPlacePublicKey.toString(),

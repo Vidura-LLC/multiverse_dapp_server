@@ -241,7 +241,7 @@ export const distributeTournamentPrizesController = async (req: Request, res: Re
     }
 
     // Validate winner public keys
-    if (!firstPlacePublicKey || !secondPlacePublicKey || !thirdPlacePublicKey || adminPublicKey) {
+    if (!firstPlacePublicKey || !secondPlacePublicKey || !thirdPlacePublicKey || !adminPublicKey) {
       return res.status(400).json({ 
         success: false, 
         message: 'Public keys for all three winners are required' 
@@ -261,7 +261,7 @@ export const distributeTournamentPrizesController = async (req: Request, res: Re
     
     // Verify tournament has ended
     const tournament = tournamentSnapshot.val();
-    if (tournament.status !== 'Ended' && tournament.status !== 'Completed') {
+    if (tournament.status !== 'Ended' && tournament.status !== 'Distributed') {
       return res.status(400).json({ 
         success: false, 
         message: 'Cannot distribute prizes for an active tournament' 
@@ -453,6 +453,112 @@ export const confirmDistributionController = async (req: Request, res: Response)
     return res.status(500).json({
       success: false,
       message: 'Failed to confirm tournament distribution',
+      error: err.message || err
+    });
+  }
+};
+
+/**
+ * Controller function to confirm tournament prize distribution after frontend signs transaction
+ */
+export const confirmPrizeDistributionController = async (req: Request, res: Response) => {
+  try {
+    const {
+      tournamentId,
+      transactionSignature,
+      winnerData
+    } = req.body;
+
+    // Validate required fields
+    if (!tournamentId || !transactionSignature) {
+      return res.status(400).json({
+        success: false,
+        message: 'Tournament ID and transaction signature are required'
+      });
+    }
+
+    // Verify transaction exists on blockchain (optional but recommended)
+    const { connection } = getProgram();
+    try {
+      const txInfo = await connection.getTransaction(transactionSignature);
+      if (!txInfo) {
+        return res.status(400).json({
+          success: false,
+          message: 'Transaction not found on blockchain'
+        });
+      }
+    } catch (err) {
+      console.warn('Could not verify transaction on blockchain:', err);
+      // Continue anyway - transaction might be too recent
+    }
+
+    // Update tournament status in Firebase
+    console.log("Updating tournament prize distribution status in Firebase...");
+    const tournamentRef = ref(db, `tournaments/${tournamentId}`);
+
+    // Check if tournament exists
+    const tournamentSnapshot = await get(tournamentRef);
+    if (!tournamentSnapshot.exists()) {
+      return res.status(404).json({
+        success: false,
+        message: 'Tournament not found'
+      });
+    }
+
+    const tournament = tournamentSnapshot.val();
+
+    // Check if prizes have already been distributed
+    if (tournament.prizesDistributed) {
+      return res.status(400).json({
+        success: false,
+        message: 'Tournament prizes have already been distributed'
+      });
+    }
+
+    // Verify tournament revenue has been distributed first
+    if (!tournament.distributionCompleted) {
+      return res.status(400).json({
+        success: false,
+        message: 'Tournament revenue must be distributed before confirming prize distribution'
+      });
+    }
+
+    // Update tournament with prize distribution details
+    await update(tournamentRef, {
+      status: "Awarded",
+      prizesDistributed: true,
+      prizeDistributionTimestamp: Date.now(),
+      prizeDistributionSignature: transactionSignature,
+      winners: winnerData ? {
+        firstPlace: {
+          publicKey: winnerData.firstPlace?.publicKey,
+          amount: winnerData.firstPlace?.amount
+        },
+        secondPlace: {
+          publicKey: winnerData.secondPlace?.publicKey,
+          amount: winnerData.secondPlace?.amount
+        },
+        thirdPlace: {
+          publicKey: winnerData.thirdPlace?.publicKey,
+          amount: winnerData.thirdPlace?.amount
+        }
+      } : undefined
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Tournament prize distribution confirmed successfully',
+      tournamentId,
+      transactionSignature,
+      winnerData,
+      distributedAt: new Date().toISOString()
+    });
+
+  } catch (err) {
+    console.error('Error in confirm prize distribution controller:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to confirm tournament prize distribution',
       error: err.message || err
     });
   }
