@@ -76,16 +76,23 @@ const getProgram = () => {
 };
 exports.getProgram = getProgram;
 // ✅ Function to stake tokens into the staking pool
-const stakeTokenService = (mintPublicKey, userPublicKey, amount, lockDuration // New parameter for lock duration in seconds
+// ✅ Function to stake tokens into the staking pool
+const stakeTokenService = (mintPublicKey, userPublicKey, amount, lockDuration, // Lock duration in seconds
+adminPublicKey // Admin public key from client
 ) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const { program, adminPublicKey, connection } = (0, exports.getProgram)();
+        const { program, connection } = (0, exports.getProgram)();
         // Log initial parameters for clarity
         console.log("Staking Details:");
         console.log("User PublicKey:", userPublicKey.toBase58());
+        console.log("Admin PublicKey:", adminPublicKey.toBase58());
         console.log("Mint PublicKey:", mintPublicKey.toBase58());
         console.log("Amount to stake:", amount);
         console.log("Lock Duration (in seconds):", lockDuration);
+        // Validate lockDuration
+        if (!lockDuration || typeof lockDuration !== 'number') {
+            throw new Error('Invalid lock duration provided');
+        }
         const [stakingPoolPublicKey] = web3_js_1.PublicKey.findProgramAddressSync([Buffer.from("staking_pool"), adminPublicKey.toBuffer()], program.programId);
         const [userStakingAccountPublicKey] = web3_js_1.PublicKey.findProgramAddressSync([Buffer.from("user_stake"), userPublicKey.toBuffer()], program.programId);
         const [poolEscrowAccountPublicKey] = web3_js_1.PublicKey.findProgramAddressSync([Buffer.from("escrow"), stakingPoolPublicKey.toBuffer()], program.programId);
@@ -97,12 +104,12 @@ const stakeTokenService = (mintPublicKey, userPublicKey, amount, lockDuration //
         const { blockhash } = yield connection.getLatestBlockhash("finalized");
         console.log("Latest Blockhash:", blockhash);
         // Calculate the lock timestamp (current UTC time + lock duration in seconds)
-        const currentTimestamp = Math.floor(Date.now() / 1000); // Current UTC timestamp in seconds
-        const lockTimestamp = currentTimestamp + lockDuration; // Add lockDuration to current timestamp
+        const currentTimestamp = Math.floor(Date.now() / 1000);
+        const lockTimestamp = currentTimestamp + lockDuration;
         console.log("Lock Timestamp (UTC):", lockTimestamp);
         // ✅ Create an unsigned transaction for staking
         const transaction = yield program.methods
-            .stake(new anchor.BN(amount), new anchor.BN(lockDuration)) // Pass lock duration to contract
+            .stake(new anchor.BN(amount), new anchor.BN(lockDuration))
             .accounts({
             user: userPublicKey,
             stakingPool: stakingPoolPublicKey,
@@ -113,7 +120,7 @@ const stakeTokenService = (mintPublicKey, userPublicKey, amount, lockDuration //
             tokenProgram: spl_token_1.TOKEN_2022_PROGRAM_ID,
             systemProgram: web3_js_1.SystemProgram.programId,
         })
-            .transaction(); // ⬅️ Create transaction, don't sign
+            .transaction();
         transaction.recentBlockhash = blockhash;
         transaction.feePayer = userPublicKey;
         // Serialize transaction and send it to the frontend
@@ -125,13 +132,16 @@ const stakeTokenService = (mintPublicKey, userPublicKey, amount, lockDuration //
     }
     catch (err) {
         console.error("❌ Error creating staking transaction:", err);
-        return { success: false, message: "Error creating staking transaction" };
+        return {
+            success: false,
+            message: `Error creating staking transaction: ${err.message || err}`
+        };
     }
 });
 exports.stakeTokenService = stakeTokenService;
-const unstakeTokenService = (mintPublicKey, userPublicKey) => __awaiter(void 0, void 0, void 0, function* () {
+const unstakeTokenService = (mintPublicKey, userPublicKey, adminPublicKey) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const { program, adminPublicKey, connection } = (0, exports.getProgram)(); // Assuming getProgram() initializes necessary context
+        const { program, connection } = (0, exports.getProgram)(); // Assuming getProgram() initializes necessary context
         // Find the staking pool, user staking account, and escrow account
         const [stakingPoolPublicKey] = web3_js_1.PublicKey.findProgramAddressSync([Buffer.from('staking_pool'), adminPublicKey.toBuffer()], program.programId);
         const [userStakingAccountPublicKey] = web3_js_1.PublicKey.findProgramAddressSync([Buffer.from('user_stake'), userPublicKey.toBuffer()], program.programId);
