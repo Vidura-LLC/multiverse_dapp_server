@@ -83,11 +83,9 @@ export const stakeTokensController = async (req: Request, res: Response) => {
 
 export const unstakeTokensController = async (req: Request, res: Response) => {
   try {
-    const { mintPublicKey, userPublicKey, amount } = req.body;
+    const { mintPublicKey, userPublicKey, adminPublicKey } = req.body;
 
-    const mintAddress = new PublicKey(mintPublicKey);
-    const userAddress = new PublicKey(userPublicKey);
-    const result = await unstakeTokenService(mintAddress, userAddress);
+    const result = await unstakeTokenService(new PublicKey(mintPublicKey), new PublicKey(userPublicKey), new PublicKey(adminPublicKey));
 
     if (result.success) {
       return res.status(200).json(result);

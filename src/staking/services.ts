@@ -158,10 +158,11 @@ export const stakeTokenService = async (
 
 export const unstakeTokenService = async (
   mintPublicKey: PublicKey,
-  userPublicKey: PublicKey
+  userPublicKey: PublicKey,
+  adminPublicKey: PublicKey
 ) => {
   try {
-    const { program, adminPublicKey, connection } = getProgram(); // Assuming getProgram() initializes necessary context
+    const { program, connection } = getProgram(); // Assuming getProgram() initializes necessary context
 
     // Find the staking pool, user staking account, and escrow account
     const [stakingPoolPublicKey] = PublicKey.findProgramAddressSync(
