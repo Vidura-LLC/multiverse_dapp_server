@@ -18,9 +18,6 @@ router.post('/get-tournament-pool', getTournamentPoolController as unknown as Re
 // Route to create tournament
 router.post('/create-tournament-pool', initializeTournamentPoolController as unknown as RequestHandler);
 
-// Route for registering a user for a tournament
-router.post('/register-for-tournament', registerForTournamentController as unknown as RequestHandler);
-
 // Route for user authentication (verify the user with publicKey in headers)
 router.post('/verify-user', verifyUser as unknown as RequestHandler, (req: Request, res: Response) => {
     // If the verifyUser middleware passes, this handler will be called
