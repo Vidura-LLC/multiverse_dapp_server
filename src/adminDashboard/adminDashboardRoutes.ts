@@ -1,7 +1,7 @@
 //src/adminDashboard/adminDashboardRoutes.ts
 
 import { Router, RequestHandler } from 'express';
-import { checkPoolStatusController, getActiveStakersController, getAPYController, getDetailedStakersController, getStakingPoolController, getStakingStatsController, initializeRevenuePoolController, initializeStakingPoolController } from './adminDashboardController';
+import { checkPoolStatusController, getActiveStakersController, getAPYController, getDashboardStatsController, getDetailedStakersController, getRevenuePoolStatsController, getStakingPoolController, getStakingStatsController, getTournamentStatsController, initializeRevenuePoolController, initializeStakingPoolController } from './adminDashboardController';
 
 const router = Router();
 
@@ -30,6 +30,16 @@ router.get('/staking/apy', getAPYController as unknown as RequestHandler);
 // Route to get detailed stakers information with pagination
 // Query parameters: page, limit, sortBy, sortOrder
 // Example: /api/staking/stakers?page=1&limit=10&sortBy=stakedAmount&sortOrder=desc
-router.get('/staking/stakers', getDetailedStakersController as unknown as RequestHandler);  
+router.get('/staking/stakers', getDetailedStakersController as unknown as RequestHandler); 
+
+// Route to get tournament stats
+router.get('/tournaments/stats', getTournamentStatsController as unknown as RequestHandler);
+
+// Route to get revenue stats
+router.get('/revenue/stats/:adminPublicKey', getRevenuePoolStatsController as unknown as RequestHandler);
+
+// Route to get dashboard data
+router.get('/dashboardStats/:adminPublicKey', getDashboardStatsController as unknown as RequestHandler);
+
 
 export default router;

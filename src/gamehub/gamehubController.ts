@@ -6,7 +6,7 @@ import { getTournamentLeaderboard, updateParticipantScore, getTournamentsByGame 
 import { PublicKey } from "@solana/web3.js";
 import schedule from 'node-schedule'
 // Define Tournament interface
-interface Tournament {
+export interface Tournament {
   id: string;
   name: string;
   description: string;
@@ -18,7 +18,7 @@ interface Tournament {
   createdAt: string;
   participants: { [key: string]: { joinedAt: string; score: number } };
   participantsCount: number;
-  status: "Active" | "Paused" | "Ended" | "Draft" | "Distributed" | "Awarded";
+  status: "Active" | "Upcoming" | "Ended" | "Draft" | "Distributed" | "Awarded";
   createdBy: string
 }
 
@@ -27,7 +27,6 @@ export async function getAllGames(req: Request, res: Response) {
   try {
     const gamesRef = ref(db, "games");
     const gamesSnapshot = await get(gamesRef);
-
     if (!gamesSnapshot.exists()) {
       return res.status(404).json({ message: "No games found" });
     }

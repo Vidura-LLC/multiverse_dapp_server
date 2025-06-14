@@ -21,89 +21,6 @@ interface StakingPoolAccount {
     bump: number;
 }
 
-interface UserStakingAccount {
-    owner: PublicKey;
-    stakedAmount: anchor.BN;
-    stakeTimestamp: anchor.BN;
-    lockDuration: anchor.BN;
-}
-
-
-// ✅ Function to check pool status for staking, revenue, and prize pools
-export const checkPoolStatus = async (adminPublicKey: PublicKey, tournamentId?: string) => {
-    try {
-        const { program } = getProgram();
-
-        const result = {
-            success: true,
-            stakingPool: {
-                status: false, // false = needs initialization, true = exists
-                stakingPoolAddress: '',
-                poolEscrowAccountAddress: '',
-            },
-            revenuePool: {
-                status: false, // false = needs initialization, true = exists
-                revenuePoolAddress: '',
-                revenueEscrowAccountAddress: '',
-            },
-            adminAddress: adminPublicKey.toString()
-        };
-
-        // ✅ 1. Check Staking Pool
-        const [stakingPoolPublicKey] = PublicKey.findProgramAddressSync(
-            [Buffer.from("staking_pool"), adminPublicKey.toBuffer()],
-            program.programId
-        );
-
-        const [stakingEscrowAccountPublicKey] = PublicKey.findProgramAddressSync(
-            [Buffer.from("escrow"), stakingPoolPublicKey.toBuffer()],
-            program.programId
-        );
-
-        console.log("🔹 Checking Staking Pool PDA:", stakingPoolPublicKey.toString());
-
-        const stakingPoolAccount = await program.account.stakingPool.fetchNullable(stakingPoolPublicKey) as StakingPoolAccount;
-
-        result.stakingPool = {
-            status: stakingPoolAccount !== null,
-            stakingPoolAddress: stakingPoolPublicKey.toString(),
-            poolEscrowAccountAddress: stakingEscrowAccountPublicKey.toString(),
-        };
-
-        // ✅ 2. Check Revenue Pool
-        const [revenuePoolPublicKey] = PublicKey.findProgramAddressSync(
-            [Buffer.from("revenue_pool"), adminPublicKey.toBuffer()],
-            program.programId
-        );
-
-        const [revenueEscrowAccountPublicKey] = PublicKey.findProgramAddressSync(
-            [Buffer.from("revenue_escrow"), revenuePoolPublicKey.toBuffer()],
-            program.programId
-        );
-
-        console.log("🔹 Checking Revenue Pool PDA:", revenuePoolPublicKey.toString());
-
-        const revenuePoolAccount = await program.account.revenuePool.fetchNullable(revenuePoolPublicKey);
-
-        result.revenuePool = {
-            status: revenuePoolAccount !== null,
-            revenuePoolAddress: revenuePoolPublicKey.toString(),
-            revenueEscrowAccountAddress: revenueEscrowAccountPublicKey.toString(),
-
-        }
-
-        return result;
-
-    } catch (err) {
-        console.error("❌ Error checking pool status:", err);
-        return {
-            success: false,
-            message: `Error checking pool status: ${err.message || err}`
-        };
-    }
-};
-
-
 // ✅ Function to initialize the staking pool and escrow account
 export const initializeStakingPoolService = async (mintPublicKey: PublicKey, adminPublicKey: PublicKey) => {
     try {
@@ -234,200 +151,67 @@ export const initializeRevenuePoolService = async (mintPublicKey: PublicKey, adm
     }
 };
 
-/**
-* Get the staking pool data from the blockchain
-*/
-export const getStakingPoolData = async () => {
+// ✅ Function to check pool status for staking, revenue, and prize pools
+export const checkPoolStatus = async (adminPublicKey: PublicKey, tournamentId?: string) => {
     try {
-        const { program, adminPublicKey } = getProgram();
+        const { program } = getProgram();
 
-        // Derive the staking pool PDA
+        const result = {
+            success: true,
+            stakingPool: {
+                status: false, // false = needs initialization, true = exists
+            },
+            revenuePool: {
+                status: false, // false = needs initialization, true = exists
+            },
+            adminAddress: adminPublicKey.toString()
+        };
+
+        // ✅ 1. Check Staking Pool
         const [stakingPoolPublicKey] = PublicKey.findProgramAddressSync(
             [Buffer.from("staking_pool"), adminPublicKey.toBuffer()],
             program.programId
         );
 
-        console.log("🔹 Fetching Staking Pool PDA:", stakingPoolPublicKey.toString());
+        const [stakingEscrowAccountPublicKey] = PublicKey.findProgramAddressSync(
+            [Buffer.from("escrow"), stakingPoolPublicKey.toBuffer()],
+            program.programId
+        );
 
-        // Fetch the staking pool data
-        const stakingPoolData = await program.account.stakingPool.fetch(
-            stakingPoolPublicKey
-        ) as StakingPoolAccount;
+        console.log("🔹 Checking Staking Pool PDA:", stakingPoolPublicKey.toString());
 
-        return {
-            success: true,
-            data: {
-                admin: stakingPoolData.admin.toString(),
-                mint: stakingPoolData.mint.toString(),
-                totalStaked: stakingPoolData.totalStaked.toString(),
-                stakingPoolAddress: stakingPoolPublicKey.toString(),
-            }
+        const stakingPoolAccount = await program.account.stakingPool.fetchNullable(stakingPoolPublicKey) as StakingPoolAccount;
+
+        result.stakingPool = {
+            status: stakingPoolAccount !== null,
         };
-    } catch (err) {
-        console.error("❌ Error fetching staking pool data:", err);
-        return {
-            success: false,
-            message: `Error fetching staking pool data: ${err.message || err}`
-        };
-    }
-};
 
-/**
- * Get all active stakers by scanning user staking accounts
- * Note: This is a simplified approach. In production, you might want to maintain
- * a list of stakers in your database for better performance.
- */
-export const getActiveStakers = async () => {
-    try {
-        const { program, connection } = getProgram();
+        // ✅ 2. Check Revenue Pool
+        const [revenuePoolPublicKey] = PublicKey.findProgramAddressSync(
+            [Buffer.from("revenue_pool"), adminPublicKey.toBuffer()],
+            program.programId
+        );
 
-        // Get all program accounts of type UserStakingAccount
-        const userStakingAccounts = await program.account.userStakingAccount.all();
+        const [revenueEscrowAccountPublicKey] = PublicKey.findProgramAddressSync(
+            [Buffer.from("revenue_escrow"), revenuePoolPublicKey.toBuffer()],
+            program.programId
+        );
 
-        console.log(`🔹 Found ${userStakingAccounts.length} user staking accounts`);
+        console.log("🔹 Checking Revenue Pool PDA:", revenuePoolPublicKey.toString());
 
-        // Filter active stakers (those with staked amount > 0)
-        const activeStakers = userStakingAccounts.filter(account => {
-            const userData = account.account as UserStakingAccount;
-            return userData.stakedAmount.gt(new anchor.BN(0));
-        });
+        const revenuePoolAccount = await program.account.revenuePool.fetchNullable(revenuePoolPublicKey);
 
-        console.log(`🔹 Active stakers: ${activeStakers.length}`);
-
-        // Calculate detailed staker information
-        const stakersInfo = activeStakers.map(account => {
-            const userData = account.account as UserStakingAccount;
-            const tokenDecimals = 9; // Adjust based on your token decimals
-            const readableStakedAmount = userData.stakedAmount.toNumber() / (10 ** tokenDecimals);
-
-            return {
-                publicKey: account.publicKey.toString(),
-                owner: userData.owner.toString(),
-                stakedAmount: readableStakedAmount,
-                stakeTimestamp: userData.stakeTimestamp.toString(),
-                lockDuration: userData.lockDuration.toString(),
-            };
-        });
-
-        return {
-            success: true,
-            data: {
-                activeStakersCount: activeStakers.length,
-                totalStakers: userStakingAccounts.length,
-                stakers: stakersInfo
-            }
-        };
-    } catch (err) {
-        console.error("❌ Error fetching active stakers:", err);
-        return {
-            success: false,
-            message: `Error fetching active stakers: ${err.message || err}`
-        };
-    }
-};
-
-/**
- * Calculate APY based on staking rewards and time
- * This is a simplified calculation - you may need to adjust based on your reward mechanism
- */
-export const calculateAPY = async () => {
-    try {
-// For now, we'll return a calculated APY based on your tokenomics
-// You might want to calculate this based on:
-// 1. Revenue from tournaments going to staking rewards
-// 2. Time-based multipliers for different lock periods
-// 3. Total staked amount vs circulating supply
-
-        // Example calculation (adjust based on your actual reward mechanism):
-        const baseAPY = 8.0; // Base 8% APY
-        const tournamentBonusAPY = 4.4; // Additional 4.4% from tournament revenue
-
-        const totalAPY = baseAPY + tournamentBonusAPY;
-
-        return {
-            success: true,
-            data: {
-                currentAPY: totalAPY,
-                baseAPY: baseAPY,
-                tournamentBonusAPY: tournamentBonusAPY,
-                calculatedAt: new Date().toISOString()
-            }
-        };
-    } catch (err) {
-        console.error("❌ Error calculating APY:", err);
-        return {
-            success: false,
-            message: `Error calculating APY: ${err.message || err}`
-        };
-    }
-};
-
-/**
- * Get comprehensive staking statistics
- */
-export const getStakingStats = async () => {
-    try {
-        console.log("📊 Fetching comprehensive staking statistics...");
-
-        // Fetch all data in parallel
-        const [poolResult, stakersResult, apyResult] = await Promise.all([
-            getStakingPoolData(),
-            getActiveStakers(),
-            calculateAPY()
-        ]);
-
-        // Check if any requests failed
-        if (!poolResult.success) {
-            return {
-                success: false,
-                message: `Failed to fetch pool data: ${poolResult.message}`
-            };
+        result.revenuePool = {
+            status: revenuePoolAccount !== null,
         }
 
-        if (!stakersResult.success) {
-            return {
-                success: false,
-                message: `Failed to fetch stakers data: ${stakersResult.message}`
-            };
-        }
+        return result;
 
-        if (!apyResult.success) {
-            return {
-                success: false,
-                message: `Failed to calculate APY: ${apyResult.message}`
-            };
-        }
-
-        // Convert total staked to readable format
-        const tokenDecimals = 9; // Adjust based on your token decimals
-        const totalStakedRaw = new anchor.BN(poolResult.data.totalStaked);
-        const totalStakedReadable = totalStakedRaw.toNumber() / (10 ** tokenDecimals);
-
-        return {
-            success: true,
-            data: {
-                totalStaked: {
-                    raw: poolResult.data.totalStaked,
-                    formatted: totalStakedReadable.toLocaleString(),
-                    readable: totalStakedReadable
-                },
-                activeStakers: stakersResult.data.activeStakersCount,
-                totalStakers: stakersResult.data.totalStakers,
-                currentAPY: apyResult.data.currentAPY,
-                apyBreakdown: {
-                    baseAPY: apyResult.data.baseAPY,
-                    tournamentBonusAPY: apyResult.data.tournamentBonusAPY
-                },
-                stakingPoolAddress: poolResult.data.stakingPoolAddress,
-                mintAddress: poolResult.data.mint,
-                lastUpdated: new Date().toISOString()
-            }
-        };
     } catch (err) {
-        console.error("❌ Error fetching staking statistics:", err);
+        console.error("❌ Error checking pool status:", err);
         return {
             success: false,
-            message: `Error fetching staking statistics: ${err.message || err}`
+            message: `Error checking pool status: ${err.message || err}`
         };
     }
 };

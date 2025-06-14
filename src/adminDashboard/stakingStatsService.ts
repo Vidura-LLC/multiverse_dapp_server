@@ -10,7 +10,7 @@ import { getProgram } from "../staking/services";
 dotenv.config();
 import * as anchor from "@project-serum/anchor";
 
-interface StakingPoolAccount {
+export interface StakingPoolAccount {
     admin: PublicKey;
     mint: PublicKey;
     totalStaked: anchor.BN;
@@ -27,7 +27,7 @@ interface UserStakingAccount {
 /**
  * Helper function to format token amounts properly
  */
-const formatTokenAmount = (amount: number, decimals: number = 9): string => {
+export const formatTokenAmount = (amount: number, decimals: number = 9): string => {
     if (amount === 0) return "0";
 
     // For very small amounts, show more decimal places
@@ -53,7 +53,7 @@ const formatTokenAmount = (amount: number, decimals: number = 9): string => {
  */
 export const getStakingPoolData = async (adminPublicKey: PublicKey) => {
     try {
-        const { program } = getProgram();
+        const { program, connection } = getProgram();
 
         // Derive the staking pool PDA
         const [stakingPoolPublicKey] = PublicKey.findProgramAddressSync(
@@ -61,8 +61,23 @@ export const getStakingPoolData = async (adminPublicKey: PublicKey) => {
             program.programId
         );
 
+        // Derive the staking pool escrow account
+        const [stakingEscrowPublicKey] = PublicKey.findProgramAddressSync(
+            [Buffer.from("staking_escrow"), stakingPoolPublicKey.toBuffer()],
+            program.programId
+        );
         console.log("🔹 Fetching Staking Pool PDA:", stakingPoolPublicKey.toString());
 
+
+        // Check if the revenue pool account exists
+        const accountExists = await connection.getAccountInfo(stakingPoolPublicKey);
+
+        if (!accountExists) {
+            return {
+                success: false,
+                message: "Staking pool has not been initialized yet."
+            };
+        }     
         // Fetch the staking pool data
         const stakingPoolData = await program.account.stakingPool.fetch(
             stakingPoolPublicKey
@@ -75,6 +90,7 @@ export const getStakingPoolData = async (adminPublicKey: PublicKey) => {
                 mint: stakingPoolData.mint.toString(),
                 totalStaked: stakingPoolData.totalStaked.toString(),
                 stakingPoolAddress: stakingPoolPublicKey.toString(),
+                stakingEscrowPublicKey: stakingEscrowPublicKey.toString(),
             }
         };
     } catch (err) {
@@ -179,64 +195,3 @@ export const calculateAPY = async () => {
     }
 };
 
-/**
- * Get comprehensive staking statistics
- */
-export const getStakingStats = async (adminPublicKey: PublicKey) => {
-    try {
-        console.log("📊 Fetching comprehensive staking statistics...");
-
-        // Fetch all data in parallel
-        const [poolResult, stakersResult, apyResult] = await Promise.all([
-            getStakingPoolData(adminPublicKey),
-            getActiveStakers(),
-            calculateAPY()
-        ]);
-
-        // Check if any requests failed
-        if (!poolResult.success) {
-            return {
-                success: false,
-                message: `Failed to fetch pool data: ${poolResult.message}`
-            };
-        }
-
-        if (!stakersResult.success) {
-            return {
-                success: false,
-                message: `Failed to fetch stakers data: ${stakersResult.message}`
-            };
-        }
-
-        if (!apyResult.success) {
-            return {
-                success: false,
-                message: `Failed to calculate APY: ${apyResult.message}`
-            };
-        }
-
-        // Convert total staked to readable format
-        const tokenDecimals = 9; // Adjust based on your token decimals
-        const totalStakedRaw = new anchor.BN(poolResult.data.totalStaked);
-        const totalStakedReadable = totalStakedRaw.toNumber() / (10 ** tokenDecimals);
-
-        // Calculate some additional statistics
-        const avgStakePerUser = stakersResult.data.activeStakersCount > 0
-            ? totalStakedReadable / stakersResult.data.activeStakersCount
-            : 0;
-
-        return {
-            success: true,
-                totalStaked: formatTokenAmount(totalStakedReadable),
-                activeStakers: stakersResult.data.activeStakersCount,
-                currentAPY: apyResult.data.currentAPY,
-                mintAddress: poolResult.data.mint,
-        };
-    } catch (err) {
-        console.error("❌ Error fetching staking statistics:", err);
-        return {
-            success: false,
-            message: `Error fetching staking statistics: ${err.message || err}`
-        };
-    }
-};
