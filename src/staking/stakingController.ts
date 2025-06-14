@@ -8,16 +8,64 @@ import { PublicKey } from '@solana/web3.js';
 
 
 // Controller to handle staking requests
+// Controller to handle staking requests
 export const stakeTokensController = async (req: Request, res: Response) => {
   console.log('Staking invoked');
   try {
-    const { mintPublicKey, userPublicKey, amount, duration } = req.body;
+    const { mintPublicKey, userPublicKey, amount, lockDuration, adminPublicKey } = req.body;
 
-    const mintAddress = new PublicKey(mintPublicKey);
-    const userAddress = new PublicKey(userPublicKey);
+    // Validate required fields
+    if (!mintPublicKey || !userPublicKey || !amount || !lockDuration || !adminPublicKey) {
+      return res.status(400).json({
+        success: false,
+        message: "Missing required fields: mintPublicKey, userPublicKey, amount, lockDuration, and adminPublicKey are required"
+      });
+    }
+
+    // Validate types
+    if (typeof amount !== 'number' || typeof lockDuration !== 'number') {
+      return res.status(400).json({
+        success: false,
+        message: "Amount and lockDuration must be numbers"
+      });
+    }
+
+    // Validate positive values
+    if (amount <= 0 || lockDuration <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Amount and lockDuration must be positive numbers"
+      });
+    }
+
+    console.log('Request body validation passed:', {
+      mintPublicKey,
+      userPublicKey,
+      amount,
+      lockDuration,
+      adminPublicKey
+    });
+
+    // Validate PublicKey formats
+    try {
+      new PublicKey(mintPublicKey);
+      new PublicKey(userPublicKey);
+      new PublicKey(adminPublicKey);
+    } catch (pubkeyError) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid PublicKey format provided"
+      });
+    }
 
     // Call the service function to create an unsigned transaction
-    const result = await stakeTokenService(mintAddress, userAddress, amount, duration);
+    const result = await stakeTokenService(
+      new PublicKey(mintPublicKey),
+      new PublicKey(userPublicKey),
+      amount,
+      lockDuration,
+      new PublicKey(adminPublicKey)
+    );
 
     if (result.success) {
       return res.status(200).json(result);
@@ -26,17 +74,18 @@ export const stakeTokensController = async (req: Request, res: Response) => {
     }
   } catch (err) {
     console.error("Error in staking tokens:", err);
-    return res.status(500).json({ success: false, message: "Internal server error" });
+    return res.status(500).json({ 
+      success: false, 
+      message: `Internal server error: ${err.message || err}` 
+    });
   }
 };
 
 export const unstakeTokensController = async (req: Request, res: Response) => {
   try {
-    const { mintPublicKey, userPublicKey, amount } = req.body;
+    const { mintPublicKey, userPublicKey, adminPublicKey } = req.body;
 
-    const mintAddress = new PublicKey(mintPublicKey);
-    const userAddress = new PublicKey(userPublicKey);
-    const result = await unstakeTokenService(mintAddress, userAddress);
+    const result = await unstakeTokenService(new PublicKey(mintPublicKey), new PublicKey(userPublicKey), new PublicKey(adminPublicKey));
 
     if (result.success) {
       return res.status(200).json(result);

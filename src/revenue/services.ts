@@ -137,6 +137,7 @@ const getProgram = () => {
       success: true,
       message: "Transaction created successfully!",
       transaction: transaction.serialize({ requireAllSignatures: false }).toString('base64'),
+      prizePool: prizePoolPublicKey.toString(),
     };
   } catch (err) {
       console.error("❌ Error initializing prize pool:", err);
@@ -321,18 +322,13 @@ export const distributeTournamentRevenueService = async (
       const stakingAmount = Math.floor((totalFunds * stakingPercentage) / 100);
       const burnAmount = Math.floor((totalFunds * burnPercentage) / 100);
 
-      // Serialize the unsigned transaction
-      const serializedTransaction = transaction.serialize({
-        requireAllSignatures: false, // Important: Don't require signatures for serialization
-        verifySignatures: false
-      }).toString('base64');
 
       // Return transaction data to be signed by the frontend
       return {
         success: true,
         message: "Tournament revenue distribution transaction created successfully!",
         tournamentId,
-        serializedTransaction, // Base64 encoded serialized transaction
+        transaction: transaction.serialize({ requireAllSignatures: false }).toString('base64'), // Base64 encoded serialized transaction
         distribution: {
           totalFunds,
           prizeAmount,
@@ -507,11 +503,6 @@ export const distributeTournamentPrizesService = async (
     transaction.recentBlockhash = blockhash;
     transaction.feePayer = adminPublicKey;
 
-    // 7. Serialize the transaction WITHOUT signing
-    const serializedTransaction = transaction.serialize({
-      requireAllSignatures: false,
-      verifySignatures: false
-    }).toString('base64');
 
     // 8. Calculate prize amounts (if needed for frontend display)
     // You can calculate these based on your distribution logic
@@ -527,12 +518,7 @@ export const distributeTournamentPrizesService = async (
     return {
       success: true,
       message: "Prize distribution transaction created successfully!",
-      serializedTransaction,
-      tournamentId,
-      tournamentData: {
-        name: tournament.name,
-        totalPrizeAmount,
-      },
+      transaction: transaction.serialize({ requireAllSignatures: false }).toString('base64'),
       winnerData: {
         firstPlace: {
           publicKey: firstPlacePublicKey.toString(),

@@ -12,8 +12,6 @@ router.post('/update-tournament-status', gamehubController_1.updateTournamentSta
 router.post('/get-tournament-pool', gamehubController_1.getTournamentPoolController);
 // Route to create tournament
 router.post('/create-tournament-pool', gamehubController_1.initializeTournamentPoolController);
-// Route for registering a user for a tournament
-router.post('/register-for-tournament', gamehubController_1.registerForTournamentController);
 // Route for user authentication (verify the user with publicKey in headers)
 router.post('/verify-user', middleware_1.verifyUser, (req, res) => {
     // If the verifyUser middleware passes, this handler will be called

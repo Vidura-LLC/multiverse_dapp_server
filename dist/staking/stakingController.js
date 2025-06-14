@@ -14,14 +14,53 @@ exports.createTokenAccountControllerWithKeypair = exports.createTokenAccountCont
 const services_1 = require("./services");
 const web3_js_1 = require("@solana/web3.js");
 // Controller to handle staking requests
+// Controller to handle staking requests
 const stakeTokensController = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     console.log('Staking invoked');
     try {
-        const { mintPublicKey, userPublicKey, amount, duration } = req.body;
-        const mintAddress = new web3_js_1.PublicKey(mintPublicKey);
-        const userAddress = new web3_js_1.PublicKey(userPublicKey);
+        const { mintPublicKey, userPublicKey, amount, lockDuration, adminPublicKey } = req.body;
+        // Validate required fields
+        if (!mintPublicKey || !userPublicKey || !amount || !lockDuration || !adminPublicKey) {
+            return res.status(400).json({
+                success: false,
+                message: "Missing required fields: mintPublicKey, userPublicKey, amount, lockDuration, and adminPublicKey are required"
+            });
+        }
+        // Validate types
+        if (typeof amount !== 'number' || typeof lockDuration !== 'number') {
+            return res.status(400).json({
+                success: false,
+                message: "Amount and lockDuration must be numbers"
+            });
+        }
+        // Validate positive values
+        if (amount <= 0 || lockDuration <= 0) {
+            return res.status(400).json({
+                success: false,
+                message: "Amount and lockDuration must be positive numbers"
+            });
+        }
+        console.log('Request body validation passed:', {
+            mintPublicKey,
+            userPublicKey,
+            amount,
+            lockDuration,
+            adminPublicKey
+        });
+        // Validate PublicKey formats
+        try {
+            new web3_js_1.PublicKey(mintPublicKey);
+            new web3_js_1.PublicKey(userPublicKey);
+            new web3_js_1.PublicKey(adminPublicKey);
+        }
+        catch (pubkeyError) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid PublicKey format provided"
+            });
+        }
         // Call the service function to create an unsigned transaction
-        const result = yield (0, services_1.stakeTokenService)(mintAddress, userAddress, amount, duration);
+        const result = yield (0, services_1.stakeTokenService)(new web3_js_1.PublicKey(mintPublicKey), new web3_js_1.PublicKey(userPublicKey), amount, lockDuration, new web3_js_1.PublicKey(adminPublicKey));
         if (result.success) {
             return res.status(200).json(result);
         }
@@ -31,16 +70,17 @@ const stakeTokensController = (req, res) => __awaiter(void 0, void 0, void 0, fu
     }
     catch (err) {
         console.error("Error in staking tokens:", err);
-        return res.status(500).json({ success: false, message: "Internal server error" });
+        return res.status(500).json({
+            success: false,
+            message: `Internal server error: ${err.message || err}`
+        });
     }
 });
 exports.stakeTokensController = stakeTokensController;
 const unstakeTokensController = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const { mintPublicKey, userPublicKey, amount } = req.body;
-        const mintAddress = new web3_js_1.PublicKey(mintPublicKey);
-        const userAddress = new web3_js_1.PublicKey(userPublicKey);
-        const result = yield (0, services_1.unstakeTokenService)(mintAddress, userAddress);
+        const { mintPublicKey, userPublicKey, adminPublicKey } = req.body;
+        const result = yield (0, services_1.unstakeTokenService)(new web3_js_1.PublicKey(mintPublicKey), new web3_js_1.PublicKey(userPublicKey), new web3_js_1.PublicKey(adminPublicKey));
         if (result.success) {
             return res.status(200).json(result);
         }

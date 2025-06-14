@@ -8,9 +8,13 @@ const router = (0, express_1.Router)();
 router.post('/initialize-prize-pool', revenueController_1.initializePrizePoolController);
 // Route for distributing tournament revenue
 router.post('/distribute-tournament', revenueController_1.distributeTournamentRevenueController);
+// Route for confirming tournament revenue distribution
+router.post('/confirm-distribution', revenueController_1.confirmDistributionController);
 // Route for distributing tournament prizes
 router.post('/distribute-prizes', revenueController_1.distributeTournamentPrizesController);
 // Route for getting prize distribution details
 router.get('/prize-distribution/:tournamentId', revenueController_1.getTournamentPrizesDistributionController);
+//Router for confirming prize distribution
+router.post('/confirm-prize-distribution', revenueController_1.confirmPrizeDistributionController);
 exports.default = router;
 //# sourceMappingURL=revenueRoutes.js.map

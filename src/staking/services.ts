@@ -60,21 +60,29 @@ export const getProgram = () => {
 
 
 // ✅ Function to stake tokens into the staking pool
+// ✅ Function to stake tokens into the staking pool
 export const stakeTokenService = async (
   mintPublicKey: PublicKey,
   userPublicKey: PublicKey,
   amount: number,
-  lockDuration: number // New parameter for lock duration in seconds
+  lockDuration: number, // Lock duration in seconds
+  adminPublicKey: PublicKey // Admin public key from client
 ) => {
   try {
-    const { program, adminPublicKey, connection } = getProgram();
+    const { program, connection } = getProgram();
 
     // Log initial parameters for clarity
     console.log("Staking Details:");
     console.log("User PublicKey:", userPublicKey.toBase58());
+    console.log("Admin PublicKey:", adminPublicKey.toBase58());
     console.log("Mint PublicKey:", mintPublicKey.toBase58());
     console.log("Amount to stake:", amount);
     console.log("Lock Duration (in seconds):", lockDuration);
+
+    // Validate lockDuration
+    if (!lockDuration || typeof lockDuration !== 'number') {
+      throw new Error('Invalid lock duration provided');
+    }
 
     const [stakingPoolPublicKey] = PublicKey.findProgramAddressSync(
       [Buffer.from("staking_pool"), adminPublicKey.toBuffer()],
@@ -106,13 +114,13 @@ export const stakeTokenService = async (
     console.log("Latest Blockhash:", blockhash);
 
     // Calculate the lock timestamp (current UTC time + lock duration in seconds)
-    const currentTimestamp = Math.floor(Date.now() / 1000); // Current UTC timestamp in seconds
-    const lockTimestamp = currentTimestamp + lockDuration;  // Add lockDuration to current timestamp
+    const currentTimestamp = Math.floor(Date.now() / 1000);
+    const lockTimestamp = currentTimestamp + lockDuration;
     console.log("Lock Timestamp (UTC):", lockTimestamp);
 
     // ✅ Create an unsigned transaction for staking
     const transaction = await program.methods
-      .stake(new anchor.BN(amount), new anchor.BN(lockDuration)) // Pass lock duration to contract
+      .stake(new anchor.BN(amount), new anchor.BN(lockDuration))
       .accounts({
         user: userPublicKey,
         stakingPool: stakingPoolPublicKey,
@@ -123,7 +131,7 @@ export const stakeTokenService = async (
         tokenProgram: TOKEN_2022_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
       })
-      .transaction(); // ⬅️ Create transaction, don't sign
+      .transaction();
 
     transaction.recentBlockhash = blockhash;
     transaction.feePayer = userPublicKey;
@@ -136,7 +144,10 @@ export const stakeTokenService = async (
     };
   } catch (err) {
     console.error("❌ Error creating staking transaction:", err);
-    return { success: false, message: "Error creating staking transaction" };
+    return { 
+      success: false, 
+      message: `Error creating staking transaction: ${err.message || err}` 
+    };
   }
 };
 
@@ -147,10 +158,11 @@ export const stakeTokenService = async (
 
 export const unstakeTokenService = async (
   mintPublicKey: PublicKey,
-  userPublicKey: PublicKey
+  userPublicKey: PublicKey,
+  adminPublicKey: PublicKey
 ) => {
   try {
-    const { program, adminPublicKey, connection } = getProgram(); // Assuming getProgram() initializes necessary context
+    const { program, connection } = getProgram(); // Assuming getProgram() initializes necessary context
 
     // Find the staking pool, user staking account, and escrow account
     const [stakingPoolPublicKey] = PublicKey.findProgramAddressSync(
