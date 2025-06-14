@@ -46,7 +46,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getStakingStats = exports.calculateAPY = exports.getActiveStakers = exports.getStakingPoolData = void 0;
+exports.calculateAPY = exports.getActiveStakers = exports.getStakingPoolData = exports.formatTokenAmount = void 0;
 const web3_js_1 = require("@solana/web3.js");
 const dotenv_1 = __importDefault(require("dotenv"));
 const services_1 = require("../staking/services");
@@ -57,32 +57,40 @@ const anchor = __importStar(require("@project-serum/anchor"));
  */
 const formatTokenAmount = (amount, decimals = 9) => {
     if (amount === 0)
-        return "0";
+        return 0;
     // For very small amounts, show more decimal places
     if (amount < 1) {
-        return amount.toFixed(6).replace(/\.?0+$/, '');
+        return parseFloat(amount.toFixed(6).replace(/\.?0+$/, ''));
     }
     // For larger amounts, use standard locale formatting
     if (amount >= 1000000) {
-        return (amount / 1000000).toFixed(2) + "M";
+        return Number((amount / 1000000).toFixed(2));
     }
     else if (amount >= 1000) {
-        return (amount / 1000).toFixed(2) + "K";
+        return Number((amount / 1000).toFixed(2));
     }
-    return amount.toLocaleString(undefined, {
-        minimumFractionDigits: 0,
-        maximumFractionDigits: 6
-    });
+    return amount;
 };
+exports.formatTokenAmount = formatTokenAmount;
 /**
  * Get the staking pool data from the blockchain
  */
 const getStakingPoolData = (adminPublicKey) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const { program } = (0, services_1.getProgram)();
+        const { program, connection } = (0, services_1.getProgram)();
         // Derive the staking pool PDA
         const [stakingPoolPublicKey] = web3_js_1.PublicKey.findProgramAddressSync([Buffer.from("staking_pool"), adminPublicKey.toBuffer()], program.programId);
+        // Derive the staking pool escrow account
+        const [stakingEscrowPublicKey] = web3_js_1.PublicKey.findProgramAddressSync([Buffer.from("staking_escrow"), stakingPoolPublicKey.toBuffer()], program.programId);
         console.log("🔹 Fetching Staking Pool PDA:", stakingPoolPublicKey.toString());
+        // Check if the revenue pool account exists
+        const accountExists = yield connection.getAccountInfo(stakingPoolPublicKey);
+        if (!accountExists) {
+            return {
+                success: false,
+                message: "Staking pool has not been initialized yet."
+            };
+        }
         // Fetch the staking pool data
         const stakingPoolData = yield program.account.stakingPool.fetch(stakingPoolPublicKey);
         return {
@@ -92,6 +100,7 @@ const getStakingPoolData = (adminPublicKey) => __awaiter(void 0, void 0, void 0,
                 mint: stakingPoolData.mint.toString(),
                 totalStaked: stakingPoolData.totalStaked.toString(),
                 stakingPoolAddress: stakingPoolPublicKey.toString(),
+                stakingEscrowPublicKey: stakingEscrowPublicKey.toString(),
             }
         };
     }
@@ -130,7 +139,7 @@ const getActiveStakers = () => __awaiter(void 0, void 0, void 0, function* () {
                 publicKey: account.publicKey.toString(),
                 owner: userData.owner.toString(),
                 stakedAmount: readableStakedAmount,
-                stakedAmountFormatted: formatTokenAmount(readableStakedAmount),
+                stakedAmountFormatted: (0, exports.formatTokenAmount)(readableStakedAmount),
                 stakeTimestamp: userData.stakeTimestamp.toString(),
                 stakeDate: new Date(userData.stakeTimestamp.toNumber() * 1000).toISOString(),
                 lockDuration: userData.lockDuration.toString(),
@@ -189,60 +198,4 @@ const calculateAPY = () => __awaiter(void 0, void 0, void 0, function* () {
     }
 });
 exports.calculateAPY = calculateAPY;
-/**
- * Get comprehensive staking statistics
- */
-const getStakingStats = (adminPublicKey) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        console.log("📊 Fetching comprehensive staking statistics...");
-        // Fetch all data in parallel
-        const [poolResult, stakersResult, apyResult] = yield Promise.all([
-            (0, exports.getStakingPoolData)(adminPublicKey),
-            (0, exports.getActiveStakers)(),
-            (0, exports.calculateAPY)()
-        ]);
-        // Check if any requests failed
-        if (!poolResult.success) {
-            return {
-                success: false,
-                message: `Failed to fetch pool data: ${poolResult.message}`
-            };
-        }
-        if (!stakersResult.success) {
-            return {
-                success: false,
-                message: `Failed to fetch stakers data: ${stakersResult.message}`
-            };
-        }
-        if (!apyResult.success) {
-            return {
-                success: false,
-                message: `Failed to calculate APY: ${apyResult.message}`
-            };
-        }
-        // Convert total staked to readable format
-        const tokenDecimals = 9; // Adjust based on your token decimals
-        const totalStakedRaw = new anchor.BN(poolResult.data.totalStaked);
-        const totalStakedReadable = totalStakedRaw.toNumber() / (Math.pow(10, tokenDecimals));
-        // Calculate some additional statistics
-        const avgStakePerUser = stakersResult.data.activeStakersCount > 0
-            ? totalStakedReadable / stakersResult.data.activeStakersCount
-            : 0;
-        return {
-            success: true,
-            totalStaked: formatTokenAmount(totalStakedReadable),
-            activeStakers: stakersResult.data.activeStakersCount,
-            currentAPY: apyResult.data.currentAPY,
-            mintAddress: poolResult.data.mint,
-        };
-    }
-    catch (err) {
-        console.error("❌ Error fetching staking statistics:", err);
-        return {
-            success: false,
-            message: `Error fetching staking statistics: ${err.message || err}`
-        };
-    }
-});
-exports.getStakingStats = getStakingStats;
 //# sourceMappingURL=stakingStatsService.js.map
