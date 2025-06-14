@@ -65,6 +65,15 @@ const getProgram = () => {
   };
 };  
 
+// Interface for the RevenuePool account structure
+interface RevenuePoolAccount {
+  admin: PublicKey;
+  mint: PublicKey;
+  totalFunds: anchor.BN;
+  lastDistribution: anchor.BN;
+  bump: number;
+}
+
 
   /**
    * Initialize a prize pool for a specific tournament
@@ -580,3 +589,92 @@ async function getOrCreateAssociatedTokenAccount(
     throw err;
   }
 }
+
+
+/**
+ * Fetch revenue pool statistics and information
+ * @param adminPublicKey - Optional admin public key, defaults to program admin
+ * @returns Result object with revenue pool stats
+ */
+export const getRevenuePoolStatsService = async (adminPublicKey: PublicKey) => {
+  try {
+    const { program, connection } = getProgram();
+    
+    // Use provided admin public key or default to program admin
+    const adminPubkey = adminPublicKey;
+
+    console.log("Fetching Revenue Pool Stats:");
+    console.log("Admin PublicKey:", adminPubkey.toBase58());
+
+    // Derive the revenue pool PDA
+    const [revenuePoolPublicKey] = PublicKey.findProgramAddressSync(
+      [Buffer.from("revenue_pool"), adminPubkey.toBuffer()],
+      program.programId
+    );
+
+    console.log("🔹 Revenue Pool PDA:", revenuePoolPublicKey.toString());
+
+    // Check if the revenue pool account exists
+    const accountExists = await connection.getAccountInfo(revenuePoolPublicKey);
+
+    if (!accountExists) {
+      return { 
+        success: false, 
+        message: "Revenue pool has not been initialized yet." 
+      };
+    }
+
+    // Fetch the revenue pool data
+    const revenuePoolData = (await program.account.revenuePool.fetch(
+      revenuePoolPublicKey
+    )) as RevenuePoolAccount;
+
+    console.log("✅ Raw Revenue Pool Data:", revenuePoolData);
+
+    // Convert data to readable format
+    const tokenDecimals = 9; // Adjust based on your token decimals
+    const readableTotalFunds = revenuePoolData.totalFunds.toNumber() / (10 ** tokenDecimals);
+
+    // Convert timestamps to readable dates
+    const lastDistributionTimestamp = revenuePoolData.lastDistribution.toNumber();
+    const lastDistributionDate = lastDistributionTimestamp > 0 
+      ? new Date(lastDistributionTimestamp * 1000).toISOString()
+      : null;
+
+    // Calculate time since last distribution
+    const currentTimestamp = Math.floor(Date.now() / 1000);
+    const timeSinceLastDistribution = lastDistributionTimestamp > 0 
+      ? currentTimestamp - lastDistributionTimestamp
+      : null;
+
+    // Convert time difference to readable format
+    const daysSinceLastDistribution = timeSinceLastDistribution 
+      ? Math.floor(timeSinceLastDistribution / (24 * 60 * 60))
+      : null;
+
+    // Prepare the formatted response
+    const revenuePoolStats = {
+      totalFunds: readableTotalFunds,
+      lastDistribution: {
+        timestamp: lastDistributionTimestamp,
+        date: lastDistributionDate,
+        daysSince: daysSinceLastDistribution
+      },
+    };
+
+    console.log("✅ Formatted Revenue Pool Stats:", revenuePoolStats);
+
+    return { 
+      success: true, 
+      data: revenuePoolStats,
+      message: "Revenue pool stats fetched successfully"
+    };
+
+  } catch (err) {
+    console.error("❌ Error fetching revenue pool stats:", err);
+    return { 
+      success: false, 
+      message: `Error fetching revenue pool stats: ${err.message || err}` 
+    };
+  }
+};

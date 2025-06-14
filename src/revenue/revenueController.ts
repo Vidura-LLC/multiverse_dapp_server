@@ -4,7 +4,7 @@ import { ref, get, set, update } from "firebase/database";
 import { db } from "../config/firebase";
 import { Request, Response } from 'express';
 import { PublicKey } from '@solana/web3.js';
-import { initializePrizePoolService, distributeTournamentRevenueService, distributeTournamentPrizesService } from '../../src/revenue/services';
+import { initializePrizePoolService, distributeTournamentRevenueService, distributeTournamentPrizesService, getRevenuePoolStatsService  } from '../../src/revenue/services';
 import { getProgram } from "../staking/services";
 
 
@@ -559,6 +559,41 @@ export const confirmPrizeDistributionController = async (req: Request, res: Resp
     return res.status(500).json({
       success: false,
       message: 'Failed to confirm tournament prize distribution',
+      error: err.message || err
+    });
+  }
+};
+
+
+/**
+ * Controller function to get revenue pool statistics
+ */
+export const getRevenuePoolStatsController = async (req: Request, res: Response) => {
+  try {
+    const { adminPublicKey } = req.params;
+
+    // Call the service function
+    const result = await getRevenuePoolStatsService(new PublicKey(adminPublicKey));
+
+    if (result.success) {
+      return res.status(200).json({
+        success: true,
+        message: result.message,
+        data: result.data
+      });
+    } else {
+      // Return 404 if revenue pool doesn't exist, 500 for other errors
+      const statusCode = result.message.includes('not been initialized') ? 404 : 500;
+      return res.status(statusCode).json({
+        success: false,
+        message: result.message
+      });
+    }
+  } catch (err) {
+    console.error('❌ Error in getRevenuePoolStatsController:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Internal server error',
       error: err.message || err
     });
   }
