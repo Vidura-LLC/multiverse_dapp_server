@@ -27,25 +27,22 @@ interface UserStakingAccount {
 /**
  * Helper function to format token amounts properly
  */
-export const formatTokenAmount = (amount: number, decimals: number = 9): string => {
-    if (amount === 0) return "0";
+export const formatTokenAmount = (amount: number, decimals: number = 9): number => {
+    if (amount === 0) return 0;
 
     // For very small amounts, show more decimal places
     if (amount < 1) {
-        return amount.toFixed(6).replace(/\.?0+$/, '');
+        return parseFloat(amount.toFixed(6).replace(/\.?0+$/, ''));
     }
 
     // For larger amounts, use standard locale formatting
     if (amount >= 1000000) {
-        return (amount / 1000000).toFixed(2) + "M";
+        return Number((amount / 1000000).toFixed(2));
     } else if (amount >= 1000) {
-        return (amount / 1000).toFixed(2) + "K";
+        return Number((amount / 1000).toFixed(2));
     }
 
-    return amount.toLocaleString(undefined, {
-        minimumFractionDigits: 0,
-        maximumFractionDigits: 6
-    });
+    return amount
 };
 
 /**

@@ -52,7 +52,7 @@ interface RevenuePoolAccount {
     totalFunds: anchor.BN;
     lastDistribution: anchor.BN;
     bump: number;
-  }
+}
 
 // Interface for the Dashboard data structure
 interface DashboardData {
@@ -194,6 +194,7 @@ export const getRevenuePoolStatsService = async (adminPublicKey: PublicKey) => {
 
         // Convert timestamps to readable dates
         const lastDistributionTimestamp = revenuePoolData.lastDistribution.toNumber();
+
         const lastDistributionDate = lastDistributionTimestamp > 0
             ? new Date(lastDistributionTimestamp * 1000).toISOString()
             : null;
@@ -204,22 +205,12 @@ export const getRevenuePoolStatsService = async (adminPublicKey: PublicKey) => {
             ? currentTimestamp - lastDistributionTimestamp
             : null;
 
-        // Convert time difference to readable format
-        const daysSinceLastDistribution = timeSinceLastDistribution
-            ? Math.floor(timeSinceLastDistribution / (24 * 60 * 60))
-            : null;
-
-
         return {
             success: true,
             totalFunds: readableTotalFunds,
             revenuePoolAddress: revenuePoolPublicKey.toString(),
             revenueEscrowAddress: revenueEscrowPublicKey.toString(),
-            lastDistribution: {
-                timestamp: lastDistributionTimestamp,
-                date: lastDistributionDate,
-                daysSince: daysSinceLastDistribution
-            },
+            lastDistribution: lastDistributionDate
         };
 
     } catch (err) {
@@ -229,7 +220,7 @@ export const getRevenuePoolStatsService = async (adminPublicKey: PublicKey) => {
             message: `Error fetching revenue pool stats: ${err.message || err}`
         };
     }
-  };
+};
 
 
 
