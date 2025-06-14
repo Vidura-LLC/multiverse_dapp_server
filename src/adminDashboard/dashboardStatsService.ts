@@ -42,6 +42,7 @@ interface TournamentStats {
     distributedTournaments: number;
     awardedTournaments: number;
     totalParticipants: number;
+    totalBurnAmount: number;
 }
 
 
@@ -66,7 +67,7 @@ interface DashboardData {
 /**
  * Get comprehensive tournament statistics from Firebase
  */
-export async function getTournamentStats(): Promise<TournamentStats> {
+export async function getTournamentStats(): Promise<any> {
     try {
         const tournamentsRef = ref(db, 'tournaments');
         const snapshot = await get(tournamentsRef);
@@ -78,6 +79,7 @@ export async function getTournamentStats(): Promise<TournamentStats> {
             distributedTournaments: 0,
             awardedTournaments: 0,
             totalParticipants: 0,
+            totalBurnAmount: 0,
         };
 
         if (!snapshot.exists()) {
@@ -88,7 +90,7 @@ export async function getTournamentStats(): Promise<TournamentStats> {
         const currentTime = new Date().getTime();
 
         Object.values(tournaments).forEach((tournamentData: any) => {
-            const tournament: Tournament = tournamentData;
+            const tournament = tournamentData;
 
             // Count participants using the participantsCount field or calculate from participants object
             const participantCount = tournament.participantsCount ||
@@ -115,6 +117,10 @@ export async function getTournamentStats(): Promise<TournamentStats> {
                     stats.distributedTournaments++;
                     // Distributed tournaments are also ended tournaments
                     stats.endedTournaments++;
+                    // ✅ Calculate burn amount for distributed tournaments
+                    if (tournament.distributionDetails?.burnAmount) {
+                        stats.totalBurnAmount += Number(tournament.distributionDetails.burnAmount) || 0;
+                    }
                     break;
 
                 case "Awarded":
@@ -122,8 +128,24 @@ export async function getTournamentStats(): Promise<TournamentStats> {
                     // Awarded tournaments are also distributed and ended
                     stats.distributedTournaments++;
                     stats.endedTournaments++;
+                    // ✅ Calculate burn amount for awarded tournaments
+                    if (tournament.distributionDetails?.burnAmount) {
+                        stats.totalBurnAmount += Number(tournament.distributionDetails.burnAmount) || 0;
+                    }
                     break;
             }
+        });
+
+        // ✅ Convert totalBurnAmount from base units (with 9 decimals) to readable format
+        const tokenDecimals = 9;
+        const totalBurnAmountDecimal = stats.totalBurnAmount / (10 ** tokenDecimals);
+
+        // Update the stats with the converted amount
+        stats.totalBurnAmount = Number(totalBurnAmountDecimal.toFixed(6)); // Keep 6 decimal places for precision
+
+        console.log("✅ Tournament stats calculated:", {
+            ...stats,
+            totalBurnAmount: `${stats.totalBurnAmount} tokens burned across completed tournaments`
         });
 
         console.log("✅ Tournament stats calculated:", stats);
@@ -137,6 +159,7 @@ export async function getTournamentStats(): Promise<TournamentStats> {
             distributedTournaments: 0,
             awardedTournaments: 0,
             totalParticipants: 0,
+            totalBurnAmount: 0,
         };
     }
 }
