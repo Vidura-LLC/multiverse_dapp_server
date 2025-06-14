@@ -22,5 +22,11 @@ router.get('/staking/apy', adminDashboardController_1.getAPYController);
 // Query parameters: page, limit, sortBy, sortOrder
 // Example: /api/staking/stakers?page=1&limit=10&sortBy=stakedAmount&sortOrder=desc
 router.get('/staking/stakers', adminDashboardController_1.getDetailedStakersController);
+// Route to get tournament stats
+router.get('/tournaments/stats', adminDashboardController_1.getTournamentStatsController);
+// Route to get revenue stats
+router.get('/revenue/stats/:adminPublicKey', adminDashboardController_1.getRevenuePoolStatsController);
+// Route to get dashboard data
+router.get('/dashboardStats/:adminPublicKey', adminDashboardController_1.getDashboardStatsController);
 exports.default = router;
 //# sourceMappingURL=adminDashboardRoutes.js.map

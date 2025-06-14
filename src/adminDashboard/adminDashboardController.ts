@@ -2,17 +2,17 @@
 
 import { PublicKey } from '@solana/web3.js';
 import { checkPoolStatus, initializeRevenuePoolService, initializeStakingPoolService } from "./services";
-import { Request, Response } from 'express';
+import { NextFunction, Request, Response } from 'express';
 import {
-    getStakingStats,
     getStakingPoolData,
     getActiveStakers,
     calculateAPY
 } from './stakingStatsService';
+import { getRevenuePoolStatsService, getTournamentStats, getStakingStats, getDashboardData } from './dashboardStatsService';
 
 
 
-export const checkPoolStatusController = async (req: Request, res: Response) => {
+export const checkPoolStatusController = async (req: Request, res: Response,) => {
     try {
         const { adminPublicKey } = req.params;
 
@@ -318,3 +318,115 @@ export const getDetailedStakersController = async (req: Request, res: Response) 
         });
     }
 };
+
+
+/**
+ * Controller to get tournament stats
+ */
+export const getTournamentStatsController = async (req: Request, res: Response) => {
+    try {
+        console.log('📊 Fetching tournament statistics...');
+
+        // Call the service to get tournament stats
+        const result = await getTournamentStats();
+
+        if (result !== null && result !== undefined) {
+            return res.status(200).json({
+                success: true,
+                message: "Tournament statistics retrieved successfully",
+                data: result
+            });
+        } else {
+            return res.status(500).json({
+                success: false,
+                message: "Failed to fetch tournament statistics"
+            });
+        }
+    } catch (err) {
+        console.error('❌ Error in tournament stats controller:', err);
+        return res.status(500).json({
+            success: false,
+            message: 'Internal server error while fetching tournament statistics'
+        });
+    }
+}
+
+
+
+
+/**
+ * Controller function to get revenue pool statistics
+ */
+export const getRevenuePoolStatsController = async (req: Request, res: Response) => {
+    try {
+        const { adminPublicKey } = req.params;
+
+        // Call the service function
+        const result = await getRevenuePoolStatsService(new PublicKey(adminPublicKey));
+
+        if (result.success) {
+            return res.status(200).json({
+                success: true,
+                message: result.message,
+                data: result
+            });
+        } else {
+            // Return 404 if revenue pool doesn't exist, 500 for other errors
+            const statusCode = result.message.includes('not been initialized') ? 404 : 500;
+            return res.status(statusCode).json({
+                success: false,
+                message: result.message
+            });
+        }
+    } catch (err) {
+        console.error('❌ Error in getRevenuePoolStatsController:', err);
+        return res.status(500).json({
+            success: false,
+            message: 'Internal server error',
+            error: err.message || err
+        });
+    }
+};
+
+
+/**
+ * Controller function to get all dashboard statistics
+ * This is the main endpoint for your dashboard
+ */
+
+export const getDashboardStatsController = async (req: Request, res: Response) => {
+    try {
+        console.log('📊 Fetching all dashboard statistics...');
+
+        const { adminPublicKey } = req.params;
+        // Validate the admin public key
+        if (!adminPublicKey) {
+            return res.status(400).json({
+                success: false,
+                message: 'Admin public key is required'
+            });
+        }
+        // Call the service to get all stats
+        const result = await getDashboardData(new PublicKey(adminPublicKey));
+
+        if (result) {
+            return res.status(200).json({
+                success: true,
+                message: "Dashboard statistics retrieved successfully",
+                dashboardStats: result
+            });
+        } else {
+            return res.status(500).json({
+                success: false,
+                message: result.message || "Failed to fetch dashboard statistics"
+            });
+        }
+    } catch (err) {
+        console.error('❌ Error in dashboard stats controller:', err);
+        return res.status(500).json({
+            success: false,
+            message: 'Internal server error while fetching dashboard statistics'
+        });
+    }
+};
+
