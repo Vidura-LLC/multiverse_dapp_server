@@ -1,11 +1,16 @@
 //backend/src/staking/stakingController.ts
 
 import { Request, Response } from 'express';
-import { unstakeTokenService, getUserStakingAccount, createAssociatedTokenAccount, createAssociatedTokenAccountWithKeypair, stakeTokenService } from './services';
+import { unstakeTokenService, getUserStakingAccount, createAssociatedTokenAccount, createAssociatedTokenAccountWithKeypair, stakeTokenService, getProgram } from './services';
 import { PublicKey } from '@solana/web3.js';
+import * as anchor from "@project-serum/anchor";
 
-
-
+interface StakingPoolAccount {
+  admin: PublicKey;
+  mint: PublicKey;
+  totalStaked: anchor.BN;
+  bump: number;
+}
 
 // Controller to handle staking requests
 // Controller to handle staking requests
@@ -83,9 +88,39 @@ export const stakeTokensController = async (req: Request, res: Response) => {
 
 export const unstakeTokensController = async (req: Request, res: Response) => {
   try {
-    const { mintPublicKey, userPublicKey, adminPublicKey } = req.body;
+    const { userPublicKey, adminPublicKey } = req.body;
 
-    const result = await unstakeTokenService(new PublicKey(mintPublicKey), new PublicKey(userPublicKey), new PublicKey(adminPublicKey));
+    // Validate required fields
+    if (!userPublicKey || !adminPublicKey) {
+      return res.status(400).json({
+        success: false,
+        message: "Missing required fields: userPublicKey and adminPublicKey are required"
+      });
+    }
+
+    // Validate PublicKey formats
+    try {
+      new PublicKey(userPublicKey);
+      new PublicKey(adminPublicKey);
+    } catch (pubkeyError) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid PublicKey format provided"
+      });
+    }
+
+    // Get the mint public key from the staking pool
+    const { program } = getProgram();
+    const [stakingPoolPublicKey] = PublicKey.findProgramAddressSync(
+      [Buffer.from("staking_pool"), new PublicKey(adminPublicKey).toBuffer()],
+      program.programId
+    );
+
+    // Fetch the staking pool data to get the mint public key
+    const stakingPoolData = await program.account.stakingPool.fetch(stakingPoolPublicKey) as StakingPoolAccount;
+    const mintPublicKey = stakingPoolData.mint;
+
+    const result = await unstakeTokenService(mintPublicKey, new PublicKey(userPublicKey), new PublicKey(adminPublicKey));
 
     if (result.success) {
       return res.status(200).json(result);
