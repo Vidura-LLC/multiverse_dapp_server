@@ -79,8 +79,32 @@ const stakeTokensController = (req, res) => __awaiter(void 0, void 0, void 0, fu
 exports.stakeTokensController = stakeTokensController;
 const unstakeTokensController = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const { mintPublicKey, userPublicKey, adminPublicKey } = req.body;
-        const result = yield (0, services_1.unstakeTokenService)(new web3_js_1.PublicKey(mintPublicKey), new web3_js_1.PublicKey(userPublicKey), new web3_js_1.PublicKey(adminPublicKey));
+        const { userPublicKey, adminPublicKey } = req.body;
+        // Validate required fields
+        if (!userPublicKey || !adminPublicKey) {
+            return res.status(400).json({
+                success: false,
+                message: "Missing required fields: userPublicKey and adminPublicKey are required"
+            });
+        }
+        // Validate PublicKey formats
+        try {
+            new web3_js_1.PublicKey(userPublicKey);
+            new web3_js_1.PublicKey(adminPublicKey);
+        }
+        catch (pubkeyError) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid PublicKey format provided"
+            });
+        }
+        // Get the mint public key from the staking pool
+        const { program } = (0, services_1.getProgram)();
+        const [stakingPoolPublicKey] = web3_js_1.PublicKey.findProgramAddressSync([Buffer.from("staking_pool"), new web3_js_1.PublicKey(adminPublicKey).toBuffer()], program.programId);
+        // Fetch the staking pool data to get the mint public key
+        const stakingPoolData = yield program.account.stakingPool.fetch(stakingPoolPublicKey);
+        const mintPublicKey = stakingPoolData.mint;
+        const result = yield (0, services_1.unstakeTokenService)(mintPublicKey, new web3_js_1.PublicKey(userPublicKey), new web3_js_1.PublicKey(adminPublicKey));
         if (result.success) {
             return res.status(200).json(result);
         }
