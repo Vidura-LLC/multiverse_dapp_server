@@ -13,6 +13,7 @@ import dotenv from "dotenv";
 import { getProgram } from "../staking/services";
 dotenv.config();
 import * as anchor from "@project-serum/anchor";
+import { RevenuePoolAccount } from "./dashboardStatsService";
 
 interface StakingPoolAccount {
     admin: PublicKey;
@@ -199,7 +200,7 @@ export const checkPoolStatus = async (adminPublicKey: PublicKey, tournamentId?: 
 
         console.log("🔹 Checking Revenue Pool PDA:", revenuePoolPublicKey.toString());
 
-        const revenuePoolAccount = await program.account.revenuePool.fetchNullable(revenuePoolPublicKey);
+        const revenuePoolAccount = await program.account.revenuePool.fetchNullable(revenuePoolPublicKey) as RevenuePoolAccount;
 
         result.revenuePool = {
             status: revenuePoolAccount !== null,
