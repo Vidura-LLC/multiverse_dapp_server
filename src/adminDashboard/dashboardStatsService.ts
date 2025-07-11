@@ -23,7 +23,7 @@ interface TournamentStats {
 
 
 // Interface for the RevenuePool account structure
-interface RevenuePoolAccount {
+export interface RevenuePoolAccount {
     admin: PublicKey;
     mint: PublicKey;
     totalFunds: anchor.BN;
@@ -314,5 +314,4 @@ export const getDashboardData = async (adminPublicKey: PublicKey): Promise<any> 
         throw new Error(`Error fetching dashboard data: ${err.message || err}`);
     }
 }
-
 
