@@ -60,7 +60,6 @@ export const getProgram = () => {
 
 
 // ✅ Function to stake tokens into the staking pool
-// ✅ Function to stake tokens into the staking pool
 export const stakeTokenService = async (
   mintPublicKey: PublicKey,
   userPublicKey: PublicKey,
