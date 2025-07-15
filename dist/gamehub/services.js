@@ -51,34 +51,12 @@ const anchor = __importStar(require("@project-serum/anchor"));
 const spl_token_1 = require("@solana/spl-token");
 const dotenv_1 = __importDefault(require("dotenv"));
 const bn_js_1 = require("bn.js");
+const services_1 = require("../staking/services");
 dotenv_1.default.config();
-// 🔹 Helper function to get the program
-const getProgram = () => {
-    const idl = require("../gamehub/gamehub_idl.json");
-    const walletKeypair = require("../staking/saadat7s-wallet-keypair.json");
-    const adminKeypair = web3_js_1.Keypair.fromSecretKey(new Uint8Array(walletKeypair));
-    const adminPublicKey = adminKeypair.publicKey;
-    const burnWalletKeypair = require("../staking/testWallet.json");
-    const burnKeypair = web3_js_1.Keypair.fromSecretKey(new Uint8Array(burnWalletKeypair));
-    const burnPublicKey = burnKeypair.publicKey;
-    const connection = new web3_js_1.Connection((0, web3_js_1.clusterApiUrl)("devnet"), "confirmed");
-    const programId = new web3_js_1.PublicKey("BmBAppuJQGGHmVizxKLBpJbFtq8yGe9v7NeVgHPEM4Vs" // Updated to match the program ID from contract
-    );
-    const provider = new anchor.AnchorProvider(connection, new anchor.Wallet(adminKeypair), anchor.AnchorProvider.defaultOptions());
-    anchor.setProvider(provider);
-    return {
-        program: new anchor.Program(idl, programId, provider),
-        adminPublicKey,
-        adminKeypair,
-        connection,
-        burnKeypair,
-        burnPublicKey
-    };
-};
 // ✅ Function to initialize the tournament pool
 const initializeTournamentPoolService = (adminPublicKey, tournamentId, entryFee, maxParticipants, endTime, mintPublicKey) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const { program, connection } = getProgram();
+        const { program, connection } = (0, services_1.getProgram)();
         // 🔹 Convert tournamentId correctly
         const tournamentIdBytes = Buffer.from(tournamentId, "utf8"); // Ensure UTF-8 encoding
         // 🔹 Derive the correct PDA for the tournament pool
@@ -124,7 +102,7 @@ exports.initializeTournamentPoolService = initializeTournamentPoolService;
 // Get tournament pool data
 const getTournamentPool = (tournamentId, adminPublicKey) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const { program } = getProgram();
+        const { program } = (0, services_1.getProgram)();
         const tournamentIdBytes = Buffer.from(tournamentId, "utf8");
         const [tournamentPoolPublicKey] = web3_js_1.PublicKey.findProgramAddressSync([Buffer.from("tournament_pool"), adminPublicKey.toBuffer(), tournamentIdBytes], program.programId);
         // 🔹 Fetch the tournament pool data
@@ -153,7 +131,7 @@ exports.getTournamentPool = getTournamentPool;
 // Register for tournament
 const registerForTournamentService = (tournamentId, userPublicKey, adminPublicKey) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const { program, connection } = getProgram();
+        const { program, connection } = (0, services_1.getProgram)();
         const tournamentIdBytes = Buffer.from(tournamentId, "utf8");
         // Get tournament pool PDA
         const [tournamentPoolPublicKey] = web3_js_1.PublicKey.findProgramAddressSync([Buffer.from("tournament_pool"), adminPublicKey.toBuffer(), tournamentIdBytes], program.programId);
@@ -206,7 +184,7 @@ function getOrCreateAssociatedTokenAccount(connection, mint, owner) {
         if (!accountInfo) {
             console.log(`🔹 Token account does not exist. Creating ATA: ${associatedTokenAddress.toBase58()}`);
             const transaction = new anchor.web3.Transaction().add((0, spl_token_1.createAssociatedTokenAccountInstruction)(owner, associatedTokenAddress, owner, mint, spl_token_1.TOKEN_2022_PROGRAM_ID));
-            const { adminKeypair } = getProgram();
+            const { adminKeypair } = (0, services_1.getProgram)();
             yield anchor.web3.sendAndConfirmTransaction(connection, transaction, [
                 adminKeypair
             ]);
