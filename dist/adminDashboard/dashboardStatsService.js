@@ -50,22 +50,7 @@ const anchor = __importStar(require("@project-serum/anchor"));
 const database_1 = require("firebase/database");
 const firebase_1 = require("../config/firebase");
 const stakingStatsService_1 = require("./stakingStatsService");
-// Helper function to get the program configuration
-const getProgram = () => {
-    const idl = require("../gamehub/gamehub_idl.json");
-    const walletKeypair = require("../staking/saadat7s-wallet-keypair.json");
-    const adminKeypair = anchor.web3.Keypair.fromSecretKey(new Uint8Array(walletKeypair));
-    const adminPublicKey = adminKeypair.publicKey;
-    const connection = new web3_js_1.Connection((0, web3_js_1.clusterApiUrl)("devnet"), "confirmed");
-    const programId = new web3_js_1.PublicKey("BmBAppuJQGGHmVizxKLBpJbFtq8yGe9v7NeVgHPEM4Vs");
-    const provider = new anchor.AnchorProvider(connection, new anchor.Wallet(adminKeypair), anchor.AnchorProvider.defaultOptions());
-    anchor.setProvider(provider);
-    return {
-        program: new anchor.Program(idl, programId, provider),
-        adminPublicKey,
-        connection,
-    };
-};
+const services_1 = require("../staking/services");
 /**
  * Get comprehensive tournament statistics from Firebase
  */
@@ -158,7 +143,7 @@ function getTournamentStats() {
  */
 const getRevenuePoolStatsService = (adminPublicKey) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const { program, connection } = getProgram();
+        const { program, connection } = (0, services_1.getProgram)();
         // Use provided admin public key or default to program admin
         const adminPubkey = adminPublicKey;
         console.log("Fetching Revenue Pool Stats:");

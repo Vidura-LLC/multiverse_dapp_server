@@ -53,6 +53,7 @@ const dotenv_1 = __importDefault(require("dotenv"));
 const database_1 = require("firebase/database");
 const firebase_1 = require("../config/firebase");
 const services_1 = require("../gamehub/services");
+const services_2 = require("../staking/services");
 dotenv_1.default.config();
 // Default percentage splits based on updated requirements
 const DEFAULT_SPLITS = {
@@ -60,29 +61,6 @@ const DEFAULT_SPLITS = {
     REVENUE_POOL: 50, // 50% to global revenue pool
     STAKING_POOL: 5, // 5% to staking pool
     BURN: 5 // 5% to burn (2.5% Kaya and 2.5% CRD)
-};
-// 🔹 Helper function to get the program
-const getProgram = () => {
-    const idl = require("../gamehub/gamehub_idl.json");
-    const walletKeypair = require("../staking/saadat7s-wallet-keypair.json");
-    const adminKeypair = web3_js_1.Keypair.fromSecretKey(new Uint8Array(walletKeypair));
-    const adminPublicKey = adminKeypair.publicKey;
-    const burnWalletKeypair = require("../staking/testWallet.json");
-    const burnKeypair = web3_js_1.Keypair.fromSecretKey(new Uint8Array(burnWalletKeypair));
-    const burnPublicKey = burnKeypair.publicKey;
-    const connection = new web3_js_1.Connection((0, web3_js_1.clusterApiUrl)("devnet"), "confirmed");
-    const programId = new web3_js_1.PublicKey("BmBAppuJQGGHmVizxKLBpJbFtq8yGe9v7NeVgHPEM4Vs" // Updated to match the program ID from contract
-    );
-    const provider = new anchor.AnchorProvider(connection, new anchor.Wallet(adminKeypair), anchor.AnchorProvider.defaultOptions());
-    anchor.setProvider(provider);
-    return {
-        program: new anchor.Program(idl, programId, provider),
-        adminPublicKey,
-        adminKeypair,
-        connection,
-        burnKeypair,
-        burnPublicKey
-    };
 };
 /**
  * Initialize a prize pool for a specific tournament
@@ -92,7 +70,7 @@ const getProgram = () => {
  */
 const initializePrizePoolService = (tournamentId, mintPublicKey, adminPublicKey) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const { program, connection } = getProgram();
+        const { program, connection } = (0, services_2.getProgram)();
         // Log initial parameters for clarity
         console.log("Initializing Prize Pool for Tournament:");
         console.log("Tournament ID:", tournamentId);
@@ -160,8 +138,8 @@ exports.initializePrizePoolService = initializePrizePoolService;
 */
 const distributeTournamentRevenueService = (tournamentId_1, ...args_1) => __awaiter(void 0, [tournamentId_1, ...args_1], void 0, function* (tournamentId, prizePercentage = DEFAULT_SPLITS.PRIZE_POOL, revenuePercentage = DEFAULT_SPLITS.REVENUE_POOL, stakingPercentage = DEFAULT_SPLITS.STAKING_POOL, burnPercentage = DEFAULT_SPLITS.BURN, adminPublicKey) {
     try {
-        const { program, connection } = getProgram();
-        // 1. First, check if tournament exists and is active in Firebase
+        const { program, connection } = (0, services_2.getProgram)();
+        // 1. Verify tournament in Firebase
         console.log("Verifying tournament in Firebase...");
         const tournamentRef = (0, database_1.ref)(firebase_1.db, `tournaments/${tournamentId}`);
         const tournamentSnapshot = yield (0, database_1.get)(tournamentRef);
@@ -178,14 +156,13 @@ const distributeTournamentRevenueService = (tournamentId_1, ...args_1) => __awai
                 message: `Tournament cannot be distributed because it is in '${tournament.status}' status`
             };
         }
-        // Check if tournament has already been distributed
         if (tournament.distributionCompleted) {
             return {
                 success: false,
                 message: "Tournament revenue has already been distributed"
             };
         }
-        // 2. Derive all the necessary PDAs
+        // 2. Derive all necessary PDAs
         console.log("Deriving program addresses...");
         const tournamentIdBytes = Buffer.from(tournamentId, "utf8");
         // Tournament Pool PDA
@@ -199,7 +176,7 @@ const distributeTournamentRevenueService = (tournamentId_1, ...args_1) => __awai
         console.log("🔹 Revenue Pool PDA:", revenuePoolPublicKey.toString());
         // Staking Pool PDA
         const [stakingPoolPublicKey] = web3_js_1.PublicKey.findProgramAddressSync([Buffer.from("staking_pool"), adminPublicKey.toBuffer()], program.programId);
-        console.log("🔹 Staking Pool PDA Address:", stakingPoolPublicKey.toString());
+        console.log("🔹 Staking Pool PDA:", stakingPoolPublicKey.toString());
         // 3. Derive escrow accounts
         const [tournamentEscrowPublicKey] = web3_js_1.PublicKey.findProgramAddressSync([Buffer.from("escrow"), tournamentPoolPublicKey.toBuffer()], program.programId);
         console.log("🔹 Tournament Escrow PDA:", tournamentEscrowPublicKey.toString());
@@ -209,10 +186,9 @@ const distributeTournamentRevenueService = (tournamentId_1, ...args_1) => __awai
         console.log("🔹 Revenue Escrow PDA:", revenueEscrowPublicKey.toString());
         const [stakingEscrowAccountPublicKey] = web3_js_1.PublicKey.findProgramAddressSync([Buffer.from("escrow"), stakingPoolPublicKey.toBuffer()], program.programId);
         console.log("🔹 Staking Escrow PDA:", stakingEscrowAccountPublicKey.toString());
-        // 4. Fetch tournament data using getTournamentPool
+        // 4. Fetch tournament data
         console.log("Fetching tournament data from blockchain...");
         try {
-            // Use the getTournamentPool function instead of directly fetching
             const tournamentPoolResult = yield (0, services_1.getTournamentPool)(tournamentId, adminPublicKey);
             if (!tournamentPoolResult.success) {
                 return {
@@ -221,11 +197,9 @@ const distributeTournamentRevenueService = (tournamentId_1, ...args_1) => __awai
                 };
             }
             const tournamentPoolData = tournamentPoolResult.data;
-            // Get mint address from tournament data
             const mintPublicKey = new web3_js_1.PublicKey(tournamentPoolData.mint);
-            console.log("🔹 Token Mint:", mintPublicKey.toString());
-            // Calculate total funds
             const totalFunds = Number(tournamentPoolData.totalFunds);
+            console.log("🔹 Token Mint:", mintPublicKey.toString());
             console.log("🔹 Total Tournament Funds:", totalFunds);
             if (totalFunds <= 0) {
                 return {
@@ -233,9 +207,13 @@ const distributeTournamentRevenueService = (tournamentId_1, ...args_1) => __awai
                     message: "Tournament has no funds to distribute"
                 };
             }
-            // 5. Create an unsigned transaction
-            console.log("Creating unsigned distribution transaction...");
-            const transaction = yield program.methods
+            // 5. Create transaction with compute budget optimization
+            console.log("Creating optimized distribution transaction...");
+            // Add compute budget instruction to handle complex operations
+            const computeBudgetInstruction = web3_js_1.ComputeBudgetProgram.setComputeUnitLimit({
+                units: 400000, // Increased compute units
+            });
+            const distributionInstruction = yield program.methods
                 .distributeTournamentRevenue(tournamentId, prizePercentage, revenuePercentage, stakingPercentage, burnPercentage)
                 .accounts({
                 admin: adminPublicKey,
@@ -250,22 +228,25 @@ const distributeTournamentRevenueService = (tournamentId_1, ...args_1) => __awai
                 mint: mintPublicKey,
                 tokenProgram: spl_token_1.TOKEN_2022_PROGRAM_ID,
             })
-                .transaction(); // Get the transaction object without signing
-            // Set recent blockhash and fee payer
+                .instruction();
+            // Create transaction with both instructions
+            const transaction = new web3_js_1.Transaction()
+                .add(computeBudgetInstruction)
+                .add(distributionInstruction);
+            // Set transaction metadata
             const { blockhash } = yield connection.getLatestBlockhash("finalized");
             transaction.recentBlockhash = blockhash;
             transaction.feePayer = adminPublicKey;
-            // Calculate potential distribution amounts (for display purposes on frontend)
+            // Calculate distribution amounts
             const prizeAmount = Math.floor((totalFunds * prizePercentage) / 100);
             const revenueAmount = Math.floor((totalFunds * revenuePercentage) / 100);
             const stakingAmount = Math.floor((totalFunds * stakingPercentage) / 100);
             const burnAmount = Math.floor((totalFunds * burnPercentage) / 100);
-            // Return transaction data to be signed by the frontend
             return {
                 success: true,
                 message: "Tournament revenue distribution transaction created successfully!",
                 tournamentId,
-                transaction: transaction.serialize({ requireAllSignatures: false }).toString('base64'), // Base64 encoded serialized transaction
+                transaction: transaction.serialize({ requireAllSignatures: false }).toString('base64'),
                 distribution: {
                     totalFunds,
                     prizeAmount,
@@ -273,7 +254,6 @@ const distributeTournamentRevenueService = (tournamentId_1, ...args_1) => __awai
                     stakingAmount,
                     burnAmount
                 },
-                // Include references to update database after frontend confirms transaction
                 tournamentRef: tournamentRef.toString(),
                 status: "Pending Signature"
             };
@@ -306,7 +286,7 @@ exports.distributeTournamentRevenueService = distributeTournamentRevenueService;
  */
 const distributeTournamentPrizesService = (tournamentId, firstPlacePublicKey, secondPlacePublicKey, thirdPlacePublicKey, adminPublicKey) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const { program, connection } = getProgram();
+        const { program, connection } = (0, services_2.getProgram)();
         console.log("Preparing prize distribution for tournament:", tournamentId);
         console.log("Winners:");
         console.log("1st Place:", firstPlacePublicKey.toString());
