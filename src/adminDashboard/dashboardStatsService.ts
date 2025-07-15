@@ -9,31 +9,7 @@ import { getUserStakingAccount } from "../staking/services";
 import { Tournament } from "../gamehub/gamehubController";
 import { calculateAPY, formatTokenAmount, getActiveStakers, getStakingPoolData } from "./stakingStatsService";
 import { StakingPoolAccount } from "./stakingStatsService";
-
-// Helper function to get the program configuration
-const getProgram = () => {
-    const idl = require("../gamehub/gamehub_idl.json");
-    const walletKeypair = require("../staking/saadat7s-wallet-keypair.json");
-
-    const adminKeypair = anchor.web3.Keypair.fromSecretKey(new Uint8Array(walletKeypair));
-    const adminPublicKey = adminKeypair.publicKey;
-    const connection = new Connection(clusterApiUrl("devnet"), "confirmed");
-
-    const programId = new PublicKey("BmBAppuJQGGHmVizxKLBpJbFtq8yGe9v7NeVgHPEM4Vs");
-
-    const provider = new anchor.AnchorProvider(
-        connection,
-        new anchor.Wallet(adminKeypair),
-        anchor.AnchorProvider.defaultOptions()
-    );
-    anchor.setProvider(provider);
-
-    return {
-        program: new anchor.Program(idl, programId, provider),
-        adminPublicKey,
-        connection,
-    };
-};
+import { getProgram } from "../staking/services";
 
 interface TournamentStats {
     activeTournaments: number;
@@ -47,7 +23,7 @@ interface TournamentStats {
 
 
 // Interface for the RevenuePool account structure
-interface RevenuePoolAccount {
+export interface RevenuePoolAccount {
     admin: PublicKey;
     mint: PublicKey;
     totalFunds: anchor.BN;
@@ -338,5 +314,4 @@ export const getDashboardData = async (adminPublicKey: PublicKey): Promise<any> 
         throw new Error(`Error fetching dashboard data: ${err.message || err}`);
     }
 }
-
 

@@ -23,8 +23,8 @@ dotenv.config();
 
 // Helper function to get the program
 export const getProgram = () => {
-  const idl = require("../gamehub/gamehub_idl.json");
-  const walletKeypair = require("../staking/saadat7s-wallet-keypair.json");
+  const idl = require("../staking/multiversed_dapp.json");
+  const walletKeypair = require("../staking/multiverse_dapp-keypair.json");
 
   const adminKeypair = Keypair.fromSecretKey(new Uint8Array(walletKeypair));
   const adminPublicKey = adminKeypair.publicKey;
@@ -34,10 +34,10 @@ export const getProgram = () => {
   const userKeypair = Keypair.fromSecretKey(new Uint8Array(userWallet));
   const userPublicKey = userKeypair.publicKey;
 
-  const connection = new Connection(clusterApiUrl("devnet"), "confirmed");
+  const connection = new Connection("https://api.devnet.solana.com", "confirmed");
 
   const programId = new PublicKey(
-    "BmBAppuJQGGHmVizxKLBpJbFtq8yGe9v7NeVgHPEM4Vs"
+    "GSV3Qje19X3NTxc5uxhKw28uoadpZED5Siqd4tGVZ7x4"
   );
 
   const provider = new anchor.AnchorProvider(
@@ -59,7 +59,6 @@ export const getProgram = () => {
 
 
 
-// ✅ Function to stake tokens into the staking pool
 // ✅ Function to stake tokens into the staking pool
 export const stakeTokenService = async (
   mintPublicKey: PublicKey,

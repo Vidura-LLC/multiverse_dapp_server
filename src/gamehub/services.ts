@@ -13,45 +13,10 @@ import {
 } from "@solana/spl-token";
 import dotenv from "dotenv";
 import { BN } from "bn.js";
-
+import { getProgram } from "../staking/services";
 
 dotenv.config();
 
-
-// 🔹 Helper function to get the program
-const getProgram = () => {
-  const idl = require("../gamehub/gamehub_idl.json");
-  const walletKeypair = require("../staking/saadat7s-wallet-keypair.json");
-
-  const adminKeypair = Keypair.fromSecretKey(new Uint8Array(walletKeypair));
-  const adminPublicKey = adminKeypair.publicKey;
-
-  const burnWalletKeypair = require("../staking/testWallet.json");
-
-  const burnKeypair = Keypair.fromSecretKey(new Uint8Array(burnWalletKeypair));
-  const burnPublicKey = burnKeypair.publicKey;
-  const connection = new Connection(clusterApiUrl("devnet"), "confirmed");
-
-  const programId = new PublicKey(
-    "BmBAppuJQGGHmVizxKLBpJbFtq8yGe9v7NeVgHPEM4Vs" // Updated to match the program ID from contract
-  );
-
-  const provider = new anchor.AnchorProvider(
-    connection,
-    new anchor.Wallet(adminKeypair),
-    anchor.AnchorProvider.defaultOptions()
-  );
-  anchor.setProvider(provider);
-
-  return {
-    program: new anchor.Program(idl, programId, provider),
-    adminPublicKey,
-    adminKeypair,
-    connection,
-    burnKeypair,
-    burnPublicKey
-  };
-};
 
 // ✅ Function to initialize the tournament pool
 export const initializeTournamentPoolService = async (
