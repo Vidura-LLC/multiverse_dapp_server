@@ -54,8 +54,8 @@ const dotenv_1 = __importDefault(require("dotenv"));
 dotenv_1.default.config();
 // Helper function to get the program
 const getProgram = () => {
-    const idl = require("../staking/multiversed_dapp.json");
-    const walletKeypair = require("../staking/multiverse_dapp-keypair.json");
+    const idl = require("./multiversed_dapp.json");
+    const walletKeypair = require("./multiverse_dapp-keypair.json");
     const adminKeypair = web3_js_1.Keypair.fromSecretKey(new Uint8Array(walletKeypair));
     const adminPublicKey = adminKeypair.publicKey;
     const userWallet = require("./hamad-wallet-keypair.json");

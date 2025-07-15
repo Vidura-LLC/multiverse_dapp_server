@@ -23,8 +23,8 @@ dotenv.config();
 
 // Helper function to get the program
 export const getProgram = () => {
-  const idl = require("../staking/multiversed_dapp.json");
-  const walletKeypair = require("../staking/multiverse_dapp-keypair.json");
+  const idl = require("./multiversed_dapp.json");
+  const walletKeypair = require("./multiverse_dapp-keypair.json");
 
   const adminKeypair = Keypair.fromSecretKey(new Uint8Array(walletKeypair));
   const adminPublicKey = adminKeypair.publicKey;
