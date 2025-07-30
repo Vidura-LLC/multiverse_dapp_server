@@ -4,7 +4,7 @@ import { ref, get, set, update } from "firebase/database";
 import { db } from "../config/firebase";
 import { Request, Response } from 'express';
 import { PublicKey } from '@solana/web3.js';
-import { initializePrizePoolService, distributeTournamentRevenueService, distributeTournamentPrizesService } from '../../src/revenue/services';
+import { initializePrizePoolService, distributeTournamentRevenueService, distributeTournamentPrizesService } from './services';
 import { getProgram } from "../staking/services";
 
 

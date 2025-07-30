@@ -14,7 +14,7 @@ exports.confirmPrizeDistributionController = exports.confirmDistributionControll
 const database_1 = require("firebase/database");
 const firebase_1 = require("../config/firebase");
 const web3_js_1 = require("@solana/web3.js");
-const services_1 = require("../../src/revenue/services");
+const services_1 = require("./services");
 const services_2 = require("../staking/services");
 /**
  * Controller function for initializing a prize pool for a specific tournament

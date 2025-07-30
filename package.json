@@ -6,6 +6,7 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "ts-node-dev src/server.ts",
     "start": "ts-node src/server.ts",
+    "dist": "node dist/server.js",
     "build": "tsc",
     "ts.check": "tsc --project tsconfig.json",
     "add-build": "git add dist"
