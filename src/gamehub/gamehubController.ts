@@ -100,6 +100,15 @@ export async function createTournament(req: Request, res: Response) {
 
     const tournamentRef = ref(db, `tournaments/${tournamentId}`);
 
+    schedule.scheduleJob(new Date(startTime), async () => {
+      try {
+        await update(tournamentRef, { status: "Active" });
+        console.log(`Tournament ${tournamentId} has started.`);
+      } catch (error) {
+        console.error(`Failed to start tournament ${tournamentId}:`, error);
+      }
+    });
+
     schedule.scheduleJob(new Date(endTime), async () => {
       try {
         await update(tournamentRef, { status: "Ended" });
@@ -425,10 +434,12 @@ export async function updateTournamentStatus(req: Request, res: Response) {
     if (!tournamentSnapshot.exists()) {
       return res.status(404).json({ message: "Tournament not found" });
     }
-
     await update(tournamentRef, { status });
 
-    return res.status(200).json({ message: "Tournament status updated successfully" });
+    const updatedTournamentSnapshot = await get(tournamentRef);
+    const updatedTournament = updatedTournamentSnapshot.val();
+
+    return res.status(200).json({ message: "Tournament status updated successfully", tournament: updatedTournament });
   } catch (error) {
     console.error("Error updating tournament status:", error);
     return res.status(500).json({ message: "Internal Server Error" });
