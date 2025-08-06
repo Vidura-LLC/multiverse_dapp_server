@@ -425,10 +425,12 @@ export async function updateTournamentStatus(req: Request, res: Response) {
     if (!tournamentSnapshot.exists()) {
       return res.status(404).json({ message: "Tournament not found" });
     }
-
     await update(tournamentRef, { status });
 
-    return res.status(200).json({ message: "Tournament status updated successfully" });
+    const updatedTournamentSnapshot = await get(tournamentRef);
+    const updatedTournament = updatedTournamentSnapshot.val();
+
+    return res.status(200).json({ message: "Tournament status updated successfully", tournament: updatedTournament });
   } catch (error) {
     console.error("Error updating tournament status:", error);
     return res.status(500).json({ message: "Internal Server Error" });
