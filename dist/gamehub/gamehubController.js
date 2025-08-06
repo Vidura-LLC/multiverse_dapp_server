@@ -85,6 +85,15 @@ function createTournament(req, res) {
             };
             yield (0, database_1.set)(newTournamentRef, tournament);
             const tournamentRef = (0, database_1.ref)(firebase_1.db, `tournaments/${tournamentId}`);
+            node_schedule_1.default.scheduleJob(new Date(startTime), () => __awaiter(this, void 0, void 0, function* () {
+                try {
+                    yield (0, database_1.update)(tournamentRef, { status: "Active" });
+                    console.log(`Tournament ${tournamentId} has started.`);
+                }
+                catch (error) {
+                    console.error(`Failed to start tournament ${tournamentId}:`, error);
+                }
+            }));
             node_schedule_1.default.scheduleJob(new Date(endTime), () => __awaiter(this, void 0, void 0, function* () {
                 try {
                     yield (0, database_1.update)(tournamentRef, { status: "Ended" });
@@ -377,7 +386,9 @@ function updateTournamentStatus(req, res) {
                 return res.status(404).json({ message: "Tournament not found" });
             }
             yield (0, database_1.update)(tournamentRef, { status });
-            return res.status(200).json({ message: "Tournament status updated successfully" });
+            const updatedTournamentSnapshot = yield (0, database_1.get)(tournamentRef);
+            const updatedTournament = updatedTournamentSnapshot.val();
+            return res.status(200).json({ message: "Tournament status updated successfully", tournament: updatedTournament });
         }
         catch (error) {
             console.error("Error updating tournament status:", error);
