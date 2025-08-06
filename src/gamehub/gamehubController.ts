@@ -100,6 +100,15 @@ export async function createTournament(req: Request, res: Response) {
 
     const tournamentRef = ref(db, `tournaments/${tournamentId}`);
 
+    schedule.scheduleJob(new Date(startTime), async () => {
+      try {
+        await update(tournamentRef, { status: "Active" });
+        console.log(`Tournament ${tournamentId} has started.`);
+      } catch (error) {
+        console.error(`Failed to start tournament ${tournamentId}:`, error);
+      }
+    });
+
     schedule.scheduleJob(new Date(endTime), async () => {
       try {
         await update(tournamentRef, { status: "Ended" });
