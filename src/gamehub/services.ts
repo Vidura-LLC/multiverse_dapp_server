@@ -13,7 +13,7 @@ import {
 } from "@solana/spl-token";
 import dotenv from "dotenv";
 import { BN } from "bn.js";
-import { getProgram } from "../staking/services";
+import { createAssociatedTokenAccount, getProgram } from "../staking/services";
 
 dotenv.config();
 
@@ -159,9 +159,16 @@ export const registerForTournamentService = async (
       program.programId
     );
 
-    const userTokenAccount = await getOrCreateAssociatedTokenAccount(connection, mintPublicKey, userPublicKey);
+    let userTokenAccountPublicKey = await getAssociatedTokenAddressSync(mintPublicKey, userPublicKey, false, TOKEN_2022_PROGRAM_ID);
+    console.log("User Token Account PublicKey:", userTokenAccountPublicKey.toBase58());
 
-    console.log('User Token Account Public:', userTokenAccount);
+    if (!userTokenAccountPublicKey) {
+      console.log("User Token Account PublicKey does not exist. Creating ATA...");
+      const createATAResponse = await createAssociatedTokenAccount(mintPublicKey, userPublicKey);
+      console.log("Create ATA Response:", createATAResponse);
+      userTokenAccountPublicKey = createATAResponse.associatedTokenAddress;
+    }
+  
 
     const transaction = await program.methods
       .registerForTournament(tournamentId)
@@ -169,7 +176,7 @@ export const registerForTournamentService = async (
         user: userPublicKey,
         tournamentPool: tournamentPoolPublicKey,
         registrationAccount: registrationAccountPublicKey,
-        userTokenAccount: userTokenAccount,
+        userTokenAccount: userTokenAccountPublicKey,
         poolEscrowAccount: poolEscrowAccountPublicKey,
         mint: mintPublicKey,
         tokenProgram: TOKEN_2022_PROGRAM_ID,

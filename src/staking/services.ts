@@ -102,12 +102,16 @@ export const stakeTokenService = async (
     const userStakingAccountResponse = await getUserStakingAccount(userPublicKey);
     console.log("User Staking Account Response:", userStakingAccountResponse);
 
-    const userTokenAccountPublicKey = await getOrCreateAssociatedTokenAccount(
-      connection,
-      mintPublicKey,
-      userPublicKey
-    );
+    let userTokenAccountPublicKey = await getAssociatedTokenAddressSync(mintPublicKey, userPublicKey, false, TOKEN_2022_PROGRAM_ID);
     console.log("User Token Account PublicKey:", userTokenAccountPublicKey.toBase58());
+
+    if (!userTokenAccountPublicKey) {
+      console.log("User Token Account PublicKey does not exist. Creating ATA...");
+      const createATAResponse = await createAssociatedTokenAccount(mintPublicKey, userPublicKey);
+      console.log("Create ATA Response:", createATAResponse);
+      userTokenAccountPublicKey = createATAResponse.associatedTokenAddress;
+    }
+
 
     const { blockhash } = await connection.getLatestBlockhash("finalized");
     console.log("Latest Blockhash:", blockhash);
@@ -179,17 +183,19 @@ export const unstakeTokenService = async (
       program.programId
     );
 
-    // Get the user's token account (create if it doesn't exist)
-    const userTokenAccountPublicKey = await getOrCreateAssociatedTokenAccount(
-      connection,
-      mintPublicKey,
-      userPublicKey
-    );
+    // Check if the user already has a staking account
+    const userStakingAccountResponse = await getUserStakingAccount(userPublicKey);
+    console.log("User Staking Account Response:", userStakingAccountResponse);
 
-    // Fetch the user's staking account to get the staked amount
-    const userStakingAccount = await program.account.userStakingAccount.fetch(
-      userStakingAccountPublicKey
-    );
+    let userTokenAccountPublicKey = await getAssociatedTokenAddressSync(mintPublicKey, userPublicKey, false, TOKEN_2022_PROGRAM_ID);
+    console.log("User Token Account PublicKey:", userTokenAccountPublicKey.toBase58());
+
+    if (!userTokenAccountPublicKey) {
+      console.log("User Token Account PublicKey does not exist. Creating ATA...");
+      const createATAResponse = await createAssociatedTokenAccount(mintPublicKey, userPublicKey);
+      console.log("Create ATA Response:", createATAResponse);
+      userTokenAccountPublicKey = createATAResponse.associatedTokenAddress;
+    }
 
 
     // Get the latest blockhash
@@ -452,3 +458,7 @@ export const createAssociatedTokenAccountWithKeypair = async (
     return { success: false, message: "Error creating the associated token account" };
   }
 };
+function getTokenAccount(connection: Connection, mintPublicKey: PublicKey, userPublicKey: PublicKey) {
+  throw new Error("Function not implemented.");
+}
+
