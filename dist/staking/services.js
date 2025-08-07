@@ -98,8 +98,14 @@ adminPublicKey // Admin public key from client
         // Check if the user already has a staking account
         const userStakingAccountResponse = yield (0, exports.getUserStakingAccount)(userPublicKey);
         console.log("User Staking Account Response:", userStakingAccountResponse);
-        const userTokenAccountPublicKey = yield getOrCreateAssociatedTokenAccount(connection, mintPublicKey, userPublicKey);
+        let userTokenAccountPublicKey = yield (0, spl_token_1.getAssociatedTokenAddressSync)(mintPublicKey, userPublicKey, false, spl_token_1.TOKEN_2022_PROGRAM_ID);
         console.log("User Token Account PublicKey:", userTokenAccountPublicKey.toBase58());
+        if (!userTokenAccountPublicKey) {
+            console.log("User Token Account PublicKey does not exist. Creating ATA...");
+            const createATAResponse = yield (0, exports.createAssociatedTokenAccount)(mintPublicKey, userPublicKey);
+            console.log("Create ATA Response:", createATAResponse);
+            userTokenAccountPublicKey = createATAResponse.associatedTokenAddress;
+        }
         const { blockhash } = yield connection.getLatestBlockhash("finalized");
         console.log("Latest Blockhash:", blockhash);
         // Calculate the lock timestamp (current UTC time + lock duration in seconds)
@@ -145,10 +151,17 @@ const unstakeTokenService = (mintPublicKey, userPublicKey, adminPublicKey) => __
         const [stakingPoolPublicKey] = web3_js_1.PublicKey.findProgramAddressSync([Buffer.from('staking_pool'), adminPublicKey.toBuffer()], program.programId);
         const [userStakingAccountPublicKey] = web3_js_1.PublicKey.findProgramAddressSync([Buffer.from('user_stake'), userPublicKey.toBuffer()], program.programId);
         const [poolEscrowAccountPublicKey] = web3_js_1.PublicKey.findProgramAddressSync([Buffer.from('escrow'), stakingPoolPublicKey.toBuffer()], program.programId);
-        // Get the user's token account (create if it doesn't exist)
-        const userTokenAccountPublicKey = yield getOrCreateAssociatedTokenAccount(connection, mintPublicKey, userPublicKey);
-        // Fetch the user's staking account to get the staked amount
-        const userStakingAccount = yield program.account.userStakingAccount.fetch(userStakingAccountPublicKey);
+        // Check if the user already has a staking account
+        const userStakingAccountResponse = yield (0, exports.getUserStakingAccount)(userPublicKey);
+        console.log("User Staking Account Response:", userStakingAccountResponse);
+        let userTokenAccountPublicKey = yield (0, spl_token_1.getAssociatedTokenAddressSync)(mintPublicKey, userPublicKey, false, spl_token_1.TOKEN_2022_PROGRAM_ID);
+        console.log("User Token Account PublicKey:", userTokenAccountPublicKey.toBase58());
+        if (!userTokenAccountPublicKey) {
+            console.log("User Token Account PublicKey does not exist. Creating ATA...");
+            const createATAResponse = yield (0, exports.createAssociatedTokenAccount)(mintPublicKey, userPublicKey);
+            console.log("Create ATA Response:", createATAResponse);
+            userTokenAccountPublicKey = createATAResponse.associatedTokenAddress;
+        }
         // Get the latest blockhash
         const { blockhash } = yield connection.getLatestBlockhash('finalized');
         // ✅ Create an unsigned transaction to unstake all tokens
@@ -314,4 +327,7 @@ const createAssociatedTokenAccountWithKeypair = (mintPublicKey, userPublicKey) =
     }
 });
 exports.createAssociatedTokenAccountWithKeypair = createAssociatedTokenAccountWithKeypair;
+function getTokenAccount(connection, mintPublicKey, userPublicKey) {
+    throw new Error("Function not implemented.");
+}
 //# sourceMappingURL=services.js.map

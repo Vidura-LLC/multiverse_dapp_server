@@ -142,15 +142,21 @@ const registerForTournamentService = (tournamentId, userPublicKey, adminPublicKe
         const [poolEscrowAccountPublicKey] = web3_js_1.PublicKey.findProgramAddressSync([Buffer.from("escrow"), tournamentPoolPublicKey.toBuffer()], program.programId);
         // Get registration PDA
         const [registrationAccountPublicKey] = web3_js_1.PublicKey.findProgramAddressSync([Buffer.from("registration"), tournamentPoolPublicKey.toBuffer(), userPublicKey.toBuffer()], program.programId);
-        const userTokenAccount = yield getOrCreateAssociatedTokenAccount(connection, mintPublicKey, userPublicKey);
-        console.log('User Token Account Public:', userTokenAccount);
+        let userTokenAccountPublicKey = yield (0, spl_token_1.getAssociatedTokenAddressSync)(mintPublicKey, userPublicKey, false, spl_token_1.TOKEN_2022_PROGRAM_ID);
+        console.log("User Token Account PublicKey:", userTokenAccountPublicKey.toBase58());
+        if (!userTokenAccountPublicKey) {
+            console.log("User Token Account PublicKey does not exist. Creating ATA...");
+            const createATAResponse = yield (0, services_1.createAssociatedTokenAccount)(mintPublicKey, userPublicKey);
+            console.log("Create ATA Response:", createATAResponse);
+            userTokenAccountPublicKey = createATAResponse.associatedTokenAddress;
+        }
         const transaction = yield program.methods
             .registerForTournament(tournamentId)
             .accounts({
             user: userPublicKey,
             tournamentPool: tournamentPoolPublicKey,
             registrationAccount: registrationAccountPublicKey,
-            userTokenAccount: userTokenAccount,
+            userTokenAccount: userTokenAccountPublicKey,
             poolEscrowAccount: poolEscrowAccountPublicKey,
             mint: mintPublicKey,
             tokenProgram: spl_token_1.TOKEN_2022_PROGRAM_ID,
