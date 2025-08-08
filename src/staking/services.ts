@@ -37,7 +37,7 @@ export const getProgram = () => {
   const connection = new Connection("https://api.devnet.solana.com", "confirmed");
 
   const programId = new PublicKey(
-    "GSV3Qje19X3NTxc5uxhKw28uoadpZED5Siqd4tGVZ7x4"
+    "5MnmduijGED4wMJEih8MWccjJP4CrHWn5hUUkCyF4Hnf"
   );
 
   const provider = new anchor.AnchorProvider(

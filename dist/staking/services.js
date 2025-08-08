@@ -62,7 +62,7 @@ const getProgram = () => {
     const userKeypair = web3_js_1.Keypair.fromSecretKey(new Uint8Array(userWallet));
     const userPublicKey = userKeypair.publicKey;
     const connection = new web3_js_1.Connection("https://api.devnet.solana.com", "confirmed");
-    const programId = new web3_js_1.PublicKey("GSV3Qje19X3NTxc5uxhKw28uoadpZED5Siqd4tGVZ7x4");
+    const programId = new web3_js_1.PublicKey("5MnmduijGED4wMJEih8MWccjJP4CrHWn5hUUkCyF4Hnf");
     const provider = new anchor.AnchorProvider(connection, new anchor.Wallet(adminKeypair), anchor.AnchorProvider.defaultOptions());
     anchor.setProvider(provider);
     return {
