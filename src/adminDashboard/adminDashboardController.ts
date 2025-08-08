@@ -274,8 +274,8 @@ export const getDetailedStakersController = async (req: Request, res: Response) 
                     return sortOrder === 'desc' ? b.stakedAmount - a.stakedAmount : a.stakedAmount - b.stakedAmount;
                 } else if (sortBy === 'stakeTimestamp') {
                     return sortOrder === 'desc' ?
-                        parseInt(b.stakeTimestamp) - parseInt(a.stakeTimestamp) :
-                        parseInt(a.stakeTimestamp) - parseInt(b.stakeTimestamp);
+                        b.stakeTimestamp - a.stakeTimestamp :
+                        a.stakeTimestamp - b.stakeTimestamp;
                 }
                 return 0;
             });

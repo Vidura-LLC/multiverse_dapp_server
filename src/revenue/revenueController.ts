@@ -32,9 +32,17 @@ export const initializePrizePoolController = async (req: Request, res: Response)
       });
     }
 
-    // Convert string public key to PublicKey object
-    const mintPubkey = new PublicKey(mintPublicKey);
-    const adminPubKey = new PublicKey(adminPublicKey);
+    // Validate public key formats
+    let mintPubkey, adminPubKey;
+    try {
+      mintPubkey = new PublicKey(mintPublicKey);
+      adminPubKey = new PublicKey(adminPublicKey);
+    } catch (error) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid public key format' 
+      });
+    }
 
     // Call the service function to initialize prize pool for the tournament
     const result = await initializePrizePoolService(tournamentId, mintPubkey, adminPubKey);
@@ -87,7 +95,24 @@ export const distributeTournamentRevenueController = async (req: Request, res: R
       adminPublicKey
     } = req.body;
 
-    const adminPubKey = new PublicKey(adminPublicKey);
+    // Validate admin public key
+    if (!adminPublicKey) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Admin public key is required' 
+      });
+    }
+
+    // Validate public key format
+    let adminPubKey;
+    try {
+      adminPubKey = new PublicKey(adminPublicKey);
+    } catch (error) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid admin public key format' 
+      });
+    }
 
 
     // Validate tournament ID
@@ -276,11 +301,19 @@ export const distributeTournamentPrizesController = async (req: Request, res: Re
       });
     }
     
-    // Convert string public keys to PublicKey objects
-    const firstPlacePubkey = new PublicKey(firstPlacePublicKey);
-    const secondPlacePubkey = new PublicKey(secondPlacePublicKey);
-    const thirdPlacePubkey = new PublicKey(thirdPlacePublicKey);
-    const adminPubKey = new PublicKey(adminPublicKey);
+    // Validate and convert string public keys to PublicKey objects
+    let firstPlacePubkey, secondPlacePubkey, thirdPlacePubkey, adminPubKey;
+    try {
+      firstPlacePubkey = new PublicKey(firstPlacePublicKey);
+      secondPlacePubkey = new PublicKey(secondPlacePublicKey);
+      thirdPlacePubkey = new PublicKey(thirdPlacePublicKey);
+      adminPubKey = new PublicKey(adminPublicKey);
+    } catch (error) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid public key format' 
+      });
+    }
 
     // Call the service function to distribute prizes
     const result = await distributeTournamentPrizesService(

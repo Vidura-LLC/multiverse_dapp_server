@@ -14,13 +14,9 @@ import {
   dotenv.config();
   import * as anchor from "@project-serum/anchor";
   import { RevenuePoolAccount } from "./dashboardStatsService";
+import { StakingPoolAccount } from "./stakingStatsService";
   
-  interface StakingPoolAccount {
-      admin: PublicKey;
-      mint: PublicKey;
-      totalStaked: anchor.BN;
-      bump: number;
-  }
+
   
   // ✅ Function to initialize the staking pool and escrow account
   export const initializeStakingPoolService = async (mintPublicKey: PublicKey, adminPublicKey: PublicKey) => {
@@ -43,7 +39,7 @@ import {
           );
   
           console.log("🔹 Staking Pool PDA Address:", stakingPoolPublicKey.toString());
-          console.log("🔹 Pool Escrow Account Address:", poolEscrowAccountPublicKey.toString());
+          console.log("🔹 Staking Escrow Account Address:", poolEscrowAccountPublicKey.toString());
   
   
   
@@ -55,7 +51,7 @@ import {
   
           // Create the transaction
           const transaction = await program.methods
-              .initializeAccounts()
+              .initializeStakingPool()
               .accounts({
                   admin: adminPublicKey,
                   stakingPool: stakingPoolPublicKey,
@@ -75,7 +71,7 @@ import {
               success: true,
               message: "Transaction created successfully!",
               stakingPoolPublicKey: stakingPoolPublicKey.toBase58(),
-              poolEscrowAccountPublicKey: poolEscrowAccountPublicKey.toBase58(),
+              stakingEscrowAccountPublicKey: poolEscrowAccountPublicKey.toBase58(),
               transaction: transaction.serialize({ requireAllSignatures: false }).toString("base64"),
           };
       } catch (err) {

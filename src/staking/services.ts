@@ -37,7 +37,7 @@ export const getProgram = () => {
   const connection = new Connection("https://api.devnet.solana.com", "confirmed");
 
   const programId = new PublicKey(
-    "GSV3Qje19X3NTxc5uxhKw28uoadpZED5Siqd4tGVZ7x4"
+    "7xDwUMmJTJfa1QQDmhWvEFWR7GQ28hqHeRPzdWY7nJTj"
   );
 
   const provider = new anchor.AnchorProvider(
@@ -272,11 +272,11 @@ export const getUserStakingAccount = async (userPublicKey: PublicKey) => {
     const readableStakedAmount = userStakingAccount.stakedAmount.toNumber() / (10 ** tokenDecimals);
 
     // Ensure that the fields are defined and use safe .toString() calls
-    const rawData = {
-      owner: userStakingAccount.owner.toBase58(),
-      stakedAmount: readableStakedAmount,
-      stakeTimestamp: userStakingAccount.stakeTimestamp.toString(),
-      stakeDuration: userStakingAccount.lockDuration.toString(),
+        const rawData = {
+        owner: userStakingAccount.owner.toBase58(),
+        stakedAmount: readableStakedAmount,
+        stakeTimestamp: userStakingAccount.stakeTimestamp.toNumber(), // Unix timestamp (number)
+        stakeDuration: userStakingAccount.lockDuration.toNumber(), // Number in seconds
     };
 
     console.log("✅ Raw User Staking Account Data:", rawData);

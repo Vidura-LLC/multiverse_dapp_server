@@ -250,14 +250,20 @@ const DEFAULT_SPLITS = {
           };
         }
   
-        // 5. Create transaction with compute budget optimization
-        console.log("Creating optimized distribution transaction...");
+                // 5. Calculate distribution amounts
+        const prizeAmount = Math.floor((totalFunds * prizePercentage) / 100);
+        const revenueAmount = Math.floor((totalFunds * revenuePercentage) / 100);
+        const stakingAmount = Math.floor((totalFunds * stakingPercentage) / 100);
+        const burnAmount = Math.floor((totalFunds * burnPercentage) / 100);
+
+        // 6. Create tournament revenue distribution transaction
+        console.log("Creating tournament revenue distribution transaction...");
         
         // Add compute budget instruction to handle complex operations
         const computeBudgetInstruction = ComputeBudgetProgram.setComputeUnitLimit({
           units: 400_000, // Increased compute units
         });
-  
+
         const distributionInstruction = await program.methods
           .distributeTournamentRevenue(
             tournamentId,
@@ -280,28 +286,54 @@ const DEFAULT_SPLITS = {
             tokenProgram: TOKEN_2022_PROGRAM_ID,
           })
           .instruction();
-  
-        // Create transaction with both instructions
-        const transaction = new Transaction()
+
+        // Create main distribution transaction
+        const distributionTransaction = new Transaction()
           .add(computeBudgetInstruction)
           .add(distributionInstruction);
-  
+
         // Set transaction metadata
         const { blockhash } = await connection.getLatestBlockhash("finalized");
-        transaction.recentBlockhash = blockhash;
-        transaction.feePayer = adminPublicKey;
-  
-        // Calculate distribution amounts
-        const prizeAmount = Math.floor((totalFunds * prizePercentage) / 100);
-        const revenueAmount = Math.floor((totalFunds * revenuePercentage) / 100);
-        const stakingAmount = Math.floor((totalFunds * stakingPercentage) / 100);
-        const burnAmount = Math.floor((totalFunds * burnPercentage) / 100);
+        distributionTransaction.recentBlockhash = blockhash;
+        distributionTransaction.feePayer = adminPublicKey;
+
+        // 7. Create revenue distribution event transaction (ONLY if staking amount > 0)
+        // Note: This should be executed AFTER the main distribution transaction
+        let eventTransaction = null;
+        if (stakingAmount > 0) {
+          console.log("Creating revenue distribution event transaction...");
+          
+          // Derive revenue event PDA (will use the NEXT event ID after distribution)
+          // The event ID will be incremented by the smart contract during execution
+          const [revenueEventPublicKey] = PublicKey.findProgramAddressSync(
+            [Buffer.from("revenue_event"), stakingPoolPublicKey.toBuffer(), Buffer.alloc(8)], // Placeholder, will be set by contract
+            program.programId
+          );
+
+          const eventInstruction = await program.methods
+            .createRevenueDistributionEvent(new anchor.BN(stakingAmount))
+            .accounts({
+              revenueEvent: revenueEventPublicKey,
+              stakingPool: stakingPoolPublicKey,
+              admin: adminPublicKey,
+              systemProgram: SystemProgram.programId,
+            })
+            .transaction();
+
+          eventTransaction = new Transaction()
+            .add(computeBudgetInstruction)
+            .add(eventInstruction);
+
+          eventTransaction.recentBlockhash = blockhash;
+          eventTransaction.feePayer = adminPublicKey;
+        }
   
         return {
           success: true,
           message: "Tournament revenue distribution transaction created successfully!",
           tournamentId,
-          transaction: transaction.serialize({ requireAllSignatures: false }).toString('base64'),
+          distributionTransaction: distributionTransaction.serialize({ requireAllSignatures: false }).toString('base64'),
+          eventTransaction: eventTransaction ? eventTransaction.serialize({ requireAllSignatures: false }).toString('base64') : null,
           distribution: {
             totalFunds,
             prizeAmount,

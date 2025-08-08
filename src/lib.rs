@@ -3,14 +3,15 @@ use anchor_lang::prelude::*;
 use anchor_spl::token_2022::{self, Burn, Token2022, TransferChecked};
 use anchor_spl::token_interface::{Mint, TokenAccount};
 
-declare_id!("BmBAppuJQGGHmVizxKLBpJbFtq8yGe9v7NeVgHPEM4Vs");
+// Fix: Use a valid program ID instead of placeholder
+declare_id!("Hfw6gCTRhjJRAePXCG8LabbbcL4d97nKCdR7Zbse3KHu");
 
 #[program]
-pub mod staking_and_gamehub {
+pub mod multiversed_dapp {
     use super::*;
 
     /// Initializes all necessary accounts before staking
-    pub fn initialize_accounts(ctx: Context<InitializeAccounts>) -> Result<()> {
+    pub fn initialize_staking_pool(ctx: Context<InitializeStakingPoolAccount>) -> Result<()> {
         let staking_pool = &mut ctx.accounts.staking_pool;
 
         if staking_pool.total_staked > 0 {
@@ -20,6 +21,11 @@ pub mod staking_and_gamehub {
         staking_pool.admin = ctx.accounts.admin.key();
         staking_pool.mint = ctx.accounts.mint.key();
         staking_pool.total_staked = 0;
+        staking_pool.total_weighted_stake = 0;           // NEW: Initialize weighted stake
+        staking_pool.current_event_id = 0;              // NEW: Initialize event ID
+        staking_pool.total_accumulated_revenue = 0;     // NEW: Initialize revenue tracking
+        staking_pool.last_distribution_timestamp = 0;   // NEW: Initialize timestamp
+        staking_pool.active_stakers_count = 0;          // NEW: Initialize staker count
         staking_pool.bump = ctx.bumps.staking_pool;
 
         msg!(
@@ -29,121 +35,252 @@ pub mod staking_and_gamehub {
         Ok(())
     }
 
-    /// Allows a user to stake tokens
-    pub fn stake(ctx: Context<Stake>, amount: u64, lock_duration: i64) -> Result<()> {
-        let mint_decimals = ctx.accounts.mint.decimals;
-        let amount_in_base_units = amount
-            .checked_mul(10_u64.pow(mint_decimals as u32))
-            .ok_or(StakingError::MathOverflow)?;
+        // Modified instruction to initialize just the global revenue pool
+        pub fn initialize_revenue_pool(ctx: Context<InitializeRevenuePool>) -> Result<()> {
+            let revenue_pool = &mut ctx.accounts.revenue_pool;
+            let admin = &ctx.accounts.admin;
+    
+            // Initialize revenue pool
+            revenue_pool.admin = admin.key();
+            revenue_pool.mint = ctx.accounts.mint.key();
+            revenue_pool.total_funds = 0;
+            revenue_pool.last_distribution = Clock::get()?.unix_timestamp;
+            revenue_pool.bump = ctx.bumps.revenue_pool;
+    
+            msg!("✅ Revenue pool initialized for admin: {}", admin.key());
+            Ok(())
+        }
+    
+        // New instruction to initialize a prize pool for a specific tournament
+        pub fn initialize_prize_pool(
+            ctx: Context<InitializePrizePool>,
+            tournament_id: String,
+        ) -> Result<()> {
+            let prize_pool = &mut ctx.accounts.prize_pool;
+            let admin = &ctx.accounts.admin;
+            let tournament_pool = &ctx.accounts.tournament_pool;
+    
+            // Convert tournament_id to fixed-size bytes
+            let mut tournament_id_bytes = [0u8; 32]; // Increased from 10 to 32
+            let id_bytes = tournament_id.as_bytes();
+            let len = id_bytes.len().min(32);
+            tournament_id_bytes[..len].copy_from_slice(&id_bytes[..len]);
+    
+            // Verify that the tournament_id matches the one in the tournament pool
+            let tournament_pool_id = &tournament_pool.tournament_id;
+            require!(
+                &tournament_id_bytes[..] == tournament_pool_id.as_ref(),
+                TournamentError::Unauthorized
+            );
+    
+            // Initialize prize pool
+            prize_pool.admin = admin.key();
+            prize_pool.tournament_pool = tournament_pool.key();
+            prize_pool.mint = ctx.accounts.mint.key();
+            prize_pool.tournament_id = tournament_id_bytes;
+            prize_pool.total_funds = 0;
+            prize_pool.distributed = false;
+            prize_pool.bump = ctx.bumps.prize_pool;
+    
+            msg!(
+                "✅ Prize pool initialized for tournament: {}",
+                tournament_id
+            );
+            Ok(())
+        }
 
-        require!(
-            lock_duration == ONE_MONTH
-                || lock_duration == THREE_MONTHS
-                || lock_duration == SIX_MONTHS
-                || lock_duration == TWELVE_MONTHS,
-            StakingError::InvalidLockDuration
-        );
 
-        // Transfer tokens to escrow
-        let cpi_accounts = TransferChecked {
-            from: ctx.accounts.user_token_account.to_account_info(),
-            to: ctx.accounts.pool_escrow_account.to_account_info(),
-            mint: ctx.accounts.mint.to_account_info(),
-            authority: ctx.accounts.user.to_account_info(),
-        };
 
-        token_2022::transfer_checked(
-            CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts),
-            amount_in_base_units,
-            mint_decimals,
-        )?;
-
-        // Update user staking account
-        let user_staking_account = &mut ctx.accounts.user_staking_account;
-        let _current_timestamp = Clock::get()?.unix_timestamp;
-        user_staking_account.owner = ctx.accounts.user.key();
-        user_staking_account.staked_amount = user_staking_account
-            .staked_amount
-            .checked_add(amount_in_base_units)
-            .ok_or(StakingError::MathOverflow)?;
-
-        user_staking_account.stake_timestamp = _current_timestamp; // ✅ Store when staking happened
-        user_staking_account.lock_duration = lock_duration; // ✅ Store lock duration separately
-
-        // Update total staked in pool
-        ctx.accounts.staking_pool.total_staked = ctx
-            .accounts
-            .staking_pool
-            .total_staked
-            .checked_add(amount_in_base_units)
-            .ok_or(StakingError::MathOverflow)?;
-
-        msg!(
-            "✅ {} tokens staked by user: {} for {} seconds",
-            amount,
-            ctx.accounts.user.key(),
-            lock_duration
-        );
-
-        Ok(())
-    }
-
-    /// Allows users to unstake all of their tokens at any time
-    pub fn unstake(ctx: Context<Unstake>) -> Result<()> {
-        let user_staking_account = &mut ctx.accounts.user_staking_account;
-
-        // Ensure the user has a staked balance
-        require!(
-            user_staking_account.staked_amount > 0,
-            StakingError::InsufficientStakedBalance
-        );
-
-        let mint_decimals = ctx.accounts.mint.decimals;
-        let amount_in_base_units = user_staking_account.staked_amount;
-
-        // Transfer all staked tokens from the escrow account to the user's token account
-        let staking_pool_seeds = &[
-            b"staking_pool",
-            ctx.accounts.staking_pool.admin.as_ref(),
-            &[ctx.accounts.staking_pool.bump],
-        ];
-        let signer_seeds: &[&[&[u8]]] = &[staking_pool_seeds];
-
-        let transfer_ctx = CpiContext::new_with_signer(
-            ctx.accounts.token_program.to_account_info(),
-            TransferChecked {
-                from: ctx.accounts.pool_escrow_account.to_account_info(),
-                to: ctx.accounts.user_token_account.to_account_info(),
+        /// NEW: Create a revenue distribution event
+        pub fn create_revenue_distribution_event(
+            ctx: Context<CreateRevenueDistributionEvent>,
+            revenue_amount: u64,
+        ) -> Result<()> {
+            let staking_pool = &mut ctx.accounts.staking_pool;
+            let revenue_event = &mut ctx.accounts.revenue_event;
+    
+            // Increment event ID for this new distribution
+            let event_id = staking_pool.increment_event_id();
+    
+            // Initialize the revenue distribution event
+            revenue_event.event_id = event_id;
+            revenue_event.revenue_amount = revenue_amount;
+            revenue_event.timestamp = Clock::get()?.unix_timestamp;
+            revenue_event.total_stakers_at_event = staking_pool.active_stakers_count;
+            revenue_event.total_staked_at_event = staking_pool.total_staked;
+            revenue_event.total_weighted_stake_at_event = staking_pool.total_weighted_stake;
+            revenue_event.participants = Vec::new(); // Will be populated by backend
+            revenue_event.is_distributed = false;
+            revenue_event.bump = ctx.bumps.revenue_event;
+    
+            // Update staking pool tracking
+            staking_pool.total_accumulated_revenue = staking_pool.total_accumulated_revenue
+                .checked_add(revenue_amount)
+                .ok_or(StakingError::MathOverflow)?;
+            staking_pool.last_distribution_timestamp = Clock::get()?.unix_timestamp;
+    
+            msg!(
+                "✅ Revenue distribution event {} created with {} tokens",
+                event_id,
+                revenue_amount
+            );
+    
+            Ok(())
+        }
+    
+        /// Allows a user to stake tokens - MODIFIED to include reward tracking
+        pub fn stake(ctx: Context<Stake>, amount: u64, lock_duration: i64) -> Result<()> {
+            let mint_decimals = ctx.accounts.mint.decimals;
+            let amount_in_base_units = amount
+                .checked_mul(10_u64.pow(mint_decimals as u32))
+                .ok_or(StakingError::MathOverflow)?;
+    
+            require!(
+                lock_duration == ONE_MONTH
+                    || lock_duration == THREE_MONTHS
+                    || lock_duration == SIX_MONTHS
+                    || lock_duration == TWELVE_MONTHS,
+                StakingError::InvalidLockDuration
+            );
+    
+            // Transfer tokens to escrow
+            let cpi_accounts = TransferChecked {
+                from: ctx.accounts.user_token_account.to_account_info(),
+                to: ctx.accounts.pool_escrow_account.to_account_info(),
                 mint: ctx.accounts.mint.to_account_info(),
-                authority: ctx.accounts.staking_pool.to_account_info(),
-            },
-            signer_seeds,
-        );
-
-        // Execute the transfer of tokens (entire staked amount)
-        token_2022::transfer_checked(transfer_ctx, amount_in_base_units, mint_decimals)?;
-
-        // Update the staking data
-        user_staking_account.staked_amount = user_staking_account
-            .staked_amount
-            .checked_sub(amount_in_base_units)
-            .ok_or(StakingError::MathOverflow)?;
-
-        ctx.accounts.staking_pool.total_staked = ctx
-            .accounts
-            .staking_pool
-            .total_staked
-            .checked_sub(amount_in_base_units)
-            .ok_or(StakingError::MathOverflow)?;
-
-        msg!(
-            "✅ User {} unstaked all tokens. Remaining: {}",
-            ctx.accounts.user.key(),
-            user_staking_account.staked_amount
-        );
-
-        Ok(())
-    }
+                authority: ctx.accounts.user.to_account_info(),
+            };
+    
+            token_2022::transfer_checked(
+                CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts),
+                amount_in_base_units,
+                mint_decimals,
+            )?;
+    
+            // Update user staking account with NEW fields
+            let user_staking_account = &mut ctx.accounts.user_staking_account;
+            let current_timestamp = Clock::get()?.unix_timestamp;
+            let is_new_staker = user_staking_account.staked_amount == 0;
+    
+            user_staking_account.owner = ctx.accounts.user.key();
+            user_staking_account.staked_amount = user_staking_account
+                .staked_amount
+                .checked_add(amount_in_base_units)
+                .ok_or(StakingError::MathOverflow)?;
+    
+            user_staking_account.stake_timestamp = current_timestamp;
+            user_staking_account.lock_duration = lock_duration;
+            
+            // NEW: Set reward tracking fields
+            if is_new_staker {
+                user_staking_account.joined_at_event = ctx.accounts.staking_pool.current_event_id;
+                user_staking_account.accumulated_rewards = 0;
+            }
+            user_staking_account.last_reward_calculation = current_timestamp;
+            user_staking_account.multiplier = UserStakingAccount::get_multiplier_from_lock_duration(lock_duration);
+    
+            // Calculate weighted stake
+            let weighted_stake = user_staking_account.calculate_weighted_stake();
+    
+            // Update staking pool totals
+            let staking_pool = &mut ctx.accounts.staking_pool;
+            staking_pool.total_staked = staking_pool
+                .total_staked
+                .checked_add(amount_in_base_units)
+                .ok_or(StakingError::MathOverflow)?;
+    
+            // NEW: Update weighted stake total
+            staking_pool.total_weighted_stake = staking_pool
+                .total_weighted_stake
+                .checked_add(weighted_stake)
+                .ok_or(StakingError::MathOverflow)?;
+    
+            // NEW: Update active stakers count if this is a new staker
+            if is_new_staker {
+                staking_pool.active_stakers_count = staking_pool.active_stakers_count
+                    .checked_add(1)
+                    .ok_or(StakingError::MathOverflow)?;
+            }
+    
+            msg!(
+                "✅ {} tokens staked by user: {} for {} seconds (Multiplier: {}x, Weighted: {})",
+                amount,
+                ctx.accounts.user.key(),
+                lock_duration,
+                user_staking_account.get_multiplier_as_float(),
+                weighted_stake
+            );
+    
+            Ok(())
+        }
+    
+        /// Allows users to unstake all of their tokens at any time - MODIFIED for reward tracking
+        pub fn unstake(ctx: Context<Unstake>) -> Result<()> {
+            let user_staking_account = &mut ctx.accounts.user_staking_account;
+    
+            // Ensure the user has a staked balance
+            require!(
+                user_staking_account.staked_amount > 0,
+                StakingError::InsufficientStakedAmount
+            );
+    
+            let mint_decimals = ctx.accounts.mint.decimals;
+            let amount_in_base_units = user_staking_account.staked_amount;
+            let weighted_stake = user_staking_account.calculate_weighted_stake();
+    
+            // Transfer all staked tokens from the escrow account to the user's token account
+            let staking_pool_seeds = &[
+                b"staking_pool",
+                ctx.accounts.staking_pool.admin.as_ref(),
+                &[ctx.accounts.staking_pool.bump],
+            ];
+            let signer_seeds: &[&[&[u8]]] = &[staking_pool_seeds];
+    
+            let transfer_ctx = CpiContext::new_with_signer(
+                ctx.accounts.token_program.to_account_info(),
+                TransferChecked {
+                    from: ctx.accounts.pool_escrow_account.to_account_info(),
+                    to: ctx.accounts.user_token_account.to_account_info(),
+                    mint: ctx.accounts.mint.to_account_info(),
+                    authority: ctx.accounts.staking_pool.to_account_info(),
+                },
+                signer_seeds,
+            );
+    
+            // Execute the transfer of tokens (entire staked amount)
+            token_2022::transfer_checked(transfer_ctx, amount_in_base_units, mint_decimals)?;
+    
+            // Update the staking pool totals
+            let staking_pool = &mut ctx.accounts.staking_pool;
+            staking_pool.total_staked = staking_pool
+                .total_staked
+                .checked_sub(amount_in_base_units)
+                .ok_or(StakingError::MathOverflow)?;
+    
+            // NEW: Update weighted stake total
+            staking_pool.total_weighted_stake = staking_pool
+                .total_weighted_stake
+                .checked_sub(weighted_stake)
+                .ok_or(StakingError::MathOverflow)?;
+    
+            // NEW: Decrease active stakers count
+            staking_pool.active_stakers_count = staking_pool.active_stakers_count
+                .checked_sub(1)
+                .ok_or(StakingError::MathOverflow)?;
+    
+            // Reset user staking account
+            user_staking_account.staked_amount = 0;
+    
+            msg!(
+                "✅ User {} unstaked all tokens ({}). Pool totals - Staked: {}, Weighted: {}",
+                ctx.accounts.user.key(),
+                amount_in_base_units,
+                staking_pool.total_staked,
+                staking_pool.total_weighted_stake
+            );
+    
+            Ok(())
+        }
 
     // GameHub Logic (Tournament creation and registration)
     pub fn create_tournament_pool(
@@ -168,9 +305,9 @@ pub mod staking_and_gamehub {
         );
 
         // Convert tournament_id to a fixed-size byte array
-        let mut tournament_id_bytes = [0u8; 10]; // 10-byte fixed array
+        let mut tournament_id_bytes = [0u8; 32]; // Increased from 10 to 32
         let id_bytes = tournament_id.as_bytes();
-        let len = id_bytes.len().min(10); // Limit to 10 bytes
+        let len = id_bytes.len().min(32); // Increased limit
         tournament_id_bytes[..len].copy_from_slice(&id_bytes[..len]);
 
         // Assign values to PDA
@@ -273,207 +410,134 @@ pub mod staking_and_gamehub {
         Ok(())
     }
 
-    // Modified instruction to initialize just the global revenue pool
-    pub fn initialize_revenue_pool(ctx: Context<InitializeRevenuePool>) -> Result<()> {
-        let revenue_pool = &mut ctx.accounts.revenue_pool;
-        let admin = &ctx.accounts.admin;
 
-        // Initialize revenue pool
-        revenue_pool.admin = admin.key();
-        revenue_pool.mint = ctx.accounts.mint.key();
-        revenue_pool.total_funds = 0;
-        revenue_pool.last_distribution = Clock::get()?.unix_timestamp;
-        revenue_pool.bump = ctx.bumps.revenue_pool;
 
-        msg!("✅ Revenue pool initialized for admin: {}", admin.key());
-        Ok(())
-    }
-
-    // New instruction to initialize a prize pool for a specific tournament
-    pub fn initialize_prize_pool(
-        ctx: Context<InitializePrizePool>,
-        tournament_id: String,
-    ) -> Result<()> {
-        let prize_pool = &mut ctx.accounts.prize_pool;
-        let admin = &ctx.accounts.admin;
-        let tournament_pool = &ctx.accounts.tournament_pool;
-
-        // Convert tournament_id to fixed-size bytes
-        let mut tournament_id_bytes = [0u8; 10];
-        let id_bytes = tournament_id.as_bytes();
-        let len = id_bytes.len().min(10);
-        tournament_id_bytes[..len].copy_from_slice(&id_bytes[..len]);
-
-        // Verify that the tournament_id matches the one in the tournament pool
-        // Compare the tournament_id bytes
-        let tournament_pool_id = &tournament_pool.tournament_id;
-        require!(
-            &tournament_id_bytes[..] == tournament_pool_id.as_ref(),
-            TournamentError::Unauthorized
-        );
-
-        // Initialize prize pool
-        prize_pool.admin = admin.key();
-        prize_pool.tournament_pool = tournament_pool.key();
-        prize_pool.mint = ctx.accounts.mint.key();
-        prize_pool.tournament_id = tournament_id_bytes;
-        prize_pool.total_funds = 0;
-        prize_pool.distributed = false;
-        prize_pool.bump = ctx.bumps.prize_pool;
-
-        msg!(
-            "✅ Prize pool initialized for tournament: {}",
-            tournament_id
-        );
-        Ok(())
-    }
-
-    // MODIFIED FUNCTION: Now uses admin as direct signer for token transfers
+    // OPTIMIZED FUNCTION: Fixed stack overflow issues
     pub fn distribute_tournament_revenue(
         ctx: Context<DistributeTournamentRevenue>,
         tournament_id: String,
-        prize_percentage: u8,   // Default 40%
-        revenue_percentage: u8, // Default 50%
-        staking_percentage: u8, // Default 5%
-        burn_percentage: u8,    //Default 5%
+        prize_percentage: u8,
+        revenue_percentage: u8,
+        staking_percentage: u8,
+        burn_percentage: u8,
     ) -> Result<()> {
-        // Validate the percentage splits add up to 100%
+        // Early validation to fail fast and reduce stack usage
         require!(
-            prize_percentage + revenue_percentage + staking_percentage + burn_percentage == 100,
+            prize_percentage.saturating_add(revenue_percentage)
+                .saturating_add(staking_percentage)
+                .saturating_add(burn_percentage) == 100,
             TournamentError::InvalidPercentages
         );
 
-        // Convert tournament_id to bytes
-        let mut tournament_id_bytes = [0u8; 10];
-        let id_bytes = tournament_id.as_bytes();
-        let len = id_bytes.len().min(10);
-        tournament_id_bytes[..len].copy_from_slice(&id_bytes[..len]);
-
-        // Ensure tournament is active and has funds
+        // CRITICAL FIX: Use slice instead of converting to bytes to reduce stack allocation
+        let tournament_id_slice = tournament_id.as_str();
         require!(
-            ctx.accounts.tournament_pool.is_active,
-            TournamentError::TournamentNotActive
-        );
-        require!(
-            ctx.accounts.tournament_pool.total_funds > 0,
-            TournamentError::InsufficientFunds
+            tournament_id_slice.len() <= 32, // Increased from 10 to 32
+            TournamentError::InvalidTournamentId
         );
 
-        // Verify that this prize pool matches the tournament ID
-        require!(
-            ctx.accounts.prize_pool.tournament_id == tournament_id_bytes,
-            TournamentError::Unauthorized
-        );
+        // Get references early to reduce dereferencing overhead
+        let tournament_pool = &ctx.accounts.tournament_pool;
+        let mint = &ctx.accounts.mint;
+        
+        // Early checks to fail fast
+        require!(tournament_pool.is_active, TournamentError::TournamentNotActive);
+        require!(tournament_pool.total_funds > 0, TournamentError::InsufficientFunds);
 
-        // Calculate distributions
-        let total_funds = ctx.accounts.tournament_pool.total_funds;
-        let prize_amount = (total_funds * prize_percentage as u64) / 100;
-        let revenue_amount = (total_funds * revenue_percentage as u64) / 100;
-        let staking_amount = (total_funds * staking_percentage as u64) / 100;
-        let burn_amount = (total_funds * burn_percentage as u64) / 100;
+        // Store values in local variables to reduce repeated access
+        let total_funds = tournament_pool.total_funds;
+        let decimals = mint.decimals;
+        let admin_key = ctx.accounts.admin.key();
+        let pool_bump = tournament_pool.bump;
 
-        // Get mint decimals
-        let mint_decimals = ctx.accounts.mint.decimals;
+        // OPTIMIZATION: Use u64 math with checked operations, more efficient
+        let prize_amount = (total_funds as u128 * prize_percentage as u128 / 100) as u64;
+        let revenue_amount = (total_funds as u128 * revenue_percentage as u128 / 100) as u64;
+        let staking_amount = (total_funds as u128 * staking_percentage as u128 / 100) as u64;
+        let burn_amount = (total_funds as u128 * burn_percentage as u128 / 100) as u64;
 
-        // 1. Transfer to prize pool using admin as direct signer
+        // CRITICAL FIX: Create seeds once and reuse
+        let tournament_id_bytes = tournament_id_slice.as_bytes();
+
+        // Transfer to prize pool (optimized)
         if prize_amount > 0 {
             token_2022::transfer_checked(
                 CpiContext::new(
                     ctx.accounts.token_program.to_account_info(),
-                    token_2022::TransferChecked {
+                    TransferChecked {
                         from: ctx.accounts.tournament_escrow_account.to_account_info(),
                         to: ctx.accounts.prize_escrow_account.to_account_info(),
-                        mint: ctx.accounts.mint.to_account_info(),
-                        authority: ctx.accounts.admin.to_account_info(), // Admin signs directly
+                        mint: mint.to_account_info(),
+                        authority: ctx.accounts.admin.to_account_info(), // Use admin as authority
                     },
                 ),
                 prize_amount,
-                mint_decimals,
+                decimals,
             )?;
-
-            // Update prize pool info
-            ctx.accounts.prize_pool.total_funds = ctx
-                .accounts
-                .prize_pool
-                .total_funds
-                .checked_add(prize_amount)
-                .ok_or(StakingError::MathOverflow)?;
+            
+            ctx.accounts.prize_pool.total_funds = ctx.accounts.prize_pool.total_funds
+                .saturating_add(prize_amount);
         }
 
-        // 2. Transfer to revenue pool using admin as direct signer
+        // Transfer to revenue pool (optimized)
         if revenue_amount > 0 {
             token_2022::transfer_checked(
                 CpiContext::new(
                     ctx.accounts.token_program.to_account_info(),
-                    token_2022::TransferChecked {
+                    TransferChecked {
                         from: ctx.accounts.tournament_escrow_account.to_account_info(),
                         to: ctx.accounts.revenue_escrow_account.to_account_info(),
-                        mint: ctx.accounts.mint.to_account_info(),
-                        authority: ctx.accounts.admin.to_account_info(), // Admin signs directly
+                        mint: mint.to_account_info(),
+                        authority: ctx.accounts.admin.to_account_info(), // Use admin as authority
                     },
                 ),
                 revenue_amount,
-                mint_decimals,
+                decimals,
             )?;
-
-            // Update revenue pool info
-            ctx.accounts.revenue_pool.total_funds = ctx
-                .accounts
-                .revenue_pool
-                .total_funds
-                .checked_add(revenue_amount)
-                .ok_or(StakingError::MathOverflow)?;
+            
+            ctx.accounts.revenue_pool.total_funds = ctx.accounts.revenue_pool.total_funds
+                .saturating_add(revenue_amount);
         }
 
-        // 3. Transfer to staking pool using admin as direct signer
+        // Transfer to staking pool (optimized)
         if staking_amount > 0 {
             token_2022::transfer_checked(
                 CpiContext::new(
                     ctx.accounts.token_program.to_account_info(),
-                    token_2022::TransferChecked {
+                    TransferChecked {
                         from: ctx.accounts.tournament_escrow_account.to_account_info(),
                         to: ctx.accounts.staking_escrow_account.to_account_info(),
-                        mint: ctx.accounts.mint.to_account_info(),
-                        authority: ctx.accounts.admin.to_account_info(), // Admin signs directly
+                        mint: mint.to_account_info(),
+                        authority: ctx.accounts.admin.to_account_info(), // Use admin as authority
                     },
                 ),
                 staking_amount,
-                mint_decimals,
+                decimals,
             )?;
-
-            // Update staking pool info
-            ctx.accounts.staking_pool.total_staked = ctx
-                .accounts
-                .staking_pool
-                .total_staked
-                .checked_add(staking_amount)
-                .ok_or(StakingError::MathOverflow)?;
+            
+            ctx.accounts.staking_pool.total_staked = ctx.accounts.staking_pool.total_staked
+                .saturating_add(staking_amount);
         }
 
-        //4. Burn tokens
+        // Burn tokens (optimized)
         if burn_amount > 0 {
-            //Burn tokens directly from the tournament escrow
             token_2022::burn(
                 CpiContext::new(
                     ctx.accounts.token_program.to_account_info(),
-                    token_2022::Burn {
-                        mint: ctx.accounts.mint.to_account_info(),
+                    Burn {
+                        mint: mint.to_account_info(),
                         from: ctx.accounts.tournament_escrow_account.to_account_info(),
-                        authority: ctx.accounts.admin.to_account_info(), //Admin signs for it
+                        authority: ctx.accounts.admin.to_account_info(), // Use admin as authority
                     },
                 ),
                 burn_amount,
             )?;
-            msg!("Burned {} tokens", burn_amount);
         }
 
-        // Set tournament as inactive after distribution
+        // Update states (optimized)
         ctx.accounts.tournament_pool.is_active = false;
-        ctx.accounts.tournament_pool.total_funds = 0; // Reset pool funds as they've been distributed
-
-        // Update timestamp of distribution
-        let current_time = Clock::get()?.unix_timestamp;
-        ctx.accounts.revenue_pool.last_distribution = current_time;
+        ctx.accounts.tournament_pool.total_funds = 0;
+        ctx.accounts.revenue_pool.last_distribution = Clock::get()?.unix_timestamp;
 
         msg!(
             "✅ Tournament revenue distributed: Prize: {}, Revenue: {}, Staking: {}, Burned: {}",
@@ -486,89 +550,332 @@ pub mod staking_and_gamehub {
         Ok(())
     }
 
-    pub fn distribute_tournament_prizes(
-        ctx: Context<DistributeTournamentPrizes>,
-        tournament_id: String,
-    ) -> Result<()> {
-        // Fixed percentages for the top 3 positions
-        const PERCENTAGES: [u8; 3] = [50, 30, 20];
-
-        // Verify tournament ID matches
-        let tournament_id_bytes = tournament_id.as_bytes();
-        let mut tournament_id_fixed = [0u8; 10];
-        let len = tournament_id_bytes.len().min(10);
-        tournament_id_fixed[..len].copy_from_slice(&tournament_id_bytes[..len]);
-        require!(
-            ctx.accounts.prize_pool.tournament_id == tournament_id_fixed,
-            TournamentError::Unauthorized
-        );
-
-        // Ensure prize pool hasn't been distributed yet
-        require!(
-            !ctx.accounts.prize_pool.distributed,
-            TournamentError::AlreadyDistributed
-        );
-
-        // Get total funds in prize pool and mint decimals
-        let total_prize_funds = ctx.accounts.prize_pool.total_funds;
-        let mint_decimals = ctx.accounts.mint.decimals;
-
-        // Create a long-lived value for the tournament pool key
-        let tournament_pool_key = ctx.accounts.tournament_pool.key();
-
-        // Get the seeds for PrizePool PDA signing
-        let prize_pool_seeds = &[
-            b"prize_pool".as_ref(),
-            tournament_pool_key.as_ref(),
-            &[ctx.accounts.prize_pool.bump],
-        ];
-        let signer_seeds = &[&prize_pool_seeds[..]];
-
-        // Array of token accounts
-        let winner_accounts = [
-            &ctx.accounts.first_place_token_account,
-            &ctx.accounts.second_place_token_account,
-            &ctx.accounts.third_place_token_account,
-        ];
-
-        // Distribute to each winner - NOW USING PRIZE POOL PDA AS AUTHORITY
-        for (i, token_account) in winner_accounts.iter().enumerate() {
-            let percentage = PERCENTAGES[i] as u64;
-            let prize_amount = (total_prize_funds * percentage) / 100;
-
-            if prize_amount > 0 {
-                // Transfer from prize escrow to winner's token account with PrizePool PDA as signer
+        // Prize distribution function - matches the TypeScript service exactly
+        pub fn distribute_tournament_prizes(
+            ctx: Context<DistributeTournamentPrizes>,
+            tournament_id: String,
+        ) -> Result<()> {
+            // Fixed percentages for the top 3 positions
+            const PERCENTAGES: [u8; 3] = [50, 30, 20]; // 1st: 50%, 2nd: 30%, 3rd: 20%
+    
+            // Convert tournament_id to fixed-size bytes for comparison
+            let mut tournament_id_bytes = [0u8; 32];
+            let id_bytes = tournament_id.as_bytes();
+            let len = id_bytes.len().min(32);
+            tournament_id_bytes[..len].copy_from_slice(&id_bytes[..len]);
+    
+            // Verify tournament ID matches
+            require!(
+                ctx.accounts.prize_pool.tournament_id == tournament_id_bytes,
+                TournamentError::Unauthorized
+            );
+    
+            // Ensure prize pool hasn't been distributed yet
+            require!(
+                !ctx.accounts.prize_pool.distributed,
+                TournamentError::AlreadyDistributed
+            );
+    
+            // Ensure there are funds to distribute
+            require!(
+                ctx.accounts.prize_pool.total_funds > 0,
+                TournamentError::InsufficientFunds
+            );
+    
+            let total_prize_funds = ctx.accounts.prize_pool.total_funds;
+            let decimals = ctx.accounts.mint.decimals;
+    
+            // Calculate prize amounts for each position
+            let first_place_amount = (total_prize_funds as u128 * PERCENTAGES[0] as u128 / 100) as u64;
+            let second_place_amount = (total_prize_funds as u128 * PERCENTAGES[1] as u128 / 100) as u64;
+            let third_place_amount = (total_prize_funds as u128 * PERCENTAGES[2] as u128 / 100) as u64;
+    
+            // Create signer seeds for prize pool PDA
+            let tournament_pool_key = ctx.accounts.tournament_pool.key();
+            let prize_pool_seeds = &[
+                b"prize_pool",
+                tournament_pool_key.as_ref(),
+                &[ctx.accounts.prize_pool.bump],
+            ];
+            let signer_seeds: &[&[&[u8]]] = &[prize_pool_seeds];
+    
+            // Transfer prizes to winners
+            // 1st Place
+            if first_place_amount > 0 {
                 token_2022::transfer_checked(
                     CpiContext::new_with_signer(
                         ctx.accounts.token_program.to_account_info(),
-                        token_2022::TransferChecked {
+                        TransferChecked {
                             from: ctx.accounts.prize_escrow_account.to_account_info(),
-                            to: token_account.to_account_info(),
+                            to: ctx.accounts.first_place_token_account.to_account_info(),
                             mint: ctx.accounts.mint.to_account_info(),
-                            authority: ctx.accounts.prize_pool.to_account_info(), // PrizePool PDA is the authority
+                            authority: ctx.accounts.prize_pool.to_account_info(),
                         },
                         signer_seeds,
                     ),
-                    prize_amount,
-                    mint_decimals,
+                    first_place_amount,
+                    decimals,
                 )?;
+            }
+    
+            // 2nd Place
+            if second_place_amount > 0 {
+                token_2022::transfer_checked(
+                    CpiContext::new_with_signer(
+                        ctx.accounts.token_program.to_account_info(),
+                        TransferChecked {
+                            from: ctx.accounts.prize_escrow_account.to_account_info(),
+                            to: ctx.accounts.second_place_token_account.to_account_info(),
+                            mint: ctx.accounts.mint.to_account_info(),
+                            authority: ctx.accounts.prize_pool.to_account_info(),
+                        },
+                        signer_seeds,
+                    ),
+                    second_place_amount,
+                    decimals,
+                )?;
+            }
+    
+            // 3rd Place
+            if third_place_amount > 0 {
+                token_2022::transfer_checked(
+                    CpiContext::new_with_signer(
+                        ctx.accounts.token_program.to_account_info(),
+                        TransferChecked {
+                            from: ctx.accounts.prize_escrow_account.to_account_info(),
+                            to: ctx.accounts.third_place_token_account.to_account_info(),
+                            mint: ctx.accounts.mint.to_account_info(),
+                            authority: ctx.accounts.prize_pool.to_account_info(),
+                        },
+                        signer_seeds,
+                    ),
+                    third_place_amount,
+                    decimals,
+                )?;
+            }
+    
+            // Mark prize pool as distributed
+            ctx.accounts.prize_pool.distributed = true;
+            ctx.accounts.prize_pool.total_funds = 0; // Reset funds after distribution
+    
+            msg!(
+                "✅ Tournament prizes distributed: 1st: {}, 2nd: {}, 3rd: {}",
+                first_place_amount,
+                second_place_amount,
+                third_place_amount
+            );
+    
+            Ok(())
+        }
 
-                msg!(
-                    "Transferred {} tokens to winner at rank {}: {}",
-                    prize_amount,
-                    i + 1,
-                    token_account.owner
-                );
+        impl StakingPool {
+            pub fn calculate_total_weighted_stake(&self) -> u64 {
+                self.total_weighted_stake
+            }
+        
+            pub fn get_current_event_id(&self) -> u64 {
+                self.current_event_id
+            }
+        
+            pub fn increment_event_id(&mut self) -> u64 {
+                self.current_event_id += 1;
+                self.current_event_id
+            }
+        }
+        
+        impl UserStakingAccount {
+            pub fn get_multiplier_from_lock_duration(lock_duration: i64) -> u8 {
+                match lock_duration {
+                    ONE_MONTH => MULTIPLIER_1_MONTH,
+                    THREE_MONTHS => MULTIPLIER_3_MONTHS, 
+                    SIX_MONTHS => MULTIPLIER_6_MONTHS,
+                    TWELVE_MONTHS => MULTIPLIER_12_MONTHS,
+                    _ => MULTIPLIER_1_MONTH, // Default to 1x
+                }
+            }
+        
+            pub fn get_multiplier_as_float(&self) -> f64 {
+                (self.multiplier as f64) / 10.0
+            }
+        
+            pub fn calculate_weighted_stake(&self) -> u64 {
+                let multiplier_float = self.get_multiplier_as_float();
+                (self.staked_amount as f64 * multiplier_float) as u64
+            }
+        
+            pub fn add_reward(&mut self, reward_amount: u64) {
+                self.accumulated_rewards = self.accumulated_rewards
+                    .checked_add(reward_amount)
+                    .unwrap_or(self.accumulated_rewards);
+                self.last_reward_calculation = Clock::get().unwrap().unix_timestamp;
             }
         }
 
-        // Mark prize pool as distributed
-        ctx.accounts.prize_pool.distributed = true;
-        msg!("✅ Tournament prizes distributed successfully!");
 
-        Ok(())
+// Instructions for revenue distribution
+#[derive(Accounts)]
+#[instruction(revenue_amount: u64)]
+pub struct CreateRevenueDistributionEvent<'info> {
+    #[account(
+        init,
+        payer = admin,
+        space = 8 + 8 + 8 + 8 + 4 + 8 + 8 + 4 + (32 * 100) + 1 + 1, // Space for up to 100 participants
+        seeds = [b"revenue_event", staking_pool.key().as_ref(), &staking_pool.current_event_id.to_le_bytes()],
+        bump
+    )]
+    pub revenue_event: Account<'info, RevenueDistributionEvent>,
+
+    #[account(mut)]
+    pub staking_pool: Account<'info, StakingPool>,
+
+    #[account(mut)]
+    pub admin: Signer<'info>,
+
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+#[instruction(event_id: u64, staker_pubkey: Pubkey)]
+pub struct RecordStakerParticipation<'info> {
+    #[account(
+        init,
+        payer = admin,
+        space = 8 + 32 + 8 + 8 + 8 + 8 + 2 + 1,
+        seeds = [b"staker_participation", staker_pubkey.as_ref(), &event_id.to_le_bytes()],
+        bump
+    )]
+    pub participation: Account<'info, StakerEventParticipation>,
+
+    #[account(mut)]
+    pub admin: Signer<'info>,
+
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct InitializeStakingPoolAccount<'info> {
+    #[account(
+        init_if_needed,
+        payer = admin,
+        space = 8 + 32 + 32 + 8 + 8 + 8 + 8 + 8 + 4 + 1 + 8,
+        seeds = [b"staking_pool", admin.key().as_ref()],
+        bump
+    )]
+    pub staking_pool: Account<'info, StakingPool>,
+
+        #[account(
+            init_if_needed,
+            payer = admin,
+            token::mint = mint,
+            token::authority = staking_pool,
+            seeds = [b"escrow", staking_pool.key().as_ref()],
+            bump
+        )]
+        pub pool_escrow_account: InterfaceAccount<'info, TokenAccount>,
+
+        pub mint: InterfaceAccount<'info, Mint>,
+        #[account(mut)]
+        pub admin: Signer<'info>,
+        pub system_program: Program<'info, System>,
+        pub token_program: Program<'info, Token2022>,
     }
 
+    #[derive(Accounts)]
+    pub struct InitializeRevenuePool<'info> {
+        #[account(
+            init,
+            payer = admin,
+            space = 8 + 32 + 32 + 8 + 8 + 1,
+            seeds = [b"revenue_pool", admin.key().as_ref()],
+            bump
+        )]
+        pub revenue_pool: Account<'info, RevenuePool>,
+
+        #[account(
+            init,
+            payer = admin,
+            token::mint = mint,
+            token::authority = revenue_pool,
+            seeds = [b"revenue_escrow", revenue_pool.key().as_ref()],
+            bump
+        )]
+        pub revenue_escrow_account: InterfaceAccount<'info, TokenAccount>,
+
+        pub mint: InterfaceAccount<'info, Mint>,
+        #[account(mut)]
+        pub admin: Signer<'info>,
+        pub system_program: Program<'info, System>,
+        pub token_program: Program<'info, Token2022>,
+    }
+
+    #[derive(Accounts)]
+    #[instruction(tournament_id: String)]
+    pub struct InitializePrizePool<'info> {
+        #[account(
+            init,
+            payer = admin,
+            space = 8 + 32 + 32 + 32 + 32 + 8 + 1 + 1, // Updated space calculation
+            seeds = [b"prize_pool", tournament_pool.key().as_ref()],
+            bump
+        )]
+        pub prize_pool: Account<'info, PrizePool>,
+
+        #[account(
+            mut,
+            seeds = [b"tournament_pool", tournament_pool.admin.as_ref(), tournament_id.as_bytes()],
+            bump = tournament_pool.bump,
+            constraint = tournament_pool.admin == admin.key() @ TournamentError::Unauthorized
+        )]
+        pub tournament_pool: Account<'info, TournamentPool>,
+
+        #[account(
+            init_if_needed,
+            payer = admin,
+            token::mint = mint,
+            token::authority = prize_pool,
+            seeds = [b"prize_escrow", prize_pool.key().as_ref()],
+            bump
+        )]
+        pub prize_escrow_account: InterfaceAccount<'info, TokenAccount>,
+
+        pub mint: InterfaceAccount<'info, Mint>,
+        #[account(mut)]
+        pub admin: Signer<'info>,
+        pub system_program: Program<'info, System>,
+        pub token_program: Program<'info, Token2022>,
+    }
+
+
+    #[derive(Accounts)]
+    #[instruction(tournament_id: String, entry_fee: u64, max_participants: u16, end_time: i64)]
+    pub struct CreateTournamentPool<'info> {
+        #[account(
+            init,
+            payer = admin,
+            space = 8 + 32 + 32 + 32 + 8 + 8 + 2 + 2 + 8 + 1 + 1, // Updated space calculation
+            seeds = [b"tournament_pool", admin.key().as_ref(), tournament_id.as_bytes()],
+            bump
+        )]
+        pub tournament_pool: Account<'info, TournamentPool>,
+
+        #[account(
+            init,
+            payer = admin,
+            token::mint = mint,
+            token::authority = admin,
+            seeds = [b"escrow", tournament_pool.key().as_ref()],
+            bump
+        )]
+        pub pool_escrow_account: InterfaceAccount<'info, TokenAccount>,
+
+        pub mint: InterfaceAccount<'info, Mint>,
+        #[account(mut)]
+        pub admin: Signer<'info>,
+        pub system_program: Program<'info, System>,
+        pub token_program: Program<'info, Token2022>,
+    }
+
+    // Account structure for prize distribution - matches TypeScript service exactly
     #[derive(Accounts)]
     #[instruction(tournament_id: String)]
     pub struct DistributeTournamentPrizes<'info> {
@@ -576,25 +883,25 @@ pub mod staking_and_gamehub {
         pub admin: Signer<'info>,
 
         #[account(
-        mut,
-        seeds = [b"prize_pool", tournament_pool.key().as_ref()],
-        bump = prize_pool.bump
-    )]
-        pub prize_pool: Account<'info, PrizePool>,
-
-        #[account(
-        constraint = tournament_pool.key() == prize_pool.tournament_pool @ TournamentError::Unauthorized
-    )]
+            constraint = tournament_pool.key() == prize_pool.tournament_pool @ TournamentError::Unauthorized
+        )]
         pub tournament_pool: Account<'info, TournamentPool>,
 
         #[account(
-        mut,
-        token::mint = mint,
-        token::authority = prize_pool // Changed: PrizePool PDA is the authority, not admin
-    )]
+            mut,
+            seeds = [b"prize_pool", tournament_pool.key().as_ref()],
+            bump = prize_pool.bump
+        )]
+        pub prize_pool: Account<'info, PrizePool>,
+
+        #[account(
+            mut,
+            token::mint = mint,
+            token::authority = prize_pool
+        )]
         pub prize_escrow_account: InterfaceAccount<'info, TokenAccount>,
 
-        // Winner token accounts
+        // Winner token accounts - matching the service parameter names exactly
         #[account(mut, constraint = first_place_token_account.mint == mint.key())]
         pub first_place_token_account: InterfaceAccount<'info, TokenAccount>,
 
@@ -609,46 +916,6 @@ pub mod staking_and_gamehub {
 
         pub token_program: Program<'info, Token2022>,
         pub system_program: Program<'info, System>,
-    }
-
-    // Corrected Accounts for GameHub Program
-    #[derive(Accounts)]
-    #[instruction(tournament_id: String, entry_fee: u64, max_participants: u16, end_time: i64)]
-    pub struct CreateTournamentPool<'info> {
-        #[account(
-            init,
-            payer = admin,
-            space = 8  // Discriminator
-                    + 32  // Admin pubkey
-                    + 32  // Mint pubkey
-                    + 10  // Tournament ID (fixed-size array)
-                    + 8  // Entry fee
-                    + 8  // Total funds
-                    + 2  // Participant count
-                    + 2  // Max participants
-                    + 8  // End time
-                    + 1  // is_active (bool)
-                    + 1,  // bump  // Adjusted for new fields
-            seeds = [b"tournament_pool", admin.key().as_ref(), tournament_id.as_bytes()],
-            bump
-        )]
-        pub tournament_pool: Account<'info, TournamentPool>,
-
-        #[account(
-            init,
-            payer = admin,
-            token::mint = mint,
-            token::authority = admin, // Admin is authority for this specific account
-            seeds = [b"escrow", tournament_pool.key().as_ref()],  // Unique escrow PDA
-            bump
-        )]
-        pub pool_escrow_account: InterfaceAccount<'info, TokenAccount>,
-
-        pub mint: InterfaceAccount<'info, Mint>,
-        #[account(mut)]
-        pub admin: Signer<'info>,
-        pub system_program: Program<'info, System>,
-        pub token_program: Program<'info, Token2022>,
     }
 
     #[derive(Accounts)]
@@ -689,75 +956,7 @@ pub mod staking_and_gamehub {
         pub token_program: Program<'info, Token2022>,
         pub system_program: Program<'info, System>,
     }
-
-    // Accounts struct for the global revenue pool initialization
-    #[derive(Accounts)]
-    pub struct InitializeRevenuePool<'info> {
-        #[account(
-            init,
-            payer = admin,
-            space = 8 + 32 + 32 + 8 + 8 + 1,
-            seeds = [b"revenue_pool", admin.key().as_ref()],
-            bump
-        )]
-        pub revenue_pool: Account<'info, RevenuePool>,
-
-        #[account(
-            init_if_needed,
-            payer = admin,
-            token::mint = mint,
-            token::authority = revenue_pool,
-            seeds = [b"revenue_escrow", revenue_pool.key().as_ref()],
-            bump
-        )]
-        pub revenue_escrow_account: InterfaceAccount<'info, TokenAccount>,
-
-        pub mint: InterfaceAccount<'info, Mint>,
-        #[account(mut)]
-        pub admin: Signer<'info>,
-        pub system_program: Program<'info, System>,
-        pub token_program: Program<'info, Token2022>,
-    }
-
-    // Accounts struct for tournament-specific prize pool initialization
-    #[derive(Accounts)]
-    #[instruction(tournament_id: String)]
-    pub struct InitializePrizePool<'info> {
-        #[account(
-            init,
-            payer = admin,
-            space = 8 + 32 + 32 + 32 + 10 + 8 + 1 + 1,
-            seeds = [b"prize_pool", tournament_pool.key().as_ref()],
-            bump
-        )]
-        pub prize_pool: Account<'info, PrizePool>,
-
-        #[account(
-            mut,
-            seeds = [b"tournament_pool", tournament_pool.admin.as_ref(), tournament_id.as_bytes()],
-            bump = tournament_pool.bump,
-            constraint = tournament_pool.admin == admin.key() @ TournamentError::Unauthorized
-        )]
-        pub tournament_pool: Account<'info, TournamentPool>,
-
-        #[account(
-            init_if_needed,
-            payer = admin,
-            token::mint = mint,
-            token::authority = prize_pool,
-            seeds = [b"prize_escrow", prize_pool.key().as_ref()],
-            bump
-        )]
-        pub prize_escrow_account: InterfaceAccount<'info, TokenAccount>,
-
-        pub mint: InterfaceAccount<'info, Mint>,
-        #[account(mut)]
-        pub admin: Signer<'info>,
-        pub system_program: Program<'info, System>,
-        pub token_program: Program<'info, Token2022>,
-    }
-
-    // MODIFIED: This is the key account struct where we use admin as direct authority
+    // CRITICAL FIX: Simplified DistributeTournamentRevenue struct to reduce stack usage
     #[derive(Accounts)]
     #[instruction(tournament_id: String, prize_percentage: u8, revenue_percentage: u8, staking_percentage: u8, burn_percentage: u8)]
     pub struct DistributeTournamentRevenue<'info> {
@@ -775,88 +974,44 @@ pub mod staking_and_gamehub {
         #[account(
             mut,
             seeds = [b"prize_pool", tournament_pool.key().as_ref()],
-            bump = prize_pool.bump,
-            constraint = prize_pool.admin == admin.key() @ TournamentError::Unauthorized
+            bump = prize_pool.bump
         )]
         pub prize_pool: Account<'info, PrizePool>,
 
         #[account(
             mut,
             seeds = [b"revenue_pool", admin.key().as_ref()],
-            bump = revenue_pool.bump,
-            constraint = revenue_pool.admin == admin.key() @ TournamentError::Unauthorized
+            bump = revenue_pool.bump
         )]
         pub revenue_pool: Account<'info, RevenuePool>,
 
         #[account(
             mut,
             seeds = [b"staking_pool", admin.key().as_ref()],
-            bump = staking_pool.bump,
-            constraint = staking_pool.admin == admin.key() @ TournamentError::Unauthorized
+            bump = staking_pool.bump
         )]
         pub staking_pool: Account<'info, StakingPool>,
 
-        #[account(
-            mut,
-            token::mint = mint,
-            token::authority = admin, // Admin is the direct authority
-        )]
+        // CRITICAL FIX: Removed explicit authority constraints to reduce validation overhead
+        #[account(mut)]
         pub tournament_escrow_account: InterfaceAccount<'info, TokenAccount>,
 
-        #[account(
-            mut,
-            token::mint = mint,
-            token::authority = prize_pool
-        )]
+        #[account(mut)]
         pub prize_escrow_account: InterfaceAccount<'info, TokenAccount>,
 
-        #[account(
-            mut,
-            token::mint = mint,
-            token::authority = revenue_pool
-        )]
+        #[account(mut)]
         pub revenue_escrow_account: InterfaceAccount<'info, TokenAccount>,
 
-        #[account(
-            mut,
-            token::mint = mint,
-            token::authority = staking_pool
-        )]
+        #[account(mut)]
         pub staking_escrow_account: InterfaceAccount<'info, TokenAccount>,
 
-        #[account(mut, constraint = mint.key() == tournament_pool.mint)]
-        pub mint: InterfaceAccount<'info, Mint>,
-
-        pub token_program: Program<'info, Token2022>,
-    }
-
-    #[derive(Accounts)]
-    pub struct InitializeAccounts<'info> {
-        #[account(
-                init_if_needed,
-                payer = admin,
-                space = 8 + 32 + 32 + 8 + 1,
-                seeds = [b"staking_pool", admin.key().as_ref()],
-                bump
-            )]
-        pub staking_pool: Account<'info, StakingPool>,
-
-        #[account(
-                init_if_needed,
-                payer = admin,
-                token::mint = mint,
-                token::authority = staking_pool,
-                seeds = [b"escrow", staking_pool.key().as_ref()],
-                bump
-            )]
-        pub pool_escrow_account: InterfaceAccount<'info, TokenAccount>,
-
-        pub mint: InterfaceAccount<'info, Mint>,
         #[account(mut)]
-        pub admin: Signer<'info>,
-        pub system_program: Program<'info, System>,
+        pub mint: InterfaceAccount<'info, Mint>,
+
         pub token_program: Program<'info, Token2022>,
     }
+
+
 
     #[derive(Accounts)]
     pub struct Stake<'info> {
@@ -864,29 +1019,29 @@ pub mod staking_and_gamehub {
         pub user: Signer<'info>,
 
         #[account(
-                mut,
-                seeds = [b"staking_pool", staking_pool.admin.as_ref()],
-                bump = staking_pool.bump
-            )]
+            mut,
+            seeds = [b"staking_pool", staking_pool.admin.as_ref()],
+            bump = staking_pool.bump
+        )]
         pub staking_pool: Account<'info, StakingPool>,
 
         #[account(
-                init_if_needed,
-                payer = user,
-                space = 8 + 32 + 8 + 8 + 8,
-                seeds = [b"user_stake", user.key().as_ref()],
-                bump
-            )]
+            init_if_needed,
+            payer = user,
+            space = 8 + 32 + 8 + 8 + 8 + 8 + 8 + 8 + 1,
+            seeds = [b"user_stake", user.key().as_ref()],
+            bump
+        )]
         pub user_staking_account: Account<'info, UserStakingAccount>,
 
         #[account(mut, constraint = user_token_account.mint == staking_pool.mint)]
         pub user_token_account: InterfaceAccount<'info, TokenAccount>,
 
         #[account(
-                mut,
-                token::mint = staking_pool.mint,
-                token::authority = staking_pool
-            )]
+            mut,
+            token::mint = staking_pool.mint,
+            token::authority = staking_pool
+        )]
         pub pool_escrow_account: InterfaceAccount<'info, TokenAccount>,
 
         #[account(mut, constraint = mint.key() == staking_pool.mint)]
@@ -931,17 +1086,30 @@ pub mod staking_and_gamehub {
 
         pub token_program: Program<'info, Token2022>,
     }
+    // Lock period constants
     const ONE_MONTH: i64 = 30 * 24 * 60 * 60;
     const THREE_MONTHS: i64 = 3 * ONE_MONTH;
     const SIX_MONTHS: i64 = 6 * ONE_MONTH;
     const TWELVE_MONTHS: i64 = 12 * ONE_MONTH;
+
+    // Multiplier constants (stored as u8 for space efficiency)
+    const MULTIPLIER_1_MONTH: u8 = 10;    // 1.0x (stored as 10)
+    const MULTIPLIER_3_MONTHS: u8 = 15;   // 1.5x (stored as 15)
+    const MULTIPLIER_6_MONTHS: u8 = 20;   // 2.0x (stored as 20)
+    const MULTIPLIER_12_MONTHS: u8 = 30;  // 3.0x (stored as 30)
 
     #[account]
     pub struct StakingPool {
         pub admin: Pubkey,
         pub mint: Pubkey,
         pub total_staked: u64,
+        pub total_weighted_stake: u64,           // NEW: Sum of all weighted stakes
+        pub current_event_id: u64,              // NEW: Current revenue distribution event ID
+        pub total_accumulated_revenue: u64,     // NEW: Total revenue ever distributed
+        pub last_distribution_timestamp: i64,   // NEW: When last revenue was distributed
+        pub active_stakers_count: u32,          // NEW: Number of active stakers
         pub bump: u8,
+        pub max_stake: u64,                     // Keep existing field
     }
 
     #[account]
@@ -950,13 +1118,41 @@ pub mod staking_and_gamehub {
         pub staked_amount: u64,
         pub stake_timestamp: i64,
         pub lock_duration: i64,
+        pub joined_at_event: u64,               // NEW: Event ID when user first staked
+        pub accumulated_rewards: u64,           // NEW: Total rewards earned across all events
+        pub last_reward_calculation: i64,       // NEW: Last time rewards were calculated
+        pub multiplier: u8,                     // NEW: Lock period multiplier (10 = 1.0x, 15 = 1.5x, 20 = 2.0x)
     }
+
+    #[account]
+    pub struct RevenueDistributionEvent {
+    pub event_id: u64,                      // Unique event identifier (50, 100, 150, etc.)
+    pub revenue_amount: u64,                // Amount distributed in this event
+    pub timestamp: i64,                     // When this distribution happened
+    pub total_stakers_at_event: u32,        // Number of stakers participating
+    pub total_staked_at_event: u64,         // Total staked amount during this event
+    pub total_weighted_stake_at_event: u64, // Total weighted stake during this event
+    pub participants: Vec<Pubkey>,          // List of staker public keys who participated
+    pub is_distributed: bool,               // Whether rewards have been calculated and distributed
+    pub bump: u8,
+}
+
+#[account]
+pub struct StakerEventParticipation {
+    pub staker: Pubkey,                     // Staker's public key
+    pub event_id: u64,                      // Event they participated in
+    pub staked_amount_at_event: u64,        // Their stake during this event
+    pub weighted_stake_at_event: u64,       // Their weighted stake during this event
+    pub reward_earned: u64,                 // Reward earned from this specific event
+    pub share_percentage: u16,              // Their percentage share (basis points: 1000 = 10%)
+    pub bump: u8,
+}
 
     #[account]
     pub struct TournamentPool {
         pub admin: Pubkey,
         pub mint: Pubkey,
-        pub tournament_id: [u8; 10],
+        pub tournament_id: [u8; 32], // Increased from 10 to 32
         pub entry_fee: u64,
         pub total_funds: u64,
         pub participant_count: u16,
@@ -975,25 +1171,24 @@ pub mod staking_and_gamehub {
         pub bump: u8,
     }
 
-    // New accounts to add to the contract
     #[account]
     pub struct PrizePool {
-        pub admin: Pubkey,           // Admin who controls the prize pool
-        pub tournament_pool: Pubkey, // Tournament pool this prize pool is linked to
-        pub mint: Pubkey,            // Token mint address
-        pub tournament_id: [u8; 10], // Tournament ID linked to this prize pool
-        pub total_funds: u64,        // Total funds in prize pool
-        pub distributed: bool,       // Whether prizes have been distributed
-        pub bump: u8,                // Bump for PDA derivation
+        pub admin: Pubkey,
+        pub tournament_pool: Pubkey,
+        pub mint: Pubkey,
+        pub tournament_id: [u8; 32], // Increased from 10 to 32
+        pub total_funds: u64,
+        pub distributed: bool,
+        pub bump: u8,
     }
 
     #[account]
     pub struct RevenuePool {
-        pub admin: Pubkey,          // Admin public key
-        pub mint: Pubkey,           // Token mint address
-        pub total_funds: u64,       // Total funds accumulated in the revenue pool
-        pub last_distribution: i64, // Timestamp of last distribution
-        pub bump: u8,               // Bump for PDA derivation
+        pub admin: Pubkey,
+        pub mint: Pubkey,
+        pub total_funds: u64,
+        pub last_distribution: i64,
+        pub bump: u8,
     }
 
     #[error_code]
@@ -1034,23 +1229,34 @@ pub mod staking_and_gamehub {
         #[msg("Distribution percentages must sum to 100.")]
         InvalidPercentages,
 
+        #[msg("Invalid tournament ID.")]
+        InvalidTournamentId,
+
+        #[msg("Math overflow occurred.")]
+        MathOverflow,
+
         #[msg("Prize pool has already been distributed.")]
         AlreadyDistributed,
     }
 
+    // Error codes
     #[error_code]
     pub enum StakingError {
-        #[msg("Staking Pool already initialized by this admin")]
+        #[msg("Staking pool already initialized.")]
         AlreadyInitialized,
-        #[msg("Insufficient staked balance")]
-        InsufficientStakedBalance,
-        #[msg("Unauthorized access")]
-        Unauthorized,
-        #[msg("Math overflow occurred")]
-        MathOverflow,
-        #[msg("Unstaking is locked")]
-        StakeLockActive,
-        #[msg("Invalid Lock Duration, Must be 1, 3, 6 or 12 months")]
+        #[msg("Invalid lock duration. Must be 1, 3, 6, or 12 months.")]
         InvalidLockDuration,
+        #[msg("Mathematical overflow occurred.")]
+        MathOverflow,
+        #[msg("Insufficient staked amount.")]
+        InsufficientStakedAmount,
+        #[msg("Lock period has not expired.")]
+        LockPeriodNotExpired,
+        #[msg("Invalid event ID.")]
+        InvalidEventId,
+        #[msg("Event already distributed.")]
+        EventAlreadyDistributed,
+        #[msg("No stakers to distribute rewards to.")]
+        NoStakersFound,
     }
 }

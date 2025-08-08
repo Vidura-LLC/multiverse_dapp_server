@@ -261,13 +261,16 @@ export const getStakingStats = async (adminPublicKey: PublicKey) => {
 
         // Convert total staked to readable format
         const tokenDecimals = 9; // Adjust based on your token decimals
-        const totalStakedRaw = new anchor.BN(poolResult.data.totalStaked);
-        const totalStakedReadable = totalStakedRaw.toNumber() / (10 ** tokenDecimals);
+        const totalStakedReadable = poolResult.data.totalStaked / (10 ** tokenDecimals);
 
         // Calculate some additional statistics
         const avgStakePerUser = stakersResult.data.activeStakersCount > 0
             ? totalStakedReadable / stakersResult.data.activeStakersCount
             : 0;
+
+        // Convert weighted stake and accumulated revenue to readable format
+        const totalWeightedStakeReadable = poolResult.data.totalWeightedStake / (10 ** tokenDecimals);
+        const totalAccumulatedRevenueReadable = poolResult.data.totalAccumulatedRevenue / (10 ** tokenDecimals);
 
         return {
             success: true,
@@ -275,6 +278,10 @@ export const getStakingStats = async (adminPublicKey: PublicKey) => {
             activeStakers: stakersResult.data.activeStakersCount,
             currentAPY: apyResult.data.currentAPY,
             avgStakePerUser,
+            totalWeightedStake: formatTokenAmount(totalWeightedStakeReadable),
+            totalAccumulatedRevenue: formatTokenAmount(totalAccumulatedRevenueReadable),
+            lastDistributionTimestamp: poolResult.data.lastDistributionTimestamp,
+            currentEventId: poolResult.data.currentEventId,
             stakingPoolAddress: poolResult.data.stakingPoolAddress,
             stakingPoolEscrowAddress: poolResult.data.stakingEscrowPublicKey
         };

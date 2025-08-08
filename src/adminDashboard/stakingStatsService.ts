@@ -9,19 +9,29 @@ import dotenv from "dotenv";
 import { getProgram } from "../staking/services";
 dotenv.config();
 import * as anchor from "@project-serum/anchor";
+import { getLockMultiplierFromSeconds } from "../staking/rewardCalculationService";
 
 export interface StakingPoolAccount {
     admin: PublicKey;
     mint: PublicKey;
     totalStaked: anchor.BN;
+    totalWeightedStake: anchor.BN;
+    currentEventId: anchor.BN;
+    totalAccumulatedRevenue: anchor.BN;
+    lastDistributionTimestamp: anchor.BN;
+    activeStakersCount: number;
     bump: number;
+    maxStake: anchor.BN;
 }
 
-interface UserStakingAccount {
+export interface UserStakingAccount {
     owner: PublicKey;
     stakedAmount: anchor.BN;
     stakeTimestamp: anchor.BN;
     lockDuration: anchor.BN;
+    joinedAtEvent: anchor.BN;
+    accumulatedRewards: anchor.BN;
+    bump: number;
 }
 
 /**
@@ -60,7 +70,7 @@ export const getStakingPoolData = async (adminPublicKey: PublicKey) => {
 
         // Derive the staking pool escrow account
         const [stakingEscrowPublicKey] = PublicKey.findProgramAddressSync(
-            [Buffer.from("staking_escrow"), stakingPoolPublicKey.toBuffer()],
+            [Buffer.from("escrow"), stakingPoolPublicKey.toBuffer()],
             program.programId
         );
         console.log("🔹 Fetching Staking Pool PDA:", stakingPoolPublicKey.toString());
@@ -85,7 +95,12 @@ export const getStakingPoolData = async (adminPublicKey: PublicKey) => {
             data: {
                 admin: stakingPoolData.admin.toString(),
                 mint: stakingPoolData.mint.toString(),
-                totalStaked: stakingPoolData.totalStaked.toString(),
+                totalStaked: stakingPoolData.totalStaked.toNumber(),
+                totalWeightedStake: stakingPoolData.totalWeightedStake.toNumber(),
+                currentEventId: stakingPoolData.currentEventId.toNumber(),
+                totalAccumulatedRevenue: stakingPoolData.totalAccumulatedRevenue.toNumber(),
+                activeStakersCount: stakingPoolData.activeStakersCount,
+                lastDistributionTimestamp: stakingPoolData.lastDistributionTimestamp.toNumber(),
                 stakingPoolAddress: stakingPoolPublicKey.toString(),
                 stakingEscrowPublicKey: stakingEscrowPublicKey.toString(),
             }
@@ -132,10 +147,15 @@ export const getActiveStakers = async () => {
                 owner: userData.owner.toString(),
                 stakedAmount: readableStakedAmount,
                 stakedAmountFormatted: formatTokenAmount(readableStakedAmount),
-                stakeTimestamp: userData.stakeTimestamp.toString(),
-                stakeDate: new Date(userData.stakeTimestamp.toNumber() * 1000).toISOString(),
-                lockDuration: userData.lockDuration.toString(),
+                stakeTimestamp: userData.stakeTimestamp.toNumber(), // Unix timestamp (number)
+                lockDuration: userData.lockDuration.toNumber(), // Number in seconds
                 lockDurationDays: Math.floor(userData.lockDuration.toNumber() / (24 * 60 * 60)),
+                multiplier: getLockMultiplierFromSeconds(userData.lockDuration.toNumber()),
+                weightedStake: readableStakedAmount * getLockMultiplierFromSeconds(userData.lockDuration.toNumber()),
+                weightedStakeFormatted: formatTokenAmount(readableStakedAmount * getLockMultiplierFromSeconds(userData.lockDuration.toNumber())),
+                joinedAtEvent: userData.joinedAtEvent?.toNumber() || 0,
+                accumulatedRewards: userData.accumulatedRewards?.toNumber() / (10 ** 9) || 0,
+                accumulatedRewardsFormatted: formatTokenAmount(userData.accumulatedRewards?.toNumber() / (10 ** 9) || 0),
             };
         });
 
