@@ -1,7 +1,7 @@
 //backend/src/staking/stakingController.ts
 
 import { Request, Response } from 'express';
-import { unstakeTokenService, getUserStakingAccount, createAssociatedTokenAccount, createAssociatedTokenAccountWithKeypair, stakeTokenService, getProgram } from './services';
+import { unstakeTokenService, getUserStakingAccount, createAssociatedTokenAccount, createAssociatedTokenAccountWithKeypair, stakeTokenService, getProgram, claimRewardsService } from './services';
 import { PublicKey } from '@solana/web3.js';
 import * as anchor from "@project-serum/anchor";
 
@@ -86,6 +86,27 @@ export const stakeTokensController = async (req: Request, res: Response) => {
   }
 };
 
+// ✅ Controller to claim staking rewards
+export const claimRewardsController = async (req: Request, res: Response) => {
+  try {
+    const { userPublicKey, adminPublicKey } = req.body;
+
+    if (!userPublicKey || !adminPublicKey) {
+      return res.status(400).json({ success: false, message: 'userPublicKey and adminPublicKey are required' });
+    }
+
+    const result = await claimRewardsService(new PublicKey(userPublicKey), new PublicKey(adminPublicKey));
+    if (result.success) {
+      return res.status(200).json(result);
+    } else {
+      return res.status(500).json(result);
+    }
+  } catch (err) {
+    console.error('❌ Error in claimRewardsController:', err);
+    return res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
 export const unstakeTokensController = async (req: Request, res: Response) => {
   try {
     const { userPublicKey, adminPublicKey } = req.body;
@@ -132,6 +153,7 @@ export const unstakeTokensController = async (req: Request, res: Response) => {
     return res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
+
 
 
 // ✅ Controller function to fetch user staking account

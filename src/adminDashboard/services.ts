@@ -15,11 +15,19 @@ import {
   import * as anchor from "@project-serum/anchor";
   import { RevenuePoolAccount } from "./dashboardStatsService";
   
-  interface StakingPoolAccount {
+  export interface StakingPoolAccount {
       admin: PublicKey;
       mint: PublicKey;
       totalStaked: anchor.BN;
       bump: number;
+  }
+
+  export interface RewardPoolAccount {
+    admin: PublicKey;
+    mint: PublicKey;
+    totalFunds: anchor.BN;
+    lastDistribution: anchor.BN;
+    bump: number;
   }
   
   // ✅ Function to initialize the staking pool and escrow account
@@ -151,6 +159,57 @@ import {
           };
       }
   };
+
+
+  // ✅ Initialize Reward Pool (admin-only)
+export const initializeRewardPoolService = async (
+  mintPublicKey: PublicKey,
+  adminPublicKey: PublicKey
+) => {
+  try {
+    const { program, connection } = getProgram();
+
+    // Derive PDAs
+    const [rewardPoolPublicKey] = PublicKey.findProgramAddressSync(
+      [Buffer.from("reward_pool"), adminPublicKey.toBuffer()],
+      program.programId
+    );
+
+    const [rewardEscrowPublicKey] = PublicKey.findProgramAddressSync(
+      [Buffer.from("reward_escrow"), rewardPoolPublicKey.toBuffer()],
+      program.programId
+    );
+
+    // Build unsigned tx
+    const { blockhash } = await connection.getLatestBlockhash("finalized");
+    const transaction = await program.methods
+      .initializeRewardPool()
+      .accounts({
+        rewardPool: rewardPoolPublicKey,
+        rewardEscrowAccount: rewardEscrowPublicKey,
+        mint: mintPublicKey,
+        admin: adminPublicKey,
+        systemProgram: SystemProgram.programId,
+        tokenProgram: TOKEN_2022_PROGRAM_ID,
+      })
+      .transaction();
+
+    transaction.recentBlockhash = blockhash;
+    transaction.feePayer = adminPublicKey;
+
+    return {
+      success: true,
+      message: "Transaction created successfully!",
+      rewardPool: rewardPoolPublicKey.toBase58(),
+      rewardEscrow: rewardEscrowPublicKey.toBase58(),
+      transaction: transaction.serialize({ requireAllSignatures: false }).toString("base64"),
+    };
+  } catch (err: any) {
+    console.error("❌ Error creating initializeRewardPool tx:", err);
+    return { success: false, message: `Error creating tx: ${err.message || err}` };
+  }
+};
+
   
   // ✅ Function to check pool status for staking, revenue, and prize pools
   export const checkPoolStatus = async (adminPublicKey: PublicKey, tournamentId?: string) => {
@@ -165,6 +224,9 @@ import {
               revenuePool: {
                   status: false, // false = needs initialization, true = exists
               },
+              rewardPool: {
+                status: false, // false = needs initialization, true = exists
+            },
               adminAddress: adminPublicKey.toString()
           };
   
@@ -205,6 +267,26 @@ import {
           result.revenuePool = {
               status: revenuePoolAccount !== null,
           }
+
+ 
+          // ✅ 3. Check Reward Pool
+          const [rewardPoolPublicKey] = PublicKey.findProgramAddressSync(
+            [Buffer.from("reward_pool"), adminPublicKey.toBuffer()],
+            program.programId
+        );
+
+        const [rewardEscrowAccountPublicKey] = PublicKey.findProgramAddressSync(
+            [Buffer.from("reward_escrow"), rewardPoolPublicKey.toBuffer()],
+            program.programId
+        );
+
+        console.log("🔹 Checking Reward Pool PDA:", rewardPoolPublicKey.toString());
+
+        const rewardPoolAccount = await program.account.rewardPool.fetchNullable(rewardPoolPublicKey) as RewardPoolAccount;
+
+        result.rewardPool = {
+            status: rewardPoolAccount !== null,
+        }
   
           return result;
   

@@ -1,7 +1,7 @@
 //src/adminDashboard/adminDashboardController.ts
 
 import { PublicKey } from '@solana/web3.js';
-import { checkPoolStatus, initializeRevenuePoolService, initializeStakingPoolService } from "./services";
+import { checkPoolStatus, initializeRevenuePoolService, initializeStakingPoolService, initializeRewardPoolService } from "./services";
 import { NextFunction, Request, Response } from 'express';
 import {
     getStakingPoolData,
@@ -113,6 +113,40 @@ export const initializeRevenuePoolController = async (req: Request, res: Respons
     }
 };
 
+
+/**
+ * Controller function for initializing the global revenue pool
+ */
+export const initializeRewardPoolController = async (req: Request, res: Response) => {
+    try {
+        const { mintPublicKey, adminPublicKey } = req.body;
+
+        // Validate the mint address
+        if (!mintPublicKey || !adminPublicKey) {
+            return res.status(400).json({
+                success: false,
+                message: 'Mint and Admin public key is required'
+            });
+        }
+
+        // Call the service function to initialize revenue pool
+        const result = await initializeRewardPoolService(new PublicKey(mintPublicKey), new PublicKey(adminPublicKey));
+
+        // Return the result
+        if (result.success) {
+            return res.status(200).json({data: result});
+        } else {
+            return res.status(500).json({ error: result.message });
+        }
+    } catch (err) {
+        console.error('Error in initialize revenue pool controller:', err);
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to initialize revenue pool',
+            error: err.message || err
+        });
+    }
+};
 
 
 

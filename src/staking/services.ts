@@ -23,7 +23,7 @@ dotenv.config();
 
 // Helper function to get the program
 export const getProgram = () => {
-  const idl = require("../staking/multiversed_dapp.json");
+  const idl = require("../staking/idl.json");
   const walletKeypair = require("../staking/multiverse_dapp-keypair.json");
 
   const adminKeypair = Keypair.fromSecretKey(new Uint8Array(walletKeypair));
@@ -37,7 +37,7 @@ export const getProgram = () => {
   const connection = new Connection("https://api.devnet.solana.com", "confirmed");
 
   const programId = new PublicKey(
-    "5MnmduijGED4wMJEih8MWccjJP4CrHWn5hUUkCyF4Hnf"
+    "aby5FAjSPp6W3HpaRa6KECpyQ5BV3ptF2nBdR2X8XqR"
   );
 
   const provider = new anchor.AnchorProvider(
@@ -228,6 +228,85 @@ export const unstakeTokenService = async (
   } catch (err) {
     console.error("❌ Error creating unstake transaction:", err);
     return { success: false, message: "Error creating unstake transaction" };
+  }
+};
+
+
+// ✅ Function to claim staking rewards
+export const claimRewardsService = async (
+  userPublicKey: PublicKey,
+  adminPublicKey: PublicKey
+) => {
+  try {
+    const { program, connection } = getProgram();
+
+    const [stakingPoolPublicKey] = PublicKey.findProgramAddressSync(
+      [Buffer.from('staking_pool'), adminPublicKey.toBuffer()],
+      program.programId
+    );
+
+    const [userStakingAccountPublicKey] = PublicKey.findProgramAddressSync(
+      [Buffer.from('user_stake'), userPublicKey.toBuffer()],
+      program.programId
+    );
+
+    const [revenuePoolPublicKey] = PublicKey.findProgramAddressSync(
+      [Buffer.from('revenue_pool'), adminPublicKey.toBuffer()],
+      program.programId
+    );
+
+    const [rewardPoolPublicKey] = PublicKey.findProgramAddressSync(
+      [Buffer.from('reward_pool'), adminPublicKey.toBuffer()],
+      program.programId
+    );
+
+    const [rewardEscrowPublicKey] = PublicKey.findProgramAddressSync(
+      [Buffer.from('reward_escrow'), rewardPoolPublicKey.toBuffer()],
+      program.programId
+    );
+
+    // Fetch staking pool to obtain mint
+    const stakingPoolAccount: any = await program.account.stakingPool.fetch(stakingPoolPublicKey);
+    const mintPublicKey: PublicKey = stakingPoolAccount.mint as PublicKey;
+
+    // Ensure the user has an ATA
+    let userTokenAccountPublicKey = await getAssociatedTokenAddressSync(mintPublicKey, userPublicKey, false, TOKEN_2022_PROGRAM_ID);
+    const accountInfo = await connection.getAccountInfo(userTokenAccountPublicKey);
+    if (!accountInfo) {
+      const createATA = await createAssociatedTokenAccount(mintPublicKey, userPublicKey);
+      if (!createATA.success) {
+        throw new Error('Failed to create associated token account');
+      }
+      userTokenAccountPublicKey = createATA.associatedTokenAddress;
+    }
+
+    const { blockhash } = await connection.getLatestBlockhash('finalized');
+
+    const tx = await program.methods
+      .claimRewards()
+      .accounts({
+        user: userPublicKey,
+        stakingPool: stakingPoolPublicKey,
+        userStakingAccount: userStakingAccountPublicKey,
+        rewardPool: rewardPoolPublicKey,
+        userTokenAccount: userTokenAccountPublicKey,
+        rewardEscrowAccount: rewardEscrowPublicKey,
+        mint: mintPublicKey,
+        tokenProgram: TOKEN_2022_PROGRAM_ID,
+      })
+      .transaction();
+
+    tx.recentBlockhash = blockhash;
+    tx.feePayer = userPublicKey;
+
+    return {
+      success: true,
+      message: 'Transaction created successfully!',
+      transaction: tx.serialize({ requireAllSignatures: false }).toString('base64'),
+    };
+  } catch (err: any) {
+    console.error('❌ Error creating claim transaction:', err);
+    return { success: false, message: `Error creating claim transaction: ${err.message || err}` };
   }
 };
 

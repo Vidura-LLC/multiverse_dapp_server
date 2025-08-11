@@ -39,6 +39,34 @@
       "args": []
     },
     {
+      "name": "claimRewards",
+      "accounts": [
+        { "name": "user", "isMut": true, "isSigner": true },
+        { "name": "stakingPool", "isMut": true, "isSigner": false },
+        { "name": "userStakingAccount", "isMut": true, "isSigner": false },
+        { "name": "rewardPool", "isMut": true, "isSigner": false },
+        { "name": "userTokenAccount", "isMut": true, "isSigner": false },
+        { "name": "rewardEscrowAccount", "isMut": true, "isSigner": false },
+        { "name": "mint", "isMut": true, "isSigner": false },
+        { "name": "tokenProgram", "isMut": false, "isSigner": false }
+      ],
+      "args": []
+    },
+    {
+      "name": "addRewardsToEpoch",
+      "accounts": [
+        { "name": "admin", "isMut": true, "isSigner": true },
+        { "name": "stakingPool", "isMut": true, "isSigner": false },
+        { "name": "revenuePool", "isMut": true, "isSigner": false },
+        { "name": "revenueEscrowAccount", "isMut": true, "isSigner": false },
+        { "name": "mint", "isMut": true, "isSigner": false },
+        { "name": "tokenProgram", "isMut": false, "isSigner": false }
+      ],
+      "args": [
+        { "name": "amount", "type": "u64" }
+      ]
+    },
+    {
       "name": "distributeTournamentPrizes",
       "accounts": [
         {
@@ -336,6 +364,18 @@
       "args": []
     },
     {
+      "name": "initializeRewardPool",
+      "accounts": [
+        { "name": "rewardPool", "isMut": true, "isSigner": false },
+        { "name": "rewardEscrowAccount", "isMut": true, "isSigner": false },
+        { "name": "mint", "isMut": false, "isSigner": false },
+        { "name": "admin", "isMut": true, "isSigner": true },
+        { "name": "systemProgram", "isMut": false, "isSigner": false },
+        { "name": "tokenProgram", "isMut": false, "isSigner": false }
+      ],
+      "args": []
+    },
+    {
       "name": "initializePrizePool",
       "accounts": [
         {
@@ -404,11 +444,8 @@
           "isMut": true,
           "isSigner": false
         },
-        {
-          "name": "stakingPool",
-          "isMut": true,
-          "isSigner": false
-        },
+        { "name": "stakingPool", "isMut": true, "isSigner": false },
+        { "name": "rewardPool", "isMut": true, "isSigner": false },
         {
           "name": "tournamentEscrowAccount",
           "isMut": true,
@@ -424,11 +461,7 @@
           "isMut": true,
           "isSigner": false
         },
-        {
-          "name": "stakingEscrowAccount",
-          "isMut": true,
-          "isSigner": false
-        },
+        { "name": "rewardEscrowAccount", "isMut": true, "isSigner": false },
         {
           "name": "mint",
           "isMut": true,
@@ -483,6 +516,18 @@
             "type": "u64"
           },
           {
+            "name": "totalWeight",
+            "type": "u128"
+          },
+          {
+            "name": "accRewardPerWeight",
+            "type": "u128"
+          },
+          {
+            "name": "epochIndex",
+            "type": "u64"
+          },
+          {
             "name": "bump",
             "type": "u8"
           }
@@ -509,6 +554,18 @@
           {
             "name": "lockDuration",
             "type": "i64"
+          },
+          {
+            "name": "weight",
+            "type": "u128"
+          },
+          {
+            "name": "rewardDebt",
+            "type": "u128"
+          },
+          {
+            "name": "pendingRewards",
+            "type": "u64"
           }
         ]
       }
@@ -772,6 +829,6 @@
     }
   ],
   "metadata": {
-    "address": "GSV3Qje19X3NTxc5uxhKw28uoadpZED5Siqd4tGVZ7x4"
+    "address": "aby5FAjSPp6W3HpaRa6KECpyQ5BV3ptF2nBdR2X8XqR"
   }
 }
