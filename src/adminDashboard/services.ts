@@ -8,28 +8,38 @@ import {
   import {
     TOKEN_2022_PROGRAM_ID,
   } from "@solana/spl-token";
-  import { bs58 } from "@project-serum/anchor/dist/cjs/utils/bytes";
   import dotenv from "dotenv";
   import { getProgram } from "../staking/services";
   dotenv.config();
-  import * as anchor from "@project-serum/anchor";
-  import { RevenuePoolAccount } from "./dashboardStatsService";
-  
-  export interface StakingPoolAccount {
-      admin: PublicKey;
-      mint: PublicKey;
-      totalStaked: anchor.BN;
-      bump: number;
-  }
+import * as anchor from "@project-serum/anchor";
 
-  export interface RewardPoolAccount {
+export interface StakingPoolAccount {
+    admin: PublicKey;
+    mint: PublicKey;
+    totalStaked: anchor.BN;
+    totalWeight: anchor.BN;
+    accRewardPerWeight: anchor.BN;
+    epochIndex: anchor.BN;
+    bump: number;
+}
+
+export interface RewardPoolAccount {
+  admin: PublicKey;
+  mint: PublicKey;
+  totalFunds: anchor.BN;
+  lastDistribution: anchor.BN;
+  bump: number;
+}
+
+export interface RevenuePoolAccount {
     admin: PublicKey;
     mint: PublicKey;
     totalFunds: anchor.BN;
     lastDistribution: anchor.BN;
     bump: number;
-  }
-  
+}
+      
+
   // ✅ Function to initialize the staking pool and escrow account
   export const initializeStakingPoolService = async (mintPublicKey: PublicKey, adminPublicKey: PublicKey) => {
       try {

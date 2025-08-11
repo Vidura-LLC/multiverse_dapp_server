@@ -198,7 +198,7 @@ export const getStakingStatsController = async (req: Request, res: Response) => 
 export const getStakingPoolController = async (req: Request, res: Response) => {
     try {
 
-        const { adminPublicKey } = req.body;
+        const { adminPublicKey } = req.params;
         console.log('🏦 Fetching staking pool data...');
 
         const result = await getStakingPoolData(new PublicKey(adminPublicKey));

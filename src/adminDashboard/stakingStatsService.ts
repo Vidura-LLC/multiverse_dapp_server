@@ -9,20 +9,8 @@ import dotenv from "dotenv";
 import { getProgram } from "../staking/services";
 dotenv.config();
 import * as anchor from "@project-serum/anchor";
-
-export interface StakingPoolAccount {
-    admin: PublicKey;
-    mint: PublicKey;
-    totalStaked: anchor.BN;
-    bump: number;
-}
-
-interface UserStakingAccount {
-    owner: PublicKey;
-    stakedAmount: anchor.BN;
-    stakeTimestamp: anchor.BN;
-    lockDuration: anchor.BN;
-}
+import { UserStakingAccount } from "../staking/services";
+import { StakingPoolAccount } from "./services";
 
 /**
  * Helper function to format token amounts properly
@@ -58,9 +46,9 @@ export const getStakingPoolData = async (adminPublicKey: PublicKey) => {
             program.programId
         );
 
-        // Derive the staking pool escrow account
+        // Derive the staking pool escrow account (consistent seed)
         const [stakingEscrowPublicKey] = PublicKey.findProgramAddressSync(
-            [Buffer.from("staking_escrow"), stakingPoolPublicKey.toBuffer()],
+            [Buffer.from("escrow"), stakingPoolPublicKey.toBuffer()],
             program.programId
         );
         console.log("🔹 Fetching Staking Pool PDA:", stakingPoolPublicKey.toString());
@@ -86,6 +74,9 @@ export const getStakingPoolData = async (adminPublicKey: PublicKey) => {
                 admin: stakingPoolData.admin.toString(),
                 mint: stakingPoolData.mint.toString(),
                 totalStaked: stakingPoolData.totalStaked.toString(),
+                totalWeight: stakingPoolData.totalWeight.toString(),
+                accRewardPerWeight: stakingPoolData.accRewardPerWeight.toString(),
+                epochIndex: stakingPoolData.epochIndex.toString(),
                 stakingPoolAddress: stakingPoolPublicKey.toString(),
                 stakingEscrowPublicKey: stakingEscrowPublicKey.toString(),
             }

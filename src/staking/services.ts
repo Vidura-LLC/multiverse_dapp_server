@@ -19,7 +19,19 @@ import {
 import { bs58 } from "@project-serum/anchor/dist/cjs/utils/bytes";
 import dotenv from "dotenv";
 
+
 dotenv.config();
+
+export interface UserStakingAccount {
+  owner: PublicKey;
+  stakedAmount: anchor.BN;
+  stakeTimestamp: anchor.BN;
+  lockDuration: anchor.BN;
+  weight: anchor.BN;
+  rewardDebt: anchor.BN;
+  pendingRewards: anchor.BN;
+}
+
 
 // Helper function to get the program
 export const getProgram = () => {
@@ -282,7 +294,7 @@ export const claimRewardsService = async (
 
     const { blockhash } = await connection.getLatestBlockhash('finalized');
 
-    const tx = await program.methods
+    const transaction = await program.methods
       .claimRewards()
       .accounts({
         user: userPublicKey,
@@ -296,13 +308,13 @@ export const claimRewardsService = async (
       })
       .transaction();
 
-    tx.recentBlockhash = blockhash;
-    tx.feePayer = userPublicKey;
+    transaction.recentBlockhash = blockhash;
+    transaction.feePayer = userPublicKey;
 
     return {
       success: true,
       message: 'Transaction created successfully!',
-      transaction: tx.serialize({ requireAllSignatures: false }).toString('base64'),
+      transaction: transaction.serialize({ requireAllSignatures: false }).toString('base64'),
     };
   } catch (err: any) {
     console.error('❌ Error creating claim transaction:', err);
@@ -311,12 +323,7 @@ export const claimRewardsService = async (
 };
 
 
-interface UserStakingAccount {
-  owner: PublicKey;
-  stakedAmount: anchor.BN;
-  stakeTimestamp: anchor.BN;
-  lockDuration: anchor.BN;
-}
+
 
 export const getUserStakingAccount = async (userPublicKey: PublicKey) => {
   try {

@@ -3,16 +3,9 @@
 import { Request, Response } from 'express';
 import { unstakeTokenService, getUserStakingAccount, createAssociatedTokenAccount, createAssociatedTokenAccountWithKeypair, stakeTokenService, getProgram, claimRewardsService } from './services';
 import { PublicKey } from '@solana/web3.js';
-import * as anchor from "@project-serum/anchor";
+import { StakingPoolAccount } from "../adminDashboard/services";
 
-interface StakingPoolAccount {
-  admin: PublicKey;
-  mint: PublicKey;
-  totalStaked: anchor.BN;
-  bump: number;
-}
 
-// Controller to handle staking requests
 // Controller to handle staking requests
 export const stakeTokensController = async (req: Request, res: Response) => {
   console.log('Staking invoked');

@@ -11,7 +11,7 @@ router.post('/stake', stakeTokensController as unknown as RequestHandler);
 router.post('/unstake', unstakeTokensController as unknown as RequestHandler);
 
 // Route to claim rewards
-router.post('/claim', claimRewardsController as unknown as RequestHandler);
+router.post('/claim-rewards', claimRewardsController as unknown as RequestHandler);
 
 // Route to get user staking account
 router.get('/user-staked-amount/:userPublicKey', fetchUserStakingAccountController as unknown as RequestHandler);

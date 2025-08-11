@@ -23,7 +23,7 @@ router.post('/initialize-revenue-pool', initializeRevenuePoolController as unkno
 router.get('/staking/stats/:adminPublicKey', getStakingStatsController as unknown as RequestHandler);
 
 // Route to get staking pool data only
-router.get('/staking/pool-data', getStakingPoolController as unknown as RequestHandler);
+router.get('/staking/pool-data/:adminPublicKey', getStakingPoolController as unknown as RequestHandler);
 
 // Route to get active stakers count and basic info
 router.get('/staking/active-stakers', getActiveStakersController as unknown as RequestHandler);

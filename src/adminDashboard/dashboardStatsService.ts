@@ -8,36 +8,36 @@ import { getTournamentPool } from "../gamehub/services";
 import { getUserStakingAccount } from "../staking/services";
 import { Tournament } from "../gamehub/gamehubController";
 import { calculateAPY, formatTokenAmount, getActiveStakers, getStakingPoolData } from "./stakingStatsService";
-import { StakingPoolAccount } from "./stakingStatsService";
 import { getProgram } from "../staking/services";
-import { RewardPoolAccount } from "./services";
 
-interface TournamentStats {
-    activeTournaments: number;
-    upcomingTournaments: number;
-    endedTournaments: number;
-    distributedTournaments: number;
-    awardedTournaments: number;
-    totalParticipants: number;
-    totalBurnAmount: number;
-}
-
-
-// Interface for the RevenuePool account structure
-export interface RevenuePoolAccount {
+export interface RewardPoolAccount {
     admin: PublicKey;
     mint: PublicKey;
     totalFunds: anchor.BN;
     lastDistribution: anchor.BN;
     bump: number;
-}
+  }
+  
+  export interface TournamentStats {
+      activeTournaments: number;
+      upcomingTournaments: number;
+      endedTournaments: number;
+      distributedTournaments: number;
+      awardedTournaments: number;
+      totalParticipants: number;
+      totalBurnAmount: number;
+  }
+  
+  
+  // Interface for the RevenuePool account structure
+  export interface RevenuePoolAccount {
+      admin: PublicKey;
+      mint: PublicKey;
+      totalFunds: anchor.BN;
+      lastDistribution: anchor.BN;
+      bump: number;
+  }
 
-// Interface for the Dashboard data structure
-interface DashboardData {
-    tournament: TournamentStats;
-    revenue: RevenuePoolAccount;
-    staking: StakingPoolAccount;
-}
 
 
 
