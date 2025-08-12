@@ -4,71 +4,10 @@ import { ref, get, set, update } from "firebase/database";
 import { db } from "../config/firebase";
 import { Request, Response } from 'express';
 import { PublicKey } from '@solana/web3.js';
-import { initializePrizePoolService, distributeTournamentRevenueService, distributeTournamentPrizesService } from './services';
+import { distributeTournamentRevenueService, distributeTournamentPrizesService } from './services';
 import { getProgram } from "../staking/services";
 
 
-
-
-/**
- * Controller function for initializing a prize pool for a specific tournament
- */
-export const initializePrizePoolController = async (req: Request, res: Response) => {
-  try {
-    const { tournamentId, mintPublicKey, adminPublicKey } = req.body;
-
-    // Validate required fields
-    if (!tournamentId) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Tournament ID is required' 
-      });
-    }
-
-    if (!mintPublicKey || !adminPublicKey) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Mint public key and Admin Public Key is required' 
-      });
-    }
-
-    // Convert string public key to PublicKey object
-    const mintPubkey = new PublicKey(mintPublicKey);
-    const adminPubKey = new PublicKey(adminPublicKey);
-
-    // Call the service function to initialize prize pool for the tournament
-    const result = await initializePrizePoolService(tournamentId, mintPubkey, adminPubKey);
-
-    if (result.success) {
-      const tournamentRef = ref(db, `tournaments/${tournamentId}`);
-      const tournamentSnapshot = await get(tournamentRef);
-
-      if (!tournamentSnapshot.exists()) {
-        return res.status(404).json({
-          success: false,
-          message: 'Tournament not found'
-        });
-      }
-
-      const tournament = tournamentSnapshot.val();
-      tournament.prizePool = result.prizePool;
-
-      // Save the updated tournament data back to Firebase
-      await set(tournamentRef, tournament);
-
-      return res.status(200).json(result);
-    } else {
-      return res.status(500).json(result);
-    }
-  } catch (err) {
-    console.error('Error in initialize prize pool controller:', err);
-    return res.status(500).json({ 
-      success: false, 
-      message: 'Failed to initialize prize pool',
-      error: err.message || err
-    });
-  }
-};
 
 
 

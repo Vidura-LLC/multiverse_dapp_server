@@ -127,6 +127,9 @@ export const getActiveStakers = async () => {
                 stakeDate: new Date(userData.stakeTimestamp.toNumber() * 1000).toISOString(),
                 lockDuration: userData.lockDuration.toString(),
                 lockDurationDays: Math.floor(userData.lockDuration.toNumber() / (24 * 60 * 60)),
+                weight: userData.weight.toString(),
+                rewardDebt: userData.rewardDebt.toString(),
+                pendingRewards: userData.pendingRewards.toString(),
             };
         });
 

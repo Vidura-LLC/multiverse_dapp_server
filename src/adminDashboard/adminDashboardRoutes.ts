@@ -1,7 +1,7 @@
 //src/adminDashboard/adminDashboardRoutes.ts
 
 import { Router, RequestHandler } from 'express';
-import { checkPoolStatusController, getActiveStakersController, getAPYController, getDashboardStatsController, getDetailedStakersController, getRevenuePoolStatsController, getStakingPoolController, getStakingStatsController, getTournamentStatsController, initializeRevenuePoolController, initializeRewardPoolController, initializeStakingPoolController } from './adminDashboardController';
+import { checkPoolStatusController, getActiveStakersController, getAPYController, getDashboardStatsController, getDetailedStakersController, getRevenuePoolStatsController, getStakingPoolController, getStakingStatsController, getTournamentStatsController, initializePrizePoolController, initializeRevenuePoolController, initializeRewardPoolController, initializeStakingPoolController } from './adminDashboardController';
 
 const router = Router();
 
@@ -14,6 +14,8 @@ router.post('/initialize-staking-pool', initializeStakingPoolController as unkno
 // Route for initializing the reward pool
 router.post('/initialize-reward-pool', initializeRewardPoolController as unknown as RequestHandler);
 
+// Route for initializing the prize pool
+router.post('/initialize-prize-pool', initializePrizePoolController as unknown as RequestHandler);
 
 // Route for initializing the global revenue pool
 router.post('/initialize-revenue-pool', initializeRevenuePoolController as unknown as RequestHandler);

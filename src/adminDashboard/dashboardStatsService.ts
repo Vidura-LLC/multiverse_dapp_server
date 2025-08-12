@@ -331,7 +331,10 @@ export const getStakingStats = async (adminPublicKey: PublicKey) => {
             currentAPY: apyResult.data.currentAPY,
             avgStakePerUser,
             stakingPoolAddress: poolResult.data.stakingPoolAddress,
-            stakingPoolEscrowAddress: poolResult.data.stakingEscrowPublicKey
+            stakingPoolEscrowAddress: poolResult.data.stakingEscrowPublicKey,
+            totalWeight: poolResult.data.totalWeight,
+            accRewardPerWeight: poolResult.data.accRewardPerWeight,
+            epochIndex: poolResult.data.epochIndex
         };
     } catch (err) {
         console.error("❌ Error fetching staking statistics:", err);
