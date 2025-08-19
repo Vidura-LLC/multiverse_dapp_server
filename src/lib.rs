@@ -3,7 +3,7 @@ use anchor_lang::prelude::*;
 use anchor_spl::token_2022::{self, Burn, Token2022, TransferChecked};
 use anchor_spl::token_interface::{Mint, TokenAccount};
 
-declare_id!("aby5FAjSPp6W3HpaRa6KECpyQ5BV3ptF2nBdR2X8XqR");
+declare_id!("Dz4rTCCmWrK9Ky6kzVqNK1GPeqjAecrZzKoyXvtue4Pr");
 
 // ==============================
 // Global constants and helpers
@@ -15,7 +15,7 @@ const BPS_DENOMINATOR: u64 = 10_000; // 100% in basis points
 // Lock period multipliers in basis points
 const MULTIPLIER_1M_BPS: u64 = 10_000; // 1.0x
 const MULTIPLIER_3M_BPS: u64 = 12_000; // 1.2x
-const MULTIPLIER_6M_BPS: u64 = 15_000; // 1.5x
+const MULTIPLIER_6M_BPS: u64 = 15_000; // 1.5xA
 const MULTIPLIER_12M_BPS: u64 = 20_000; // 2.0x
 
 fn lock_multiplier_bps(lock_duration: i64) -> u64 {
@@ -621,7 +621,7 @@ pub mod multiversed_dapp {
                 .saturating_add(revenue_amount);
         }
 
-        // Transfer staking rewards portion to RewardPool (NOT staking pool)
+        // ✅ ENHANCED: Transfer staking rewards and automatically update accumulator
         if staking_amount > 0 {
             token_2022::transfer_checked(
                 CpiContext::new(
@@ -640,7 +640,7 @@ pub mod multiversed_dapp {
             ctx.accounts.reward_pool.total_funds = ctx.accounts.reward_pool.total_funds
                 .saturating_add(staking_amount);
 
-            // Update reward accumulator for current stakers
+            // ✅ AUTOMATIC: Update reward accumulator for current stakers
             let sp = &mut ctx.accounts.staking_pool;
             if sp.total_weight > 0 {
                 let delta: u128 = (staking_amount as u128)
@@ -649,6 +649,12 @@ pub mod multiversed_dapp {
                     .unwrap_or(0);
                 sp.acc_reward_per_weight = sp.acc_reward_per_weight.saturating_add(delta);
                 sp.epoch_index = sp.epoch_index.saturating_add(1);
+                
+                msg!(
+                    "✅ Reward accumulator updated: +{} (total: {})",
+                    delta,
+                    sp.acc_reward_per_weight
+                );
             }
         }
 
@@ -733,6 +739,56 @@ pub mod multiversed_dapp {
         msg!("✅ Rewards claimed: {}", claimable);
         Ok(())
     }
+
+    /// Accrue pending rewards for existing stakers without requiring additional staking
+    /// This function allows users to update their pending rewards when new rewards are distributed
+    pub fn accrue_rewards(ctx: Context<AccrueRewards>) -> Result<()> {
+        let staking_pool = &ctx.accounts.staking_pool;
+        let user_staking_account = &mut ctx.accounts.user_staking_account;
+
+        // Ensure user has staked tokens
+        require!(
+            user_staking_account.staked_amount > 0,
+            StakingError::InsufficientStakedBalance
+        );
+
+        // Calculate accumulated rewards up to current global accumulator
+        let accumulated: u128 = user_staking_account
+            .weight
+            .saturating_mul(staking_pool.acc_reward_per_weight)
+            .checked_div(ACC_PRECISION)
+            .unwrap_or(0);
+        
+        // Calculate pending rewards (accumulated - reward debt)
+        let pending_now: u128 = accumulated.saturating_sub(user_staking_account.reward_debt);
+        
+        if pending_now > 0 {
+            // Add to pending rewards (capped to u64::MAX to prevent overflow)
+            let add: u64 = pending_now.min(u128::from(u64::MAX)) as u64;
+            user_staking_account.pending_rewards = user_staking_account
+                .pending_rewards
+                .saturating_add(add);
+            
+            // Update reward debt to current baseline
+            user_staking_account.reward_debt = accumulated;
+            
+            msg!(
+                "✅ Rewards accrued for user {}: {} (pending total: {})",
+                ctx.accounts.user.key(),
+                add,
+                user_staking_account.pending_rewards
+            );
+        } else {
+            msg!(
+                "ℹ️ No new rewards to accrue for user {}",
+                ctx.accounts.user.key()
+            );
+        }
+
+        Ok(())
+    }
+
+    // (Removed admin batch accrual; users should call accrue_rewards themselves.)
 
     // Rest of the account structs and implementations remain the same...
     #[derive(Accounts)]
@@ -1146,6 +1202,30 @@ pub mod multiversed_dapp {
         pub mint: InterfaceAccount<'info, Mint>,
         pub token_program: Program<'info, Token2022>,
     }
+
+    // Accounts for accruing rewards
+    #[derive(Accounts)]
+    pub struct AccrueRewards<'info> {
+        #[account(mut)]
+        pub user: Signer<'info>,
+
+        #[account(
+            seeds = [b"staking_pool", staking_pool.admin.as_ref()],
+            bump = staking_pool.bump
+        )]
+        pub staking_pool: Account<'info, StakingPool>,
+
+        #[account(
+            mut,
+            seeds = [b"user_stake", user.key().as_ref()],
+            bump
+        )]
+        pub user_staking_account: Account<'info, UserStakingAccount>,
+
+        pub system_program: Program<'info, System>,
+    }
+
+    // (Removed BatchAccrueRewards accounts; accrual is user-driven.)
 
     const ONE_MONTH: i64 = 30 * 24 * 60 * 60;
     const THREE_MONTHS: i64 = 3 * ONE_MONTH;

@@ -35,7 +35,7 @@ export interface UserStakingAccount {
 
 // Helper function to get the program
 export const getProgram = () => {
-  const idl = require("../staking/idl.json");
+  const idl = require("../staking/epoch-staking-reward_idl.json");
   const walletKeypair = require("../staking/multiverse_dapp-keypair.json");
 
   const adminKeypair = Keypair.fromSecretKey(new Uint8Array(walletKeypair));
@@ -49,7 +49,7 @@ export const getProgram = () => {
   const connection = new Connection("https://api.devnet.solana.com", "confirmed");
 
   const programId = new PublicKey(
-    "aby5FAjSPp6W3HpaRa6KECpyQ5BV3ptF2nBdR2X8XqR"
+    "Dz4rTCCmWrK9Ky6kzVqNK1GPeqjAecrZzKoyXvtue4Pr"
   );
 
   const provider = new anchor.AnchorProvider(
@@ -363,6 +363,9 @@ export const getUserStakingAccount = async (userPublicKey: PublicKey) => {
       stakedAmount: readableStakedAmount,
       stakeTimestamp: userStakingAccount.stakeTimestamp.toString(),
       stakeDuration: userStakingAccount.lockDuration.toString(),
+      weight: userStakingAccount.weight.toString(),
+      rewardDebt: userStakingAccount.rewardDebt.toNumber() / (10 ** tokenDecimals),
+      pendingRewards: userStakingAccount.pendingRewards.toNumber() / (10 ** tokenDecimals),
     };
 
     console.log("✅ Raw User Staking Account Data:", rawData);
@@ -544,6 +547,63 @@ export const createAssociatedTokenAccountWithKeypair = async (
     return { success: false, message: "Error creating the associated token account" };
   }
 };
+// ✅ Function to accrue pending rewards for a specific staker
+export const accrueRewardsService = async (
+  userPublicKey: PublicKey,
+  adminPublicKey: PublicKey
+) => {
+  try {
+    const { program, connection } = getProgram();
+
+    console.log("Accruing rewards for user:", userPublicKey.toBase58());
+
+    // Get the staking pool PDA
+    const [stakingPoolPublicKey] = PublicKey.findProgramAddressSync(
+      [Buffer.from("staking_pool"), adminPublicKey.toBuffer()],
+      program.programId
+    );
+
+    // Get the user staking account PDA
+    const [userStakingPublicKey] = PublicKey.findProgramAddressSync(
+      [Buffer.from("user_stake"), userPublicKey.toBuffer()],
+      program.programId
+    );
+
+    // Build an unsigned transaction for the user to sign
+    const { blockhash } = await connection.getLatestBlockhash('finalized');
+    const transaction = await program.methods
+      .accrueRewards()
+      .accounts({
+        user: userPublicKey,
+        stakingPool: stakingPoolPublicKey,
+        userStakingAccount: userStakingPublicKey,
+        systemProgram: anchor.web3.SystemProgram.programId,
+      })
+      .transaction();
+
+    transaction.recentBlockhash = blockhash;
+    transaction.feePayer = userPublicKey;
+
+    return {
+      success: true,
+      message: 'Transaction created successfully! Please sign to accrue rewards.',
+      transaction: transaction.serialize({ requireAllSignatures: false }).toString('base64'),
+    };
+
+  } catch (error) {
+    console.error("❌ Error accruing rewards:", error);
+    return {
+      success: false,
+      message: "Failed to accrue rewards",
+      error: error instanceof Error ? error.message : "Unknown error"
+    };
+  }
+};
+
+// ✅ Function to batch accrue rewards for all active stakers (admin only)
+// (Removed admin batchAccrueRewardsService)
+
+
 function getTokenAccount(connection: Connection, mintPublicKey: PublicKey, userPublicKey: PublicKey) {
   throw new Error("Function not implemented.");
 }

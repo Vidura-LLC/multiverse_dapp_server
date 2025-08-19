@@ -1,9 +1,10 @@
 //backend/src/staking/stakingController.ts
 
 import { Request, Response } from 'express';
-import { unstakeTokenService, getUserStakingAccount, createAssociatedTokenAccount, createAssociatedTokenAccountWithKeypair, stakeTokenService, getProgram, claimRewardsService } from './services';
+import { unstakeTokenService, getUserStakingAccount, createAssociatedTokenAccount, createAssociatedTokenAccountWithKeypair, stakeTokenService, getProgram, claimRewardsService, accrueRewardsService } from './services';
 import { PublicKey } from '@solana/web3.js';
 import { StakingPoolAccount } from "../adminDashboard/services";
+import { getActiveStakers } from '../adminDashboard/stakingStatsService';
 
 
 // Controller to handle staking requests
@@ -164,7 +165,7 @@ export const fetchUserStakingAccountController = async (req: Request, res: Respo
     if (result.success) {
       return res.status(200).json(result);
     } else {
-      return res.status(404).json(result);
+      return res.status(200).json(result);
     }
   } catch (err) {
     console.error("❌ Error in fetching user staking account:", err);
@@ -252,4 +253,37 @@ export const createTokenAccountControllerWithKeypair = async (req: Request, res:
     });
   }
 };
+
+// Controller function to accrue rewards for a specific user
+export const accrueRewardsController = async (req: Request, res: Response) => {
+  try {
+    const { userPublicKey, adminPublicKey } = req.body;
+
+    if (!userPublicKey || !adminPublicKey) {
+      return res.status(400).json({
+        success: false,
+        message: "userPublicKey and adminPublicKey are required."
+      });
+    }
+
+    const userPubkey = new PublicKey(userPublicKey);
+    const adminPubkey = new PublicKey(adminPublicKey);
+
+    const result = await accrueRewardsService(userPubkey, adminPubkey);
+
+    if (result.success) {
+      return res.status(200).json(result);
+    } else {
+      return res.status(400).json(result);
+    }
+  } catch (err) {
+    console.error("❌ Error in accruing rewards:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Internal Server Error"
+    });
+  }
+};
+
+// (Removed batchAccrueRewardsController; accrual is user-driven.)
 

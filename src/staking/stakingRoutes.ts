@@ -1,5 +1,5 @@
 import { Router, RequestHandler } from 'express';
-import { stakeTokensController, unstakeTokensController, fetchUserStakingAccountController, createTokenAccountController, createTokenAccountControllerWithKeypair, claimRewardsController } from './stakingController';
+import { stakeTokensController, unstakeTokensController, fetchUserStakingAccountController, createTokenAccountController, createTokenAccountControllerWithKeypair, claimRewardsController, accrueRewardsController } from './stakingController';
 
 const router = Router();
 
@@ -22,5 +22,9 @@ router.post('/create-ATA', createTokenAccountController as unknown as RequestHan
 // Route to create ATA with Keypair for testing purpose
 router.post('/create-ATA-Keypair', createTokenAccountControllerWithKeypair as unknown as RequestHandler);
 
+// Route to accrue rewards for a specific user
+router.post('/accrue-rewards', accrueRewardsController as unknown as RequestHandler);
+
+// (Removed admin batch accrue endpoint)
 
 export default router;
