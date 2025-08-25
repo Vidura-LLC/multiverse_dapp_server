@@ -1,11 +1,12 @@
 //backend/src/staking/services.ts
 
+
+
 import {
   Connection,
   PublicKey,
   Keypair,
   SystemProgram,
-  clusterApiUrl,
   Transaction,
 } from "@solana/web3.js";
 import * as anchor from "@project-serum/anchor";
@@ -13,10 +14,7 @@ import {
   createAssociatedTokenAccountInstruction,
   getAssociatedTokenAddressSync,
   TOKEN_2022_PROGRAM_ID,
-  getMint,
-  transferChecked
 } from "@solana/spl-token";
-import { bs58 } from "@project-serum/anchor/dist/cjs/utils/bytes";
 import dotenv from "dotenv";
 
 
@@ -33,7 +31,7 @@ export interface UserStakingAccount {
 }
 
 
-// Helper function to get the program
+  // Helper function to get the program
 export const getProgram = () => {
   const idl = require("../staking/epoch-staking-reward_idl.json");
   const walletKeypair = require("../staking/multiverse_dapp-keypair.json");
@@ -41,10 +39,6 @@ export const getProgram = () => {
   const adminKeypair = Keypair.fromSecretKey(new Uint8Array(walletKeypair));
   const adminPublicKey = adminKeypair.publicKey;
 
-  const userWallet = require("./hamad-wallet-keypair.json");
-
-  const userKeypair = Keypair.fromSecretKey(new Uint8Array(userWallet));
-  const userPublicKey = userKeypair.publicKey;
 
   const connection = new Connection("https://api.devnet.solana.com", "confirmed");
 
@@ -63,15 +57,13 @@ export const getProgram = () => {
     program: new anchor.Program(idl, programId, provider),
     adminPublicKey,
     adminKeypair,
-    connection,
-    userKeypair,
-    userPublicKey
+    connection,    
   };
 };
 
 
 
-// ✅ Function to stake tokens into the staking pool
+// Function to stake tokens into the staking pool
 export const stakeTokenService = async (
   mintPublicKey: PublicKey,
   userPublicKey: PublicKey,
@@ -128,12 +120,7 @@ export const stakeTokenService = async (
     const { blockhash } = await connection.getLatestBlockhash("finalized");
     console.log("Latest Blockhash:", blockhash);
 
-    // Calculate the lock timestamp (current UTC time + lock duration in seconds)
-    const currentTimestamp = Math.floor(Date.now() / 1000);
-    const lockTimestamp = currentTimestamp + lockDuration;
-    console.log("Lock Timestamp (UTC):", lockTimestamp);
-
-    // ✅ Create an unsigned transaction for staking
+    // Create an unsigned transaction for staking
     const transaction = await program.methods
       .stake(new anchor.BN(amount), new anchor.BN(lockDuration))
       .accounts({
@@ -213,7 +200,7 @@ export const unstakeTokenService = async (
     // Get the latest blockhash
     const { blockhash } = await connection.getLatestBlockhash('finalized');
 
-    // ✅ Create an unsigned transaction to unstake all tokens
+    // Create an unsigned transaction to unstake all tokens
     const transaction = await program.methods
       .unstake() // No need to pass amount, as unstake now operates on the full staked amount
       .accounts({
@@ -226,7 +213,7 @@ export const unstakeTokenService = async (
         tokenProgram: TOKEN_2022_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
       })
-      .transaction(); // ⬅️ Create transaction, don't sign
+      .transaction(); // Create transaction, don't sign
 
     transaction.recentBlockhash = blockhash;
     transaction.feePayer = userPublicKey;
@@ -244,7 +231,7 @@ export const unstakeTokenService = async (
 };
 
 
-// ✅ Function to claim staking rewards
+// Function to claim staking rewards
 export const claimRewardsService = async (
   userPublicKey: PublicKey,
   adminPublicKey: PublicKey
@@ -259,11 +246,6 @@ export const claimRewardsService = async (
 
     const [userStakingAccountPublicKey] = PublicKey.findProgramAddressSync(
       [Buffer.from('user_stake'), userPublicKey.toBuffer()],
-      program.programId
-    );
-
-    const [revenuePoolPublicKey] = PublicKey.findProgramAddressSync(
-      [Buffer.from('revenue_pool'), adminPublicKey.toBuffer()],
       program.programId
     );
 
@@ -353,7 +335,7 @@ export const getUserStakingAccount = async (userPublicKey: PublicKey) => {
 
 
 
-    // ✅ Convert stakedAmount from base units
+    // Convert stakedAmount from base units
     const tokenDecimals = 9;  // Adjust token decimals as needed
     const readableStakedAmount = userStakingAccount.stakedAmount.toNumber() / (10 ** tokenDecimals);
 
@@ -368,7 +350,7 @@ export const getUserStakingAccount = async (userPublicKey: PublicKey) => {
       pendingRewards: userStakingAccount.pendingRewards.toNumber() / (10 ** tokenDecimals),
     };
 
-    console.log("✅ Raw User Staking Account Data:", rawData);
+    console.log("Raw User Staking Account Data:", rawData);
 
     return { success: true, data: rawData };
   } catch (err) {
@@ -380,174 +362,10 @@ export const getUserStakingAccount = async (userPublicKey: PublicKey) => {
 
 
 
-// To create an associated token account for a user
-export const createAssociatedTokenAccount = async (
-  mintPublicKey: PublicKey,
-  userPublicKey: PublicKey
-) => {
-  try {
-    const { connection, program } = getProgram();  // You may need to adjust how you retrieve these
-
-    // Get or create the associated token account for the user
-    const associatedTokenAddress = await getAssociatedTokenAddressSync(
-      mintPublicKey,
-      userPublicKey,
-      false,
-      TOKEN_2022_PROGRAM_ID
-    );
-
-    // Check if the associated token account already exists
-    const accountInfo = await connection.getAccountInfo(associatedTokenAddress);
-
-    if (!accountInfo) {
-      console.log(
-        `🔹 Token account does not exist. Creating ATA: ${associatedTokenAddress.toBase58()}`
-      );
-
-      // Get the recent blockhash
-      const { blockhash } = await connection.getLatestBlockhash("finalized");
-
-      // Create the unsigned transaction to create ATA
-      const transaction = new Transaction().add(
-        createAssociatedTokenAccountInstruction(
-          userPublicKey,  // The wallet to create the ATA for
-          associatedTokenAddress,  // The ATA to be created
-          userPublicKey,  // The user’s public key (as the owner)
-          mintPublicKey,  // The token mint
-          TOKEN_2022_PROGRAM_ID  // Token program ID (default)
-        )
-      );
-
-      // Set the recent blockhash and fee payer (user will pay the transaction fees)
-      transaction.recentBlockhash = blockhash;
-      transaction.feePayer = userPublicKey;
-
-      // Serialize the transaction to send to frontend (unsigned)
-      return {
-        success: true,
-        message: 'Transaction created successfully! Please sign it with your wallet.',
-        transaction: Buffer.from(transaction.serialize({ requireAllSignatures: false })).toString("base64"),
-        associatedTokenAddress  // Send unsigned transaction as base64
-      };
-
-    }
-  } catch (err) {
-    console.error("❌ Error creating the ATA transaction:", err);
-    return { success: false, message: "Error creating the associated token account" };
-  }
-}
 
 
 
-
-
-// ✅ Helper function to get or create an associated token account
-async function getOrCreateAssociatedTokenAccount(
-  connection: Connection,
-  mint: PublicKey,
-  owner: PublicKey
-): Promise<PublicKey> {
-  const associatedTokenAddress = getAssociatedTokenAddressSync(
-    mint,
-    owner,
-    false, // ✅ Not a PDA
-    TOKEN_2022_PROGRAM_ID
-  );
-
-  const accountInfo = await connection.getAccountInfo(associatedTokenAddress);
-
-  if (!accountInfo) {
-    console.log(
-      `🔹 Token account does not exist. Creating ATA: ${associatedTokenAddress.toBase58()}`
-    );
-
-    const transaction = new anchor.web3.Transaction().add(
-      createAssociatedTokenAccountInstruction(
-        owner,
-        associatedTokenAddress,
-        owner,
-        mint,
-        TOKEN_2022_PROGRAM_ID
-      )
-    );
-    const { adminKeypair } = getProgram();
-    await anchor.web3.sendAndConfirmTransaction(connection, transaction, [
-      adminKeypair
-    ]);
-    console.log(`✅ Successfully created ATA: ${associatedTokenAddress.toBase58()}`);
-  } else {
-    console.log(`🔹 Token account exists: ${associatedTokenAddress.toBase58()}`);
-  }
-
-  return associatedTokenAddress;
-}
-
-
-
-// ✅ Helper function to get or create an associated token account (using the server's keypair for testing purpose)
-export const createAssociatedTokenAccountWithKeypair = async (
-  mintPublicKey: PublicKey,
-  userPublicKey: PublicKey
-) => {
-  try {
-    // Load the user's keypair from file
-    const { userKeypair, userPublicKey, connection } = getProgram();
-
-
-    // Get the associated token address for the user
-    const associatedTokenAddress = await getAssociatedTokenAddressSync(
-      mintPublicKey,
-      userPublicKey,
-      false, // Not a PDA
-      TOKEN_2022_PROGRAM_ID
-    );
-
-    // Check if the associated token account exists
-    const accountInfo = await connection.getAccountInfo(associatedTokenAddress);
-    if (accountInfo) {
-      console.log(`🔹 Token account exists: ${associatedTokenAddress.toBase58()}`);
-      return { success: true, message: "Token account already exists.", associatedTokenAddress };
-    }
-
-    console.log(`🔹 Token account does not exist. Creating ATA: ${associatedTokenAddress.toBase58()}`);
-
-    // Get the recent blockhash for the transaction
-    const { blockhash } = await connection.getLatestBlockhash("finalized");
-
-    // Create the transaction to create the ATA
-    const transaction = new Transaction().add(
-      createAssociatedTokenAccountInstruction(
-        userPublicKey, // Wallet address to create the ATA for
-        associatedTokenAddress, // ATA address to be created
-        userPublicKey, // User's public key as owner
-        mintPublicKey, // The mint of the token
-        TOKEN_2022_PROGRAM_ID // Token program ID
-      )
-    );
-
-    // Set the recent blockhash and fee payer (user will pay the transaction fees)
-    transaction.recentBlockhash = blockhash;
-    transaction.feePayer = userPublicKey;
-
-    // Sign the transaction with the server's keypair (for testing purpose)
-    transaction.sign(userKeypair);
-
-    // Send the transaction to the network and confirm it
-    const signature = await connection.sendTransaction(transaction, [userKeypair], { skipPreflight: false, preflightCommitment: "confirmed" });
-
-    console.log(`✅ Transaction sent successfully! Signature: ${signature}`);
-
-    // Optionally, confirm the transaction
-    const confirmation = await connection.confirmTransaction(signature);
-    console.log('Transaction confirmed:', confirmation);
-
-    return { success: true, message: "ATA created successfully.", signature, associatedTokenAddress };
-  } catch (err) {
-    console.error("❌ Error creating ATA:", err);
-    return { success: false, message: "Error creating the associated token account" };
-  }
-};
-// ✅ Function to accrue pending rewards for a specific staker
+// Function to accrue pending rewards for a specific staker
 export const accrueRewardsService = async (
   userPublicKey: PublicKey,
   adminPublicKey: PublicKey
@@ -600,11 +418,61 @@ export const accrueRewardsService = async (
   }
 };
 
-// ✅ Function to batch accrue rewards for all active stakers (admin only)
-// (Removed admin batchAccrueRewardsService)
 
 
-function getTokenAccount(connection: Connection, mintPublicKey: PublicKey, userPublicKey: PublicKey) {
-  throw new Error("Function not implemented.");
+// To create an associated token account for a user
+export const createAssociatedTokenAccount = async (
+  mintPublicKey: PublicKey,
+  userPublicKey: PublicKey
+) => {
+  try {
+    const { connection } = getProgram();  // You may need to adjust how you retrieve these
+
+    // Get or create the associated token account for the user
+    const associatedTokenAddress = await getAssociatedTokenAddressSync(
+      mintPublicKey,
+      userPublicKey,
+      false,
+      TOKEN_2022_PROGRAM_ID
+    );
+
+    // Check if the associated token account already exists
+    const accountInfo = await connection.getAccountInfo(associatedTokenAddress);
+
+    if (!accountInfo) {
+      console.log(
+        `🔹 Token account does not exist. Creating ATA: ${associatedTokenAddress.toBase58()}`
+      );
+
+      // Get the recent blockhash
+      const { blockhash } = await connection.getLatestBlockhash("finalized");
+
+      // Create the unsigned transaction to create ATA
+      const transaction = new Transaction().add(
+        createAssociatedTokenAccountInstruction(
+          userPublicKey,  // The wallet to create the ATA for
+          associatedTokenAddress,  // The ATA to be created
+          userPublicKey,  // The user's public key (as the owner)
+          mintPublicKey,  // The token mint
+          TOKEN_2022_PROGRAM_ID  // Token program ID (default)
+        )
+      );
+
+      // Set the recent blockhash and fee payer (user will pay the transaction fees)
+      transaction.recentBlockhash = blockhash;
+      transaction.feePayer = userPublicKey;
+
+      // Serialize the transaction to send to frontend (unsigned)
+      return {
+        success: true,
+        message: 'Transaction created successfully! Please sign it with your wallet.',
+        transaction: Buffer.from(transaction.serialize({ requireAllSignatures: false })).toString("base64"),
+        associatedTokenAddress  // Send unsigned transaction as base64
+      };
+
+    }
+  } catch (err) {
+    console.error("❌ Error creating the ATA transaction:", err);
+    return { success: false, message: "Error creating the associated token account" };
+  }
 }
-

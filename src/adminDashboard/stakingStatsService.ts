@@ -92,8 +92,6 @@ export const getStakingPoolData = async (adminPublicKey: PublicKey) => {
 
 /**
  * Get all active stakers by scanning user staking accounts
- * Note: This is a simplified approach. In production, you might want to maintain
- * a list of stakers in your database for better performance.
  */
 export const getActiveStakers = async () => {
     try {
@@ -152,7 +150,6 @@ export const getActiveStakers = async () => {
 
 /**
  * Calculate APY based on staking rewards and time
- * This is a simplified calculation - you may need to adjust based on your reward mechanism
  */
 export const calculateAPY = async () => {
     try {
@@ -185,4 +182,3 @@ export const calculateAPY = async () => {
         };
     }
 };
-

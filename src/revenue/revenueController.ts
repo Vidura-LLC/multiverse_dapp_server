@@ -1,16 +1,11 @@
 // src/revenue/revenueController.ts
 
-import { ref, get, set, update } from "firebase/database";
+import { ref, get, update } from "firebase/database";
 import { db } from "../config/firebase";
 import { Request, Response } from 'express';
 import { PublicKey } from '@solana/web3.js';
 import { distributeTournamentRevenueService, distributeTournamentPrizesService } from './services';
 import { getProgram } from "../staking/services";
-
-
-
-
-
 
 /**
  * Controller function to distribute tournament revenue according to the updated percentages
@@ -27,7 +22,6 @@ export const distributeTournamentRevenueController = async (req: Request, res: R
     } = req.body;
 
     const adminPubKey = new PublicKey(adminPublicKey);
-
 
     // Validate tournament ID
     if (!tournamentId) {
@@ -162,7 +156,6 @@ export const getTournamentDistributionController = async (req: Request, res: Res
     });
   }
 };
-
 
 /**
  * Controller function to distribute prizes to tournament winners
@@ -305,7 +298,6 @@ export const getTournamentPrizesDistributionController = async (req: Request, re
   }
 };
 
-
 /**
  * Controller function to confirm tournament revenue distribution after frontend signs transaction
  */
@@ -340,7 +332,6 @@ export const confirmDistributionController = async (req: Request, res: Response)
       // Continue anyway - transaction might be too recent
     }
 
-
     // Update tournament status in Firebase
     console.log("Updating tournament status in Firebase...");
     const tournamentRef = ref(db, `tournaments/${tournamentId}`);
@@ -366,7 +357,7 @@ export const confirmDistributionController = async (req: Request, res: Response)
 
     // Update tournament with distribution details
     await update(tournamentRef, {
-      status: "Completed",
+      status: "Distributed",
       distributionCompleted: true,
       distributionTimestamp: Date.now(),
       distributionDetails: {

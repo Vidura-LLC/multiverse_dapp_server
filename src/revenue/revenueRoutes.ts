@@ -27,14 +27,16 @@ router.post('/distribute-prizes',
   distributeTournamentPrizesController as unknown as RequestHandler
 );
 
+//Router for confirming prize distribution
+router.post('/confirm-prize-distribution',
+  confirmPrizeDistributionController as unknown as RequestHandler
+);
+
 // Route for getting prize distribution details
 router.get('/prize-distribution/:tournamentId', 
   getTournamentPrizesDistributionController as unknown as RequestHandler
 );
 
-//Router for confirming prize distribution
-router.post('/confirm-prize-distribution',
-  confirmPrizeDistributionController as unknown as RequestHandler
-);
+
 
 export default router;

@@ -243,10 +243,6 @@ const DEFAULT_SPLITS = {
     }
   };
 
-
-
-
-
 /**
  * Prepares an unsigned transaction to distribute prizes to tournament winners
  * @param tournamentId - The ID of the tournament
@@ -390,9 +386,7 @@ export const distributeTournamentPrizesService = async (
     transaction.recentBlockhash = blockhash;
     transaction.feePayer = adminPublicKey;
 
-
-    // 8. Calculate prize amounts (if needed for frontend display)
-    // You can calculate these based on your distribution logic
+    // 7. Calculate prize amounts (if needed for frontend display)
     const distributionDetails = tournament.distributionDetails || {};
     const totalPrizeAmount = distributionDetails.prizeAmount || 0;
     
@@ -401,7 +395,7 @@ export const distributeTournamentPrizesService = async (
     const secondPlaceAmount = Math.floor(totalPrizeAmount * 0.3);
     const thirdPlaceAmount = Math.floor(totalPrizeAmount * 0.2);
 
-    // 9. Return the unsigned transaction and metadata for frontend
+    // 8. Return the unsigned transaction and metadata for frontend
     return {
       success: true,
       message: "Prize distribution transaction created successfully!",
