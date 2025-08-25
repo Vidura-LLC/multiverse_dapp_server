@@ -10,11 +10,13 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getDashboardStatsController = exports.getRevenuePoolStatsController = exports.getTournamentStatsController = exports.getDetailedStakersController = exports.getAPYController = exports.getActiveStakersController = exports.getStakingPoolController = exports.getStakingStatsController = exports.initializeRevenuePoolController = exports.initializeStakingPoolController = exports.checkPoolStatusController = void 0;
+exports.getDashboardStatsController = exports.getRevenuePoolStatsController = exports.getTournamentStatsController = exports.getDetailedStakersController = exports.getAPYController = exports.getActiveStakersController = exports.getStakingPoolController = exports.getStakingStatsController = exports.initializeRewardPoolController = exports.initializePrizePoolController = exports.initializeRevenuePoolController = exports.initializeStakingPoolController = exports.checkPoolStatusController = void 0;
 const web3_js_1 = require("@solana/web3.js");
 const services_1 = require("./services");
 const stakingStatsService_1 = require("./stakingStatsService");
 const dashboardStatsService_1 = require("./dashboardStatsService");
+const database_1 = require("firebase/database");
+const firebase_1 = require("../config/firebase");
 const checkPoolStatusController = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { adminPublicKey } = req.params;
@@ -111,6 +113,92 @@ const initializeRevenuePoolController = (req, res) => __awaiter(void 0, void 0, 
 });
 exports.initializeRevenuePoolController = initializeRevenuePoolController;
 /**
+ * Controller function for initializing a prize pool for a specific tournament
+ */
+const initializePrizePoolController = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const { tournamentId, mintPublicKey, adminPublicKey } = req.body;
+        // Validate required fields
+        if (!tournamentId) {
+            return res.status(400).json({
+                success: false,
+                message: 'Tournament ID is required'
+            });
+        }
+        if (!mintPublicKey || !adminPublicKey) {
+            return res.status(400).json({
+                success: false,
+                message: 'Mint public key and Admin Public Key is required'
+            });
+        }
+        // Convert string public key to PublicKey object
+        const mintPubkey = new web3_js_1.PublicKey(mintPublicKey);
+        const adminPubKey = new web3_js_1.PublicKey(adminPublicKey);
+        // Call the service function to initialize prize pool for the tournament
+        const result = yield (0, services_1.initializePrizePoolService)(tournamentId, mintPubkey, adminPubKey);
+        if (result.success) {
+            const tournamentRef = (0, database_1.ref)(firebase_1.db, `tournaments/${tournamentId}`);
+            const tournamentSnapshot = yield (0, database_1.get)(tournamentRef);
+            if (!tournamentSnapshot.exists()) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'Tournament not found'
+                });
+            }
+            const tournament = tournamentSnapshot.val();
+            tournament.prizePool = result.prizePool;
+            // Save the updated tournament data back to Firebase
+            yield (0, database_1.set)(tournamentRef, tournament);
+            return res.status(200).json(result);
+        }
+        else {
+            return res.status(500).json(result);
+        }
+    }
+    catch (err) {
+        console.error('Error in initialize prize pool controller:', err);
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to initialize prize pool',
+            error: err.message || err
+        });
+    }
+});
+exports.initializePrizePoolController = initializePrizePoolController;
+/**
+ * Controller function for initializing the global revenue pool
+ */
+const initializeRewardPoolController = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const { mintPublicKey, adminPublicKey } = req.body;
+        // Validate the mint address
+        if (!mintPublicKey || !adminPublicKey) {
+            return res.status(400).json({
+                success: false,
+                message: 'Mint and Admin public key is required'
+            });
+        }
+        // Call the service function to initialize revenue pool
+        const result = yield (0, services_1.initializeRewardPoolService)(new web3_js_1.PublicKey(mintPublicKey), new web3_js_1.PublicKey(adminPublicKey));
+        // Return the result
+        if (result.success) {
+            return res.status(200).json({ data: result });
+        }
+        else {
+            return res.status(500).json({ error: result.message });
+        }
+    }
+    catch (err) {
+        console.error('Error in initialize revenue pool controller:', err);
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to initialize revenue pool',
+            error: err.message || err
+        });
+    }
+});
+exports.initializeRewardPoolController = initializeRewardPoolController;
+/**
  * Controller function to get comprehensive staking statistics
  * This is the main endpoint for your dashboard
  */
@@ -153,7 +241,7 @@ exports.getStakingStatsController = getStakingStatsController;
  */
 const getStakingPoolController = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const { adminPublicKey } = req.body;
+        const { adminPublicKey } = req.params;
         console.log('🏦 Fetching staking pool data...');
         const result = yield (0, stakingStatsService_1.getStakingPoolData)(new web3_js_1.PublicKey(adminPublicKey));
         if (result.success) {

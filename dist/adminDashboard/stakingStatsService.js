@@ -80,8 +80,8 @@ const getStakingPoolData = (adminPublicKey) => __awaiter(void 0, void 0, void 0,
         const { program, connection } = (0, services_1.getProgram)();
         // Derive the staking pool PDA
         const [stakingPoolPublicKey] = web3_js_1.PublicKey.findProgramAddressSync([Buffer.from("staking_pool"), adminPublicKey.toBuffer()], program.programId);
-        // Derive the staking pool escrow account
-        const [stakingEscrowPublicKey] = web3_js_1.PublicKey.findProgramAddressSync([Buffer.from("staking_escrow"), stakingPoolPublicKey.toBuffer()], program.programId);
+        // Derive the staking pool escrow account (consistent seed)
+        const [stakingEscrowPublicKey] = web3_js_1.PublicKey.findProgramAddressSync([Buffer.from("escrow"), stakingPoolPublicKey.toBuffer()], program.programId);
         console.log("🔹 Fetching Staking Pool PDA:", stakingPoolPublicKey.toString());
         // Check if the revenue pool account exists
         const accountExists = yield connection.getAccountInfo(stakingPoolPublicKey);
@@ -99,6 +99,9 @@ const getStakingPoolData = (adminPublicKey) => __awaiter(void 0, void 0, void 0,
                 admin: stakingPoolData.admin.toString(),
                 mint: stakingPoolData.mint.toString(),
                 totalStaked: stakingPoolData.totalStaked.toString(),
+                totalWeight: stakingPoolData.totalWeight.toString(),
+                accRewardPerWeight: stakingPoolData.accRewardPerWeight.toString(),
+                epochIndex: stakingPoolData.epochIndex.toString(),
                 stakingPoolAddress: stakingPoolPublicKey.toString(),
                 stakingEscrowPublicKey: stakingEscrowPublicKey.toString(),
             }
@@ -115,8 +118,6 @@ const getStakingPoolData = (adminPublicKey) => __awaiter(void 0, void 0, void 0,
 exports.getStakingPoolData = getStakingPoolData;
 /**
  * Get all active stakers by scanning user staking accounts
- * Note: This is a simplified approach. In production, you might want to maintain
- * a list of stakers in your database for better performance.
  */
 const getActiveStakers = () => __awaiter(void 0, void 0, void 0, function* () {
     try {
@@ -144,6 +145,9 @@ const getActiveStakers = () => __awaiter(void 0, void 0, void 0, function* () {
                 stakeDate: new Date(userData.stakeTimestamp.toNumber() * 1000).toISOString(),
                 lockDuration: userData.lockDuration.toString(),
                 lockDurationDays: Math.floor(userData.lockDuration.toNumber() / (24 * 60 * 60)),
+                weight: userData.weight.toString(),
+                rewardDebt: userData.rewardDebt.toString(),
+                pendingRewards: userData.pendingRewards.toString(),
             };
         });
         return {
@@ -166,7 +170,6 @@ const getActiveStakers = () => __awaiter(void 0, void 0, void 0, function* () {
 exports.getActiveStakers = getActiveStakers;
 /**
  * Calculate APY based on staking rewards and time
- * This is a simplified calculation - you may need to adjust based on your reward mechanism
  */
 const calculateAPY = () => __awaiter(void 0, void 0, void 0, function* () {
     try {

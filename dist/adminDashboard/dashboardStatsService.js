@@ -43,7 +43,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getDashboardData = exports.getStakingStats = exports.getRevenuePoolStatsService = void 0;
+exports.getDashboardData = exports.getStakingStats = exports.getRewardPoolStatsService = exports.getRevenuePoolStatsService = void 0;
 exports.getTournamentStats = getTournamentStats;
 const web3_js_1 = require("@solana/web3.js");
 const anchor = __importStar(require("@project-serum/anchor"));
@@ -194,6 +194,45 @@ const getRevenuePoolStatsService = (adminPublicKey) => __awaiter(void 0, void 0,
     }
 });
 exports.getRevenuePoolStatsService = getRevenuePoolStatsService;
+const getRewardPoolStatsService = (adminPublicKey) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const { program, connection } = (0, services_1.getProgram)();
+        // Use provided admin public key or default to program admin
+        const adminPubkey = adminPublicKey;
+        console.log("Fetching Reward Pool Stats:");
+        console.log("Admin PublicKey:", adminPubkey.toBase58());
+        // Derive the reward pool PDA
+        const [rewardPoolPublicKey] = web3_js_1.PublicKey.findProgramAddressSync([Buffer.from("reward_pool"), adminPubkey.toBuffer()], program.programId);
+        // Derive the reward pool escrow account
+        const [rewardEscrowPublicKey] = web3_js_1.PublicKey.findProgramAddressSync([Buffer.from("reward_escrow"), rewardPoolPublicKey.toBuffer()], program.programId);
+        // Check if the reward account exists
+        const accountExists = yield connection.getAccountInfo(rewardPoolPublicKey);
+        if (!accountExists) {
+            return {
+                success: false,
+                message: "Reward pool has not been initialized yet."
+            };
+        }
+        // Fetch the reward pool data
+        const rewardPoolData = (yield program.account.rewardPool.fetch(rewardPoolPublicKey));
+        console.log("✅ Raw Reward Pool Data:", rewardPoolData);
+        return {
+            success: true,
+            totalFunds: rewardPoolData.totalFunds.toNumber(),
+            lastDistribution: rewardPoolData.lastDistribution.toNumber(),
+            rewardPoolAddress: rewardPoolPublicKey.toString(),
+            rewardEscrowAddress: rewardEscrowPublicKey.toString()
+        };
+    }
+    catch (err) {
+        console.error("❌ Error fetching reward pool stats:", err);
+        return {
+            success: false,
+            message: `Error fetching reward pool stats: ${err.message || err}`
+        };
+    }
+});
+exports.getRewardPoolStatsService = getRewardPoolStatsService;
 /**
 * Get comprehensive staking statistics
 */
@@ -240,7 +279,10 @@ const getStakingStats = (adminPublicKey) => __awaiter(void 0, void 0, void 0, fu
             currentAPY: apyResult.data.currentAPY,
             avgStakePerUser,
             stakingPoolAddress: poolResult.data.stakingPoolAddress,
-            stakingPoolEscrowAddress: poolResult.data.stakingEscrowPublicKey
+            stakingPoolEscrowAddress: poolResult.data.stakingEscrowPublicKey,
+            totalWeight: poolResult.data.totalWeight,
+            accRewardPerWeight: poolResult.data.accRewardPerWeight,
+            epochIndex: poolResult.data.epochIndex
         };
     }
     catch (err) {
@@ -262,12 +304,15 @@ const getDashboardData = (adminPublicKey) => __awaiter(void 0, void 0, void 0, f
         const tournamentStats = yield getTournamentStats();
         // Fetch revenue pool stats
         const revenuePoolStats = yield (0, exports.getRevenuePoolStatsService)(adminPublicKey);
+        // Fetch reward pool stats
+        const rewardPoolStats = yield (0, exports.getRewardPoolStatsService)(adminPublicKey);
         // Fetch staking stats
         const stakingStats = yield (0, exports.getStakingStats)(adminPublicKey);
         return {
             tournament: tournamentStats,
             revenue: revenuePoolStats,
-            staking: stakingStats
+            staking: stakingStats,
+            reward: rewardPoolStats
         };
     }
     catch (err) {
