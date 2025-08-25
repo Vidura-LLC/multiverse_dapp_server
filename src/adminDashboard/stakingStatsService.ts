@@ -9,20 +9,8 @@ import dotenv from "dotenv";
 import { getProgram } from "../staking/services";
 dotenv.config();
 import * as anchor from "@project-serum/anchor";
-
-export interface StakingPoolAccount {
-    admin: PublicKey;
-    mint: PublicKey;
-    totalStaked: anchor.BN;
-    bump: number;
-}
-
-interface UserStakingAccount {
-    owner: PublicKey;
-    stakedAmount: anchor.BN;
-    stakeTimestamp: anchor.BN;
-    lockDuration: anchor.BN;
-}
+import { UserStakingAccount } from "../staking/services";
+import { StakingPoolAccount } from "./services";
 
 /**
  * Helper function to format token amounts properly
@@ -58,9 +46,9 @@ export const getStakingPoolData = async (adminPublicKey: PublicKey) => {
             program.programId
         );
 
-        // Derive the staking pool escrow account
+        // Derive the staking pool escrow account (consistent seed)
         const [stakingEscrowPublicKey] = PublicKey.findProgramAddressSync(
-            [Buffer.from("staking_escrow"), stakingPoolPublicKey.toBuffer()],
+            [Buffer.from("escrow"), stakingPoolPublicKey.toBuffer()],
             program.programId
         );
         console.log("🔹 Fetching Staking Pool PDA:", stakingPoolPublicKey.toString());
@@ -86,6 +74,9 @@ export const getStakingPoolData = async (adminPublicKey: PublicKey) => {
                 admin: stakingPoolData.admin.toString(),
                 mint: stakingPoolData.mint.toString(),
                 totalStaked: stakingPoolData.totalStaked.toString(),
+                totalWeight: stakingPoolData.totalWeight.toString(),
+                accRewardPerWeight: stakingPoolData.accRewardPerWeight.toString(),
+                epochIndex: stakingPoolData.epochIndex.toString(),
                 stakingPoolAddress: stakingPoolPublicKey.toString(),
                 stakingEscrowPublicKey: stakingEscrowPublicKey.toString(),
             }
@@ -101,8 +92,6 @@ export const getStakingPoolData = async (adminPublicKey: PublicKey) => {
 
 /**
  * Get all active stakers by scanning user staking accounts
- * Note: This is a simplified approach. In production, you might want to maintain
- * a list of stakers in your database for better performance.
  */
 export const getActiveStakers = async () => {
     try {
@@ -136,6 +125,9 @@ export const getActiveStakers = async () => {
                 stakeDate: new Date(userData.stakeTimestamp.toNumber() * 1000).toISOString(),
                 lockDuration: userData.lockDuration.toString(),
                 lockDurationDays: Math.floor(userData.lockDuration.toNumber() / (24 * 60 * 60)),
+                weight: userData.weight.toString(),
+                rewardDebt: userData.rewardDebt.toString(),
+                pendingRewards: userData.pendingRewards.toString(),
             };
         });
 
@@ -158,7 +150,6 @@ export const getActiveStakers = async () => {
 
 /**
  * Calculate APY based on staking rewards and time
- * This is a simplified calculation - you may need to adjust based on your reward mechanism
  */
 export const calculateAPY = async () => {
     try {
@@ -191,4 +182,3 @@ export const calculateAPY = async () => {
         };
     }
 };
-

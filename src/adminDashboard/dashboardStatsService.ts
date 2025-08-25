@@ -8,35 +8,36 @@ import { getTournamentPool } from "../gamehub/services";
 import { getUserStakingAccount } from "../staking/services";
 import { Tournament } from "../gamehub/gamehubController";
 import { calculateAPY, formatTokenAmount, getActiveStakers, getStakingPoolData } from "./stakingStatsService";
-import { StakingPoolAccount } from "./stakingStatsService";
 import { getProgram } from "../staking/services";
 
-interface TournamentStats {
-    activeTournaments: number;
-    upcomingTournaments: number;
-    endedTournaments: number;
-    distributedTournaments: number;
-    awardedTournaments: number;
-    totalParticipants: number;
-    totalBurnAmount: number;
-}
-
-
-// Interface for the RevenuePool account structure
-export interface RevenuePoolAccount {
+export interface RewardPoolAccount {
     admin: PublicKey;
     mint: PublicKey;
     totalFunds: anchor.BN;
     lastDistribution: anchor.BN;
     bump: number;
-}
+  }
+  
+  export interface TournamentStats {
+      activeTournaments: number;
+      upcomingTournaments: number;
+      endedTournaments: number;
+      distributedTournaments: number;
+      awardedTournaments: number;
+      totalParticipants: number;
+      totalBurnAmount: number;
+  }
+  
+  
+  // Interface for the RevenuePool account structure
+  export interface RevenuePoolAccount {
+      admin: PublicKey;
+      mint: PublicKey;
+      totalFunds: anchor.BN;
+      lastDistribution: anchor.BN;
+      bump: number;
+  }
 
-// Interface for the Dashboard data structure
-interface DashboardData {
-    tournament: TournamentStats;
-    revenue: RevenuePoolAccount;
-    staking: StakingPoolAccount;
-}
 
 
 
@@ -222,6 +223,60 @@ export const getRevenuePoolStatsService = async (adminPublicKey: PublicKey) => {
 };
 
 
+export const getRewardPoolStatsService = async (adminPublicKey: PublicKey) => {
+    try {
+        const { program, connection } = getProgram();
+
+        // Use provided admin public key or default to program admin
+        const adminPubkey = adminPublicKey;
+
+        console.log("Fetching Reward Pool Stats:");
+        console.log("Admin PublicKey:", adminPubkey.toBase58());
+
+        // Derive the reward pool PDA
+        const [rewardPoolPublicKey] = PublicKey.findProgramAddressSync(
+            [Buffer.from("reward_pool"), adminPubkey.toBuffer()],
+            program.programId
+        );
+        // Derive the reward pool escrow account
+        const [rewardEscrowPublicKey] = PublicKey.findProgramAddressSync(
+            [Buffer.from("reward_escrow"), rewardPoolPublicKey.toBuffer()],
+            program.programId
+        );
+
+                // Check if the reward account exists
+                const accountExists = await connection.getAccountInfo(rewardPoolPublicKey);
+
+                if (!accountExists) {
+                    return {
+                        success: false,
+                        message: "Reward pool has not been initialized yet."
+                    };
+                }
+        
+                // Fetch the reward pool data
+                const rewardPoolData = (await program.account.rewardPool.fetch(
+                    rewardPoolPublicKey
+                )) as RewardPoolAccount;
+        
+                    console.log("✅ Raw Reward Pool Data:", rewardPoolData);
+
+                return {
+                    success: true,
+                    totalFunds: rewardPoolData.totalFunds.toNumber(),
+                    lastDistribution: rewardPoolData.lastDistribution.toNumber(),
+                    rewardPoolAddress: rewardPoolPublicKey.toString(),
+                    rewardEscrowAddress: rewardEscrowPublicKey.toString()
+                };
+    } catch (err) {
+        console.error("❌ Error fetching reward pool stats:", err);
+        return {
+            success: false,
+            message: `Error fetching reward pool stats: ${err.message || err}`
+        };
+    }
+}
+
 
 /**
 * Get comprehensive staking statistics
@@ -276,7 +331,10 @@ export const getStakingStats = async (adminPublicKey: PublicKey) => {
             currentAPY: apyResult.data.currentAPY,
             avgStakePerUser,
             stakingPoolAddress: poolResult.data.stakingPoolAddress,
-            stakingPoolEscrowAddress: poolResult.data.stakingEscrowPublicKey
+            stakingPoolEscrowAddress: poolResult.data.stakingEscrowPublicKey,
+            totalWeight: poolResult.data.totalWeight,
+            accRewardPerWeight: poolResult.data.accRewardPerWeight,
+            epochIndex: poolResult.data.epochIndex
         };
     } catch (err) {
         console.error("❌ Error fetching staking statistics:", err);
@@ -301,13 +359,17 @@ export const getDashboardData = async (adminPublicKey: PublicKey): Promise<any> 
         // Fetch revenue pool stats
         const revenuePoolStats = await getRevenuePoolStatsService(adminPublicKey);
 
+        // Fetch reward pool stats
+        const rewardPoolStats = await getRewardPoolStatsService(adminPublicKey);
+
         // Fetch staking stats
         const stakingStats = await getStakingStats(adminPublicKey);
 
         return {
             tournament: tournamentStats,
             revenue: revenuePoolStats,
-            staking: stakingStats
+            staking: stakingStats,
+            reward: rewardPoolStats
         };
     } catch (err) {
         console.error("❌ Error fetching dashboard data:", err);

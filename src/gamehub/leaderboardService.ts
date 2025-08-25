@@ -1,5 +1,5 @@
 // src/gamehub/leaderboardService.ts
-import { ref, get, set, update } from "firebase/database";
+import { ref, get, set } from "firebase/database";
 import { db } from "../config/firebase";
 
 // Interface for leaderboard entry

@@ -1,18 +1,12 @@
 //backend/src/staking/stakingController.ts
 
 import { Request, Response } from 'express';
-import { unstakeTokenService, getUserStakingAccount, createAssociatedTokenAccount, createAssociatedTokenAccountWithKeypair, stakeTokenService, getProgram } from './services';
+import { unstakeTokenService, getUserStakingAccount, stakeTokenService, getProgram, claimRewardsService, accrueRewardsService } from './services';
 import { PublicKey } from '@solana/web3.js';
-import * as anchor from "@project-serum/anchor";
+import { StakingPoolAccount } from "../adminDashboard/services";
 
-interface StakingPoolAccount {
-  admin: PublicKey;
-  mint: PublicKey;
-  totalStaked: anchor.BN;
-  bump: number;
-}
 
-// Controller to handle staking requests
+
 // Controller to handle staking requests
 export const stakeTokensController = async (req: Request, res: Response) => {
   console.log('Staking invoked');
@@ -86,6 +80,27 @@ export const stakeTokensController = async (req: Request, res: Response) => {
   }
 };
 
+// ✅ Controller to claim staking rewards
+export const claimRewardsController = async (req: Request, res: Response) => {
+  try {
+    const { userPublicKey, adminPublicKey } = req.body;
+
+    if (!userPublicKey || !adminPublicKey) {
+      return res.status(400).json({ success: false, message: 'userPublicKey and adminPublicKey are required' });
+    }
+
+    const result = await claimRewardsService(new PublicKey(userPublicKey), new PublicKey(adminPublicKey));
+    if (result.success) {
+      return res.status(200).json(result);
+    } else {
+      return res.status(500).json(result);
+    }
+  } catch (err) {
+    console.error('❌ Error in claimRewardsController:', err);
+    return res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
 export const unstakeTokensController = async (req: Request, res: Response) => {
   try {
     const { userPublicKey, adminPublicKey } = req.body;
@@ -134,6 +149,7 @@ export const unstakeTokensController = async (req: Request, res: Response) => {
 };
 
 
+
 // ✅ Controller function to fetch user staking account
 export const fetchUserStakingAccountController = async (req: Request, res: Response) => {
   try {
@@ -149,7 +165,7 @@ export const fetchUserStakingAccountController = async (req: Request, res: Respo
     if (result.success) {
       return res.status(200).json(result);
     } else {
-      return res.status(404).json(result);
+      return res.status(200).json(result);
     }
   } catch (err) {
     console.error("❌ Error in fetching user staking account:", err);
@@ -157,84 +173,35 @@ export const fetchUserStakingAccountController = async (req: Request, res: Respo
   }
 };
 
-
-
-
-
-// Controller function to create token account
-export const createTokenAccountController = async (req: Request, res: Response) => {
+// Controller function to accrue rewards for a specific user
+export const accrueRewardsController = async (req: Request, res: Response) => {
   try {
-    const { mintPublicKey, userPublicKey } = req.body;
+    const { userPublicKey, adminPublicKey } = req.body;
 
-    if (!mintPublicKey || !userPublicKey) {
+    if (!userPublicKey || !adminPublicKey) {
       return res.status(400).json({
         success: false,
-        message: "mintPublicKey and userPublicKey are required.",
+        message: "userPublicKey and adminPublicKey are required."
       });
     }
 
-    // Convert mintPublicKey and userPublicKey to PublicKey instances
-    const mintPubkey = new PublicKey(mintPublicKey);
     const userPubkey = new PublicKey(userPublicKey);
+    const adminPubkey = new PublicKey(adminPublicKey);
 
-    // Call the service function to create a token account transaction
-    const result = await createAssociatedTokenAccount(mintPubkey, userPubkey);
+    const result = await accrueRewardsService(userPubkey, adminPubkey);
 
     if (result.success) {
-      return res.status(200).json(result);  // Return unsigned transaction to frontend
+      return res.status(200).json(result);
     } else {
-      return res.status(500).json(result); // Error during transaction creation
+      return res.status(400).json(result);
     }
   } catch (err) {
-    console.error("❌ Error in creating token account:", err);
-    return res.status(500).json({ success: false, message: "Internal server error" });
-  }
-};
-function createTokenAccount(mintPubkey: PublicKey, userPubkey: PublicKey) {
-  throw new Error('Function not implemented.');
-}
-
-
-
-// Controller to handle creating ATA for testing purpose
-export const createTokenAccountControllerWithKeypair = async (req: Request, res: Response) => {
-  try {
-    const { mintPublicKey, userPublicKey } = req.body;  // Expect mint and user public keys from the body
-
-    // Validate the input
-    if (!mintPublicKey || !userPublicKey) {
-      return res.status(400).json({
-        success: false,
-        message: "Both mintPublicKey and userPublicKey are required."
-      });
-    }
-
-    // Convert public keys from string to PublicKey objects
-    const mintPubkey = new PublicKey(mintPublicKey);
-    const userPubkey = new PublicKey(userPublicKey);
-
-    // Call the service function to create the ATA using the user's keypair
-    const result = await createAssociatedTokenAccountWithKeypair(mintPubkey, userPubkey);
-
-    if (result.success) {
-      return res.status(200).json({
-        success: true,
-        message: "Token account created successfully.",
-        associatedTokenAddress: result.associatedTokenAddress.toBase58(),
-        signature: result.signature
-      });
-    } else {
-      return res.status(400).json({
-        success: false,
-        message: result.message
-      });
-    }
-  } catch (err) {
-    console.error("❌ Error in createTokenAccountController:", err);
+    console.error("❌ Error in accruing rewards:", err);
     return res.status(500).json({
       success: false,
       message: "Internal Server Error"
     });
   }
 };
+
 

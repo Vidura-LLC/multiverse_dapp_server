@@ -1,13 +1,9 @@
 import {
-  Connection,
   PublicKey,
-  Keypair,
   SystemProgram,
-  clusterApiUrl,
 } from "@solana/web3.js";
 import * as anchor from "@project-serum/anchor";
 import {
-  createAssociatedTokenAccountInstruction,
   getAssociatedTokenAddressSync,
   TOKEN_2022_PROGRAM_ID,
 } from "@solana/spl-token";
@@ -18,7 +14,7 @@ import { createAssociatedTokenAccount, getProgram } from "../staking/services";
 dotenv.config();
 
 
-// ✅ Function to initialize the tournament pool
+// Function to initialize the tournament pool
 export const initializeTournamentPoolService = async (
   adminPublicKey: PublicKey,
   tournamentId: string,
@@ -30,16 +26,16 @@ export const initializeTournamentPoolService = async (
   try {
     const { program, connection } = getProgram();
 
-    // 🔹 Convert tournamentId correctly
+    // Convert tournamentId correctly
     const tournamentIdBytes = Buffer.from(tournamentId, "utf8"); // Ensure UTF-8 encoding
 
-    // 🔹 Derive the correct PDA for the tournament pool
+    // Derive the correct PDA for the tournament pool
     const [tournamentPoolPublicKey] = PublicKey.findProgramAddressSync(
       [Buffer.from("tournament_pool"), adminPublicKey.toBuffer(), tournamentIdBytes],
       program.programId
     );
 
-    // 🔹 Derive the escrow PDA correctly
+    // Derive the escrow PDA correctly
     const [poolEscrowAccountPublicKey] = PublicKey.findProgramAddressSync(
       [Buffer.from("escrow"), tournamentPoolPublicKey.toBuffer()],
       program.programId
@@ -53,7 +49,7 @@ export const initializeTournamentPoolService = async (
     const maxParticipantsBN = new BN(maxParticipants);
     const endTimeBN = new BN(endTime);
 
-    // 🔹 Create the transaction without signing it
+    // Create the transaction without signing it
     const transaction = await program.methods
       .createTournamentPool(
         tournamentId,
@@ -100,7 +96,7 @@ export const getTournamentPool = async (tournamentId: string, adminPublicKey: Pu
       [Buffer.from("tournament_pool"), adminPublicKey.toBuffer(), tournamentIdBytes],
       program.programId
     );
-    // 🔹 Fetch the tournament pool data
+    // Fetch the tournament pool data
     const tournamentPoolData = (await program.account.tournamentPool.fetch(
       tournamentPoolPublicKey
     )) as TournamentPoolAccount;
@@ -141,7 +137,7 @@ export const registerForTournamentService = async (
       [Buffer.from("tournament_pool"), adminPublicKey.toBuffer(), tournamentIdBytes],
       program.programId
     );
-    // 🔹 Fetch the tournament pool data
+    // Fetch the tournament pool data
     const tournamentPoolData = (await program.account.tournamentPool.fetch(
       tournamentPoolPublicKey
     )) as TournamentPoolAccount;
@@ -215,51 +211,3 @@ interface TournamentPoolAccount {
   totalFunds: anchor.BN; // Total funds accumulated in the pool
   bump: number; // Bump seed for the tournament pool account
 }
-
-
-
-// ✅ Helper function to get or create an associated token account
-async function getOrCreateAssociatedTokenAccount(
-  connection: Connection,
-  mint: PublicKey,
-  owner: PublicKey
-): Promise<PublicKey> {
-  const associatedTokenAddress = getAssociatedTokenAddressSync(
-    mint,
-    owner,
-    false, // ✅ Not a PDA
-    TOKEN_2022_PROGRAM_ID
-  );
-
-  const accountInfo = await connection.getAccountInfo(associatedTokenAddress);
-
-  if (!accountInfo) {
-    console.log(
-      `🔹 Token account does not exist. Creating ATA: ${associatedTokenAddress.toBase58()}`
-    );
-
-    const transaction = new anchor.web3.Transaction().add(
-      createAssociatedTokenAccountInstruction(
-        owner,
-        associatedTokenAddress,
-        owner,
-        mint,
-        TOKEN_2022_PROGRAM_ID
-      )
-    );
-    const { adminKeypair } = getProgram();
-    await anchor.web3.sendAndConfirmTransaction(connection, transaction, [
-      adminKeypair
-    ]);
-    console.log(`✅ Successfully created ATA: ${associatedTokenAddress.toBase58()}`);
-  } else {
-    console.log(`🔹 Token account exists: ${associatedTokenAddress.toBase58()}`);
-  }
-
-  return associatedTokenAddress;
-}
-
-
-
-
-

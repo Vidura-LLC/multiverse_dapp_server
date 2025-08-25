@@ -1,7 +1,7 @@
 //src/adminDashboard/adminDashboardRoutes.ts
 
 import { Router, RequestHandler } from 'express';
-import { checkPoolStatusController, getActiveStakersController, getAPYController, getDashboardStatsController, getDetailedStakersController, getRevenuePoolStatsController, getStakingPoolController, getStakingStatsController, getTournamentStatsController, initializeRevenuePoolController, initializeStakingPoolController } from './adminDashboardController';
+import { checkPoolStatusController, getActiveStakersController, getAPYController, getDashboardStatsController, getDetailedStakersController, getRevenuePoolStatsController, getStakingPoolController, getStakingStatsController, getTournamentStatsController, initializePrizePoolController, initializeRevenuePoolController, initializeRewardPoolController, initializeStakingPoolController } from './adminDashboardController';
 
 const router = Router();
 
@@ -11,15 +11,21 @@ router.get('/check-pool-status/:adminPublicKey', checkPoolStatusController as un
 // Route for initializing the staking pool
 router.post('/initialize-staking-pool', initializeStakingPoolController as unknown as RequestHandler);
 
+// Route for initializing the reward pool
+router.post('/initialize-reward-pool', initializeRewardPoolController as unknown as RequestHandler);
+
+// Route for initializing the prize pool
+router.post('/initialize-prize-pool', initializePrizePoolController as unknown as RequestHandler);
 
 // Route for initializing the global revenue pool
 router.post('/initialize-revenue-pool', initializeRevenuePoolController as unknown as RequestHandler);
+
 
 // Main route to get comprehensive staking statistics (for your dashboard)
 router.get('/staking/stats/:adminPublicKey', getStakingStatsController as unknown as RequestHandler);
 
 // Route to get staking pool data only
-router.get('/staking/pool-data', getStakingPoolController as unknown as RequestHandler);
+router.get('/staking/pool-data/:adminPublicKey', getStakingPoolController as unknown as RequestHandler);
 
 // Route to get active stakers count and basic info
 router.get('/staking/active-stakers', getActiveStakersController as unknown as RequestHandler);

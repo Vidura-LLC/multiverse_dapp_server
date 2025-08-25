@@ -1,77 +1,11 @@
 // src/revenue/revenueController.ts
 
-import { ref, get, set, update } from "firebase/database";
+import { ref, get, update } from "firebase/database";
 import { db } from "../config/firebase";
 import { Request, Response } from 'express';
 import { PublicKey } from '@solana/web3.js';
-import { initializePrizePoolService, distributeTournamentRevenueService, distributeTournamentPrizesService } from './services';
+import { distributeTournamentRevenueService, distributeTournamentPrizesService } from './services';
 import { getProgram } from "../staking/services";
-
-
-
-
-/**
- * Controller function for initializing a prize pool for a specific tournament
- */
-export const initializePrizePoolController = async (req: Request, res: Response) => {
-  try {
-    const { tournamentId, mintPublicKey, adminPublicKey } = req.body;
-
-    // Validate required fields
-    if (!tournamentId) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Tournament ID is required' 
-      });
-    }
-
-    if (!mintPublicKey || !adminPublicKey) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Mint public key and Admin Public Key is required' 
-      });
-    }
-
-    // Convert string public key to PublicKey object
-    const mintPubkey = new PublicKey(mintPublicKey);
-    const adminPubKey = new PublicKey(adminPublicKey);
-
-    // Call the service function to initialize prize pool for the tournament
-    const result = await initializePrizePoolService(tournamentId, mintPubkey, adminPubKey);
-
-    if (result.success) {
-      const tournamentRef = ref(db, `tournaments/${tournamentId}`);
-      const tournamentSnapshot = await get(tournamentRef);
-
-      if (!tournamentSnapshot.exists()) {
-        return res.status(404).json({
-          success: false,
-          message: 'Tournament not found'
-        });
-      }
-
-      const tournament = tournamentSnapshot.val();
-      tournament.prizePool = result.prizePool;
-
-      // Save the updated tournament data back to Firebase
-      await set(tournamentRef, tournament);
-
-      return res.status(200).json(result);
-    } else {
-      return res.status(500).json(result);
-    }
-  } catch (err) {
-    console.error('Error in initialize prize pool controller:', err);
-    return res.status(500).json({ 
-      success: false, 
-      message: 'Failed to initialize prize pool',
-      error: err.message || err
-    });
-  }
-};
-
-
-
 
 /**
  * Controller function to distribute tournament revenue according to the updated percentages
@@ -88,7 +22,6 @@ export const distributeTournamentRevenueController = async (req: Request, res: R
     } = req.body;
 
     const adminPubKey = new PublicKey(adminPublicKey);
-
 
     // Validate tournament ID
     if (!tournamentId) {
@@ -223,7 +156,6 @@ export const getTournamentDistributionController = async (req: Request, res: Res
     });
   }
 };
-
 
 /**
  * Controller function to distribute prizes to tournament winners
@@ -366,7 +298,6 @@ export const getTournamentPrizesDistributionController = async (req: Request, re
   }
 };
 
-
 /**
  * Controller function to confirm tournament revenue distribution after frontend signs transaction
  */
@@ -401,7 +332,6 @@ export const confirmDistributionController = async (req: Request, res: Response)
       // Continue anyway - transaction might be too recent
     }
 
-
     // Update tournament status in Firebase
     console.log("Updating tournament status in Firebase...");
     const tournamentRef = ref(db, `tournaments/${tournamentId}`);
@@ -427,7 +357,7 @@ export const confirmDistributionController = async (req: Request, res: Response)
 
     // Update tournament with distribution details
     await update(tournamentRef, {
-      status: "Completed",
+      status: "Distributed",
       distributionCompleted: true,
       distributionTimestamp: Date.now(),
       distributionDetails: {

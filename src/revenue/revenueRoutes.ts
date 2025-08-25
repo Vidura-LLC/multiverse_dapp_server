@@ -2,7 +2,6 @@
 
 import { Router, RequestHandler } from 'express';
 import {
-  initializePrizePoolController,
   distributeTournamentRevenueController,
   distributeTournamentPrizesController,
   getTournamentPrizesDistributionController,
@@ -12,9 +11,6 @@ import {
 
 const router = Router();
 
-
-// Route for initializing a prize pool for a specific tournament
-router.post('/initialize-prize-pool', initializePrizePoolController as unknown as RequestHandler);
 
 // Route for distributing tournament revenue
 router.post('/distribute-tournament', 
@@ -31,14 +27,16 @@ router.post('/distribute-prizes',
   distributeTournamentPrizesController as unknown as RequestHandler
 );
 
+//Router for confirming prize distribution
+router.post('/confirm-prize-distribution',
+  confirmPrizeDistributionController as unknown as RequestHandler
+);
+
 // Route for getting prize distribution details
 router.get('/prize-distribution/:tournamentId', 
   getTournamentPrizesDistributionController as unknown as RequestHandler
 );
 
-//Router for confirming prize distribution
-router.post('/confirm-prize-distribution',
-  confirmPrizeDistributionController as unknown as RequestHandler
-);
+
 
 export default router;

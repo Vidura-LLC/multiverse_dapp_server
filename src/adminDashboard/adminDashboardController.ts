@@ -1,14 +1,16 @@
 //src/adminDashboard/adminDashboardController.ts
 
 import { PublicKey } from '@solana/web3.js';
-import { checkPoolStatus, initializeRevenuePoolService, initializeStakingPoolService } from "./services";
-import { NextFunction, Request, Response } from 'express';
+import { checkPoolStatus, initializeRevenuePoolService, initializeStakingPoolService, initializeRewardPoolService, initializePrizePoolService } from "./services";
+import { Request, Response } from 'express';
 import {
     getStakingPoolData,
     getActiveStakers,
     calculateAPY
 } from './stakingStatsService';
 import { getRevenuePoolStatsService, getTournamentStats, getStakingStats, getDashboardData } from './dashboardStatsService';
+import { get, ref, set } from 'firebase/database';
+import { db } from '../config/firebase';
 
 
 
@@ -113,6 +115,103 @@ export const initializeRevenuePoolController = async (req: Request, res: Respons
     }
 };
 
+/**
+ * Controller function for initializing a prize pool for a specific tournament
+ */
+export const initializePrizePoolController = async (req: Request, res: Response) => {
+    try {
+      const { tournamentId, mintPublicKey, adminPublicKey } = req.body;
+  
+      // Validate required fields
+      if (!tournamentId) {
+        return res.status(400).json({ 
+          success: false, 
+          message: 'Tournament ID is required' 
+        });
+      }
+  
+      if (!mintPublicKey || !adminPublicKey) {
+        return res.status(400).json({ 
+          success: false, 
+          message: 'Mint public key and Admin Public Key is required' 
+        });
+      }
+  
+      // Convert string public key to PublicKey object
+      const mintPubkey = new PublicKey(mintPublicKey);
+      const adminPubKey = new PublicKey(adminPublicKey);
+  
+      // Call the service function to initialize prize pool for the tournament
+      const result = await initializePrizePoolService(tournamentId, mintPubkey, adminPubKey);
+  
+      if (result.success) {
+        const tournamentRef = ref(db, `tournaments/${tournamentId}`);
+        const tournamentSnapshot = await get(tournamentRef);
+  
+        if (!tournamentSnapshot.exists()) {
+          return res.status(404).json({
+            success: false,
+            message: 'Tournament not found'
+          });
+        }
+  
+        const tournament = tournamentSnapshot.val();
+        tournament.prizePool = result.prizePool;
+  
+        // Save the updated tournament data back to Firebase
+        await set(tournamentRef, tournament);
+  
+        return res.status(200).json(result);
+      } else {
+        return res.status(500).json(result);
+      }
+    } catch (err) {
+      console.error('Error in initialize prize pool controller:', err);
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Failed to initialize prize pool',
+        error: err.message || err
+      });
+    }
+  };
+  
+  
+      
+
+
+/**
+ * Controller function for initializing the global revenue pool
+ */
+export const initializeRewardPoolController = async (req: Request, res: Response) => {
+    try {
+        const { mintPublicKey, adminPublicKey } = req.body;
+
+        // Validate the mint address
+        if (!mintPublicKey || !adminPublicKey) {
+            return res.status(400).json({
+                success: false,
+                message: 'Mint and Admin public key is required'
+            });
+        }
+
+        // Call the service function to initialize revenue pool
+        const result = await initializeRewardPoolService(new PublicKey(mintPublicKey), new PublicKey(adminPublicKey));
+
+        // Return the result
+        if (result.success) {
+            return res.status(200).json({data: result});
+        } else {
+            return res.status(500).json({ error: result.message });
+        }
+    } catch (err) {
+        console.error('Error in initialize revenue pool controller:', err);
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to initialize revenue pool',
+            error: err.message || err
+        });
+    }
+};
 
 
 
@@ -164,7 +263,7 @@ export const getStakingStatsController = async (req: Request, res: Response) => 
 export const getStakingPoolController = async (req: Request, res: Response) => {
     try {
 
-        const { adminPublicKey } = req.body;
+        const { adminPublicKey } = req.params;
         console.log('🏦 Fetching staking pool data...');
 
         const result = await getStakingPoolData(new PublicKey(adminPublicKey));
