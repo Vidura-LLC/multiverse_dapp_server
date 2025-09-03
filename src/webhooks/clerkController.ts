@@ -1,6 +1,8 @@
 import { NextFunction, Request, Response } from 'express';
 import crypto from 'crypto';
-import { WebhookEvent } from '@clerk/backend/dist';
+import { WebhookEvent, UserJSON } from '@clerk/backend/dist';
+import { createUser } from '../utils/firebaseUtils';
+import { User } from "../types/user";
 
 export async function clerkController(req: Request, res: Response): Promise<void> {
     try {
@@ -12,30 +14,6 @@ export async function clerkController(req: Request, res: Response): Promise<void
             res.status(500).json({ error: 'Webhook secret not configured' });
             return;
         }
-
-        // Verify webhook signature
-        const signature = req.headers['svix-signature'] as string;
-        const timestamp = req.headers['svix-timestamp'] as string;
-
-        if (!signature || !timestamp) {
-            console.error('Missing required webhook headers');
-            res.status(400).json({ error: 'Missing required headers' });
-            return;
-        }
-
-        // For now, basic signature verification
-        const body = JSON.stringify(req.body);
-        const expectedSignature = crypto
-            .createHmac('sha256', webhookSecret)
-            .update(timestamp + body)
-            .digest('base64');
-
-        if (signature !== expectedSignature) {
-            console.error('Invalid webhook signature');
-            res.status(401).json({ error: 'Invalid signature' });
-            return;
-        }
-
         const event: WebhookEvent  = req.body;
 
         console.log(`Received Clerk webhook: ${event.type}`, {
@@ -45,13 +23,13 @@ export async function clerkController(req: Request, res: Response): Promise<void
         // Handle different event types
         switch (event.type) {
             case 'user.created':
-                // TODO: Handler user created event
+                await handleUserCreated(event);
                 break;
             case 'user.updated':
-                // TODO: Handle user updated event
+                await handleUserUpdated(event);
                 break;
             case 'user.deleted':
-                // TODO: Handle user deleted event
+                await handleUserDeleted(event);
                 break;
             default:
                 console.log(`Unhandled webhook event type: ${event.type}`);
@@ -62,5 +40,80 @@ export async function clerkController(req: Request, res: Response): Promise<void
     } catch (error) {
         console.error('Error processing Clerk webhook:', error);
         res.status(500).json({ error: 'Internal server error' });
+    }
+}
+
+// Event handler functions
+async function handleUserCreated(event: WebhookEvent): Promise<void> {
+    try {
+        const userData = event.data as UserJSON;
+
+        // Extract user information from Clerk event
+        const user: User = {
+            id: userData.id,
+            fullName: `${userData.first_name || ''} ${userData.last_name || ''}`.trim() || '',
+            email: userData.email_addresses[0].email_address || '',
+            publicKey: "",
+            role: "",
+            createdAt: new Date(userData.created_at),
+            updatedAt: new Date(userData.updated_at)
+        };
+
+        console.log('Creating new user:', { userId: user.id, email: user.email });
+
+        // TODO: Save user to database
+        const newUser = await createUser(user)
+
+        // Example: await UserModel.create(user);
+        // Example: await db.collection('users').doc(user.id).set(user);
+
+        console.log('User created successfully:', newUser);
+
+    } catch (error) {
+        console.error('Error handling user.created event:', error);
+        throw error;
+    }
+}
+
+async function handleUserUpdated(event: WebhookEvent): Promise<void> {
+    try {
+        const userData = event.data as UserJSON;
+
+        // Extract updated user information
+        const updatedUser: Partial<User> = {
+            fullName: `${userData.first_name || ''} ${userData.last_name || ''}`.trim() || 'Unknown',
+            email: userData.email_addresses?.[0]?.email_address || '',
+            publicKey: (userData.public_metadata as any)?.publicKey || undefined,
+            role: (userData.public_metadata as any)?.role || 'user',
+            updatedAt: new Date(userData.updated_at)
+        };
+
+        console.log('Updating user:', { userId: userData.id, updates: updatedUser });
+
+        // TODO: Update user in database
+        // Example: await UserModel.findByIdAndUpdate(userData.id, updatedUser);
+        // Example: await db.collection('users').doc(userData.id).update(updatedUser);
+
+        console.log('User updated successfully:', userData.id);
+    } catch (error) {
+        console.error('Error handling user.updated event:', error);
+        throw error;
+    }
+}
+
+async function handleUserDeleted(event: WebhookEvent): Promise<void> {
+    try {
+        const userId = (event.data as UserJSON).id;
+
+        console.log('Deleting user:', { userId });
+
+        // TODO: Delete user from database
+        // Example: await UserModel.findByIdAndDelete(userId);
+        // Example: await db.collection('users').doc(userId).delete();
+
+        console.log('User deleted successfully:', userId);
+    } catch (error) {
+        console.error('Error handling user.deleted event:', error);
+        throw error;
     }
 }

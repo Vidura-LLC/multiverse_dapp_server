@@ -1,6 +1,7 @@
 import { PublicKey } from "@solana/web3.js";
 import { db } from "../config/firebase";
 import { set, ref, get, push, query, orderByChild, equalTo } from "firebase/database";
+import { User } from "../types/user";
 
 /**
  * Fetch a user by their publicKey
@@ -26,14 +27,17 @@ export async function getUser(publicKey: PublicKey) {
 /**
  * Create a new user with a random ID
  */
-export const createUser = async (publicKey: PublicKey) => {
+export const createUser = async (user: User) => {
     try {
         const newUserRef = push(ref(db, "users")); // Generate a random user ID
         const userId = newUserRef.key; // Get the generated ID
 
         await set(newUserRef, {
             id: userId, // Store user ID
-            publicKey: publicKey.toString(),
+            publicKey: user.publicKey,
+            fullName: user.fullName,
+            email: user.email,
+            role: user.role,
             createdAt: new Date().toISOString(),
         });
 
