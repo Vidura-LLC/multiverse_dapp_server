@@ -4,6 +4,7 @@ export type User = {
     email: string;
     publicKey?: string;
     role: string;
+    onboarded: boolean;
     createdAt: Date;
     updatedAt: Date;
 }

@@ -49,6 +49,18 @@ export const createUser = async (user: User) => {
     }
 };
 
+export const updateUser = async (user: Partial<User>) => {
+    try {
+        const userRef = ref(db, `users/${user.id}`);
+        await set(userRef, user);
+        console.log("User updated successfully:", user.id);
+        return user;
+    } catch (error) {
+        console.error("Error updating user:", error);
+        return null;
+    }
+}
+
 /**
  * Check if a user exists using publicKey
  */
