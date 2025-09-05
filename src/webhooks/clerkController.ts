@@ -1,9 +1,9 @@
-import { NextFunction, Request, Response } from 'express';
-import crypto from 'crypto';
+import { Request, Response } from 'express';
 import { WebhookEvent, UserJSON } from '@clerk/backend/dist';
 import { createUser, updateUser } from '../utils/firebaseUtils';
 import { User } from "../types/user";
-
+import { get, ref, remove } from "firebase/database";
+import { db } from '../config/firebase';
 export async function clerkController(req: Request, res: Response): Promise<void> {
     try {
         // TODO: Get webhook secret from environment variables
@@ -53,7 +53,7 @@ async function handleUserCreated(event: WebhookEvent): Promise<void> {
             fullName: `${userData.first_name || ''} ${userData.last_name || ''}`.trim() || '',
             email: userData.email_addresses[0].email_address || '',
             publicKey: "",
-            role: "",
+            role: "user",
             onboarded: false,
             createdAt: new Date(userData.created_at),
             updatedAt: new Date(userData.updated_at)
@@ -75,6 +75,7 @@ async function handleUserUpdated(event: WebhookEvent): Promise<void> {
         const userData = event.data as UserJSON;
 
         const updatedUser: Partial<User> = {
+            id: userData.id, // Add the Clerk user ID
             fullName: `${userData.first_name ?? ''} ${userData.last_name ?? ''}`.trim() ?? '',
             email: userData.email_addresses?.[0]?.email_address ?? '',
             publicKey: (userData.public_metadata as any)?.publicKey ?? "",
@@ -98,13 +99,34 @@ async function handleUserDeleted(event: WebhookEvent): Promise<void> {
     try {
         const userId = (event.data as UserJSON).id;
 
-        console.log('Deleting user:', { userId });
+        console.log('Deleting user by user.id:', { userId });
 
-        // TODO: Delete user from database
-        // Example: await UserModel.findByIdAndDelete(userId);
-        // Example: await db.collection('users').doc(userId).delete();
+        // Find the document reference (Firebase push key) where user.id matches the webhook id
+        const usersRef = ref(db, "users");
+        const usersSnapshot = await get(usersRef);
 
-        console.log('User deleted successfully:', userId);
+        if (!usersSnapshot.exists()) {
+            console.log('No users found in database.');
+            return;
+        }
+
+        const users = usersSnapshot.val();
+        let docRefIdToDelete: string | null = null;
+
+        for (const docRefId in users) {
+            if (users[docRefId]?.id === userId) {
+                docRefIdToDelete = docRefId;
+                break;
+            }
+        }
+
+        if (docRefIdToDelete) {
+            const userRef = ref(db, `users/${docRefIdToDelete}`);
+            await remove(userRef);
+            console.log('User deleted successfully:', docRefIdToDelete);
+        } else {
+            console.log('User with id not found:', userId);
+        }
     } catch (error) {
         console.error('Error handling user.deleted event:', error);
         throw error;
