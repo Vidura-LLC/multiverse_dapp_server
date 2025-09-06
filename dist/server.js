@@ -10,6 +10,7 @@ const cors_1 = __importDefault(require("cors"));
 const stakingRoutes_1 = __importDefault(require("./staking/stakingRoutes"));
 const gamehubRoutes_1 = __importDefault(require("./gamehub/gamehubRoutes"));
 const revenueRoutes_1 = __importDefault(require("./revenue/revenueRoutes"));
+const routes_1 = __importDefault(require("./webhooks/routes"));
 const adminDashboardRoutes_1 = __importDefault(require("./adminDashboard/adminDashboardRoutes"));
 // Load environment variables
 dotenv_1.default.config();
@@ -26,6 +27,7 @@ app.use("/api/admin", adminDashboardRoutes_1.default);
 app.use("/api/staking", stakingRoutes_1.default);
 app.use("/api/gamehub/", gamehubRoutes_1.default);
 app.use('/api/revenue/', revenueRoutes_1.default);
+app.use('/api/webhooks/', routes_1.default);
 // Server Port
 const PORT = process.env.PORT || 5000;
 app.get('/', (req, res) => {
