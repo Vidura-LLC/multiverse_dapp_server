@@ -1,6 +1,7 @@
 import { PublicKey } from "@solana/web3.js";
 import { db } from "../config/firebase";
-import { set, ref, get, push, query, orderByChild, equalTo } from "firebase/database";
+import { set, ref, get, push, query, orderByChild, equalTo, update } from "firebase/database";
+import { User } from "../types/user";
 
 /**
  * Fetch a user by their publicKey
@@ -26,24 +27,66 @@ export async function getUser(publicKey: PublicKey) {
 /**
  * Create a new user with a random ID
  */
-export const createUser = async (publicKey: PublicKey) => {
+export const createUser = async (user: User) => {
     try {
         const newUserRef = push(ref(db, "users")); // Generate a random user ID
-        const userId = newUserRef.key; // Get the generated ID
-
+            
         await set(newUserRef, {
-            id: userId, // Store user ID
-            publicKey: publicKey.toString(),
+            id: user.id, // Store user ID
+            publicKey: user.publicKey,
+            fullName: user.fullName,
+            email: user.email,
+            role: user.role,
             createdAt: new Date().toISOString(),
         });
 
-        console.log("User created successfully:", userId);
-        return userId;
+        console.log("User created successfully:", user.id);
+        return user.id;
     } catch (error) {
         console.error("Error creating user:", error);
         return null;
     }
 };
+
+export const updateUser = async (user: Partial<User>) => {
+    try {
+        if (!user.id) {
+            throw new Error("User ID is required for update");
+        }
+
+        // Find the document reference (Firebase push key) where user.id matches the Clerk user ID
+        const usersRef = ref(db, "users");
+        const usersSnapshot = await get(usersRef);
+
+        if (!usersSnapshot.exists()) {
+            console.log('No users found in database.');
+            return null;
+        }
+
+        const users = usersSnapshot.val();
+        let docRefIdToUpdate: string | null = null;
+
+        for (const docRefId in users) {
+            if (users[docRefId]?.id === user.id) {
+                docRefIdToUpdate = docRefId;
+                break;
+            }
+        }
+
+        if (docRefIdToUpdate) {
+            const userRef = ref(db, `users/${docRefIdToUpdate}`);
+            await update(userRef, user);
+            console.log("User updated successfully:", user.id);
+            return user;
+        } else {
+            console.log('User with id not found for update:', user.id);
+            return null;
+        }
+    } catch (error) {
+        console.error("Error updating user:", error);
+        return null;
+    }
+}
 
 /**
  * Check if a user exists using publicKey
