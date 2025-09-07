@@ -53,21 +53,34 @@ function clerkController(req, res) {
 // Event handler functions
 function handleUserCreated(event) {
     return __awaiter(this, void 0, void 0, function* () {
+        var _a, _b, _c, _d, _e, _f, _g;
         try {
             const userData = event.data;
+            const roleFromMetadata = (_b = (_a = userData.public_metadata) === null || _a === void 0 ? void 0 : _a.role) !== null && _b !== void 0 ? _b : "user";
+            const publicKeyFromMetadata = (_d = (_c = userData.public_metadata) === null || _c === void 0 ? void 0 : _c.publicKey) !== null && _d !== void 0 ? _d : "";
+            const onboardedFromMetadata = (_f = (_e = userData.public_metadata) === null || _e === void 0 ? void 0 : _e.onboarded) !== null && _f !== void 0 ? _f : false;
+            const professionalDetailsFromMetadata = (_g = userData.public_metadata) === null || _g === void 0 ? void 0 : _g.professionalDetails;
             const user = {
                 id: userData.id,
                 fullName: `${userData.first_name || ''} ${userData.last_name || ''}`.trim() || '',
                 email: userData.email_addresses[0].email_address || '',
-                publicKey: "",
-                role: "user",
-                onboarded: false,
+                publicKey: publicKeyFromMetadata,
+                role: roleFromMetadata,
+                onboarded: onboardedFromMetadata,
                 createdAt: new Date(userData.created_at),
                 updatedAt: new Date(userData.updated_at)
             };
             console.log('Creating new user:', { userId: user.id, email: user.email });
             const newUser = yield (0, firebaseUtils_1.createUser)(user);
             console.log('User created successfully:', newUser);
+            // If the user is a developer, persist developer-specific details separately
+            if (roleFromMetadata === "developer" && professionalDetailsFromMetadata) {
+                yield (0, firebaseUtils_1.updateUser)({
+                    id: user.id,
+                    // Extend stored record with developer details
+                    professionalDetails: professionalDetailsFromMetadata,
+                });
+            }
         }
         catch (error) {
             console.error('Error handling user.created event:', error);
@@ -77,18 +90,23 @@ function handleUserCreated(event) {
 }
 function handleUserUpdated(event) {
     return __awaiter(this, void 0, void 0, function* () {
-        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m;
+        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o;
         try {
             const userData = event.data;
+            const roleFromMetadata = (_b = (_a = userData.public_metadata) === null || _a === void 0 ? void 0 : _a.role) !== null && _b !== void 0 ? _b : 'user';
+            const professionalDetailsFromMetadata = (_c = userData.public_metadata) === null || _c === void 0 ? void 0 : _c.professionalDetails;
             const updatedUser = {
                 id: userData.id, // Add the Clerk user ID
-                fullName: (_c = `${(_a = userData.first_name) !== null && _a !== void 0 ? _a : ''} ${(_b = userData.last_name) !== null && _b !== void 0 ? _b : ''}`.trim()) !== null && _c !== void 0 ? _c : '',
-                email: (_f = (_e = (_d = userData.email_addresses) === null || _d === void 0 ? void 0 : _d[0]) === null || _e === void 0 ? void 0 : _e.email_address) !== null && _f !== void 0 ? _f : '',
-                publicKey: (_h = (_g = userData.public_metadata) === null || _g === void 0 ? void 0 : _g.publicKey) !== null && _h !== void 0 ? _h : "",
-                role: (_k = (_j = userData.public_metadata) === null || _j === void 0 ? void 0 : _j.role) !== null && _k !== void 0 ? _k : 'user',
-                onboarded: (_m = (_l = userData.public_metadata) === null || _l === void 0 ? void 0 : _l.onboarded) !== null && _m !== void 0 ? _m : false,
+                fullName: (_f = `${(_d = userData.first_name) !== null && _d !== void 0 ? _d : ''} ${(_e = userData.last_name) !== null && _e !== void 0 ? _e : ''}`.trim()) !== null && _f !== void 0 ? _f : '',
+                email: (_j = (_h = (_g = userData.email_addresses) === null || _g === void 0 ? void 0 : _g[0]) === null || _h === void 0 ? void 0 : _h.email_address) !== null && _j !== void 0 ? _j : '',
+                publicKey: (_l = (_k = userData.public_metadata) === null || _k === void 0 ? void 0 : _k.publicKey) !== null && _l !== void 0 ? _l : "",
+                role: roleFromMetadata,
+                onboarded: (_o = (_m = userData.public_metadata) === null || _m === void 0 ? void 0 : _m.onboarded) !== null && _o !== void 0 ? _o : false,
                 updatedAt: new Date(userData.updated_at)
             };
+            if (roleFromMetadata === 'developer' && professionalDetailsFromMetadata) {
+                updatedUser.professionalDetails = professionalDetailsFromMetadata;
+            }
             console.log('Updating user:', { userId: userData.id, updates: updatedUser });
             const user = yield (0, firebaseUtils_1.updateUser)(updatedUser);
             console.log('User updated successfully:', user);

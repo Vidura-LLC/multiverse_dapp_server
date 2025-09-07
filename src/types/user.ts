@@ -1,3 +1,5 @@
+export type UserRole = "admin" | "developer" | "user";
+
 export type User = {
     id: string;
     fullName: string;
@@ -7,6 +9,14 @@ export type User = {
     onboarded: boolean;
     createdAt: Date;
     updatedAt: Date;
+
+
 }
 
-export type UserRole = "admin" | "developer" | "user";
+export type DevelperUser = User & {
+    professionalDetails: {
+        company: string,
+        jobTitle: string,
+        website: string
+    }
+}

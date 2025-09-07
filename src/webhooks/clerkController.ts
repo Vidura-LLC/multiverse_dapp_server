@@ -48,13 +48,20 @@ async function handleUserCreated(event: WebhookEvent): Promise<void> {
     try {
         const userData = event.data as UserJSON;
 
+        const roleFromMetadata = (userData.public_metadata as any)?.role ?? "user";
+        const publicKeyFromMetadata = (userData.public_metadata as any)?.publicKey ?? "";
+        const onboardedFromMetadata = (userData.public_metadata as any)?.onboarded ?? false;
+        const professionalDetailsFromMetadata = (userData.public_metadata as any)?.professionalDetails as
+            | { company: string; jobTitle: string; website: string }
+            | undefined;
+
         const user: User = {
             id: userData.id,
             fullName: `${userData.first_name || ''} ${userData.last_name || ''}`.trim() || '',
             email: userData.email_addresses[0].email_address || '',
-            publicKey: "",
-            role: "user",
-            onboarded: false,
+            publicKey: publicKeyFromMetadata,
+            role: roleFromMetadata,
+            onboarded: onboardedFromMetadata,
             createdAt: new Date(userData.created_at),
             updatedAt: new Date(userData.updated_at)
         };
@@ -63,6 +70,15 @@ async function handleUserCreated(event: WebhookEvent): Promise<void> {
 
         const newUser = await createUser(user)
         console.log('User created successfully:', newUser);
+
+        // If the user is a developer, persist developer-specific details separately
+        if (roleFromMetadata === "developer" && professionalDetailsFromMetadata) {
+            await updateUser({
+                id: user.id,
+                // Extend stored record with developer details
+                professionalDetails: professionalDetailsFromMetadata,
+            } as any);
+        }
 
     } catch (error) {
         console.error('Error handling user.created event:', error);
@@ -74,15 +90,24 @@ async function handleUserUpdated(event: WebhookEvent): Promise<void> {
     try {
         const userData = event.data as UserJSON;
 
-        const updatedUser: Partial<User> = {
+        const roleFromMetadata = (userData.public_metadata as any)?.role ?? 'user';
+        const professionalDetailsFromMetadata = (userData.public_metadata as any)?.professionalDetails as
+            | { company: string; jobTitle: string; website: string }
+            | undefined;
+
+        const updatedUser: Partial<User> & { professionalDetails?: { company: string; jobTitle: string; website: string } } = {
             id: userData.id, // Add the Clerk user ID
             fullName: `${userData.first_name ?? ''} ${userData.last_name ?? ''}`.trim() ?? '',
             email: userData.email_addresses?.[0]?.email_address ?? '',
             publicKey: (userData.public_metadata as any)?.publicKey ?? "",
-            role: (userData.public_metadata as any)?.role ?? 'user',
+            role: roleFromMetadata,
             onboarded: (userData.public_metadata as any)?.onboarded ?? false,
             updatedAt: new Date(userData.updated_at)
         };
+
+        if (roleFromMetadata === 'developer' && professionalDetailsFromMetadata) {
+            updatedUser.professionalDetails = professionalDetailsFromMetadata;
+        }
 
         console.log('Updating user:', { userId: userData.id, updates: updatedUser });
 
