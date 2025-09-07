@@ -9,7 +9,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.checkUser = exports.createUser = void 0;
+exports.checkUser = exports.updateUser = exports.createUser = void 0;
 exports.getUser = getUser;
 const firebase_1 = require("../config/firebase");
 const database_1 = require("firebase/database");
@@ -39,17 +39,19 @@ function getUser(publicKey) {
 /**
  * Create a new user with a random ID
  */
-const createUser = (publicKey) => __awaiter(void 0, void 0, void 0, function* () {
+const createUser = (user) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const newUserRef = (0, database_1.push)((0, database_1.ref)(firebase_1.db, "users")); // Generate a random user ID
-        const userId = newUserRef.key; // Get the generated ID
         yield (0, database_1.set)(newUserRef, {
-            id: userId, // Store user ID
-            publicKey: publicKey.toString(),
+            id: user.id, // Store user ID
+            publicKey: user.publicKey,
+            fullName: user.fullName,
+            email: user.email,
+            role: user.role,
             createdAt: new Date().toISOString(),
         });
-        console.log("User created successfully:", userId);
-        return userId;
+        console.log("User created successfully:", user.id);
+        return user.id;
     }
     catch (error) {
         console.error("Error creating user:", error);
@@ -57,6 +59,44 @@ const createUser = (publicKey) => __awaiter(void 0, void 0, void 0, function* ()
     }
 });
 exports.createUser = createUser;
+const updateUser = (user) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a;
+    try {
+        if (!user.id) {
+            throw new Error("User ID is required for update");
+        }
+        // Find the document reference (Firebase push key) where user.id matches the Clerk user ID
+        const usersRef = (0, database_1.ref)(firebase_1.db, "users");
+        const usersSnapshot = yield (0, database_1.get)(usersRef);
+        if (!usersSnapshot.exists()) {
+            console.log('No users found in database.');
+            return null;
+        }
+        const users = usersSnapshot.val();
+        let docRefIdToUpdate = null;
+        for (const docRefId in users) {
+            if (((_a = users[docRefId]) === null || _a === void 0 ? void 0 : _a.id) === user.id) {
+                docRefIdToUpdate = docRefId;
+                break;
+            }
+        }
+        if (docRefIdToUpdate) {
+            const userRef = (0, database_1.ref)(firebase_1.db, `users/${docRefIdToUpdate}`);
+            yield (0, database_1.update)(userRef, user);
+            console.log("User updated successfully:", user.id);
+            return user;
+        }
+        else {
+            console.log('User with id not found for update:', user.id);
+            return null;
+        }
+    }
+    catch (error) {
+        console.error("Error updating user:", error);
+        return null;
+    }
+});
+exports.updateUser = updateUser;
 /**
  * Check if a user exists using publicKey
  */
