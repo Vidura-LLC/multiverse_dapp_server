@@ -7,8 +7,7 @@ import gamehubRoutes from "./gamehub/gamehubRoutes";
 import revenueRoutes from './revenue/revenueRoutes';
 import webhooksRoutes from './webhooks/routes'
 import adminDashboardRoutes from "./adminDashboard/adminDashboardRoutes";
-import { getUser } from "./utils/firebaseUtils";
-import { PublicKey } from "@solana/web3.js";
+import gameRoutes from "./game/routes";
 
 // Load environment variables
 dotenv.config();
@@ -31,6 +30,7 @@ app.use("/api/staking", stakingRoutes);
 app.use("/api/gamehub/", gamehubRoutes);
 app.use('/api/revenue/', revenueRoutes);
 app.use('/api/webhooks/', webhooksRoutes)
+app.use('/api/game/', gameRoutes)
 
 // Server Port
 const PORT = process.env.PORT || 5000;
