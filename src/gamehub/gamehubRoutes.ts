@@ -2,7 +2,7 @@
 
 import { Router, RequestHandler, Request, Response } from 'express';
 import { verifyUser } from './middleware';  // Import the verifyUser middleware
-import { getActiveTournament, getAllGames, getTournamentById, getTournamentPoolController, getTournaments, registerForTournamentController, createTournament, getTournamentLeaderboardController, updateParticipantScoreController, getTournamentsByGameController, updateTournamentStatus } from './gamehubController';
+import { getActiveTournament, getAllGames, getTournamentById, getTournamentPoolController, getTournaments, registerForTournamentController, createTournament, getTournamentLeaderboardController, updateParticipantScoreController, getTournamentsByGameController, updateTournamentStatus, getPrizePoolController, getTotalPrizePoolsFundsController, getTotalTournamentPoolsFundsController, getTotalTournamentEntryFeesController, getTournamentsByAdmin, getTournamentLeaderboardAgainstAdminController, getAdminTournamentsLeaderboardsController } from './gamehubController';
 
 
 const router = Router();
@@ -16,6 +16,16 @@ router.post('/update-tournament-status', updateTournamentStatus as unknown as Re
 // Route to get tournament pool
 router.post('/get-tournament-pool', getTournamentPoolController as unknown as RequestHandler);
 
+// Prize pool routes
+router.post('/get-prize-pool', getPrizePoolController as unknown as RequestHandler);
+router.get('/prize-pools/total-funds', getTotalPrizePoolsFundsController as unknown as RequestHandler);
+
+// Tournament pools aggregation (total pooled funds across tournaments)
+router.get('/tournament-pools/total-funds', getTotalTournamentPoolsFundsController as unknown as RequestHandler);
+
+// Tournament entry fees aggregation (from Firebase tournaments)
+router.get('/tournaments/entry-fees', getTotalTournamentEntryFeesController as unknown as RequestHandler);
+
 
 // Route for user authentication (verify the user with publicKey in headers)
 router.post('/verify-user', verifyUser as unknown as RequestHandler, (req: Request, res: Response) => {
@@ -27,6 +37,7 @@ router.post('/verify-user', verifyUser as unknown as RequestHandler, (req: Reque
 
 // Route to get all tournaments
 router.get('/tournaments', getTournaments as unknown as RequestHandler);
+router.get('/tournaments/:adminPublicKey', getTournamentsByAdmin as unknown as RequestHandler);
 
 // Route to get tournament by ID
 router.get('/tournament/:id', getTournamentById as unknown as RequestHandler);
@@ -43,6 +54,12 @@ router.get('/all-games', getAllGames as unknown as RequestHandler);
 //Leaderboard Routes
 // Route to get tournament leaderboard
 router.get('/tournament-leaderboard/:id', getTournamentLeaderboardController as unknown as RequestHandler);
+
+// Route to get tournament leaderboard against admin (single tournament)
+router.get('/tournament-leaderboard-admin/:id', getTournamentLeaderboardAgainstAdminController as unknown as RequestHandler);
+
+// Route to get aggregated leaderboards for all tournaments by admin
+router.get('/admin-leaderboards/:adminPublicKey', getAdminTournamentsLeaderboardsController as unknown as RequestHandler);
 
 // Route to update participant score (protected)
 router.post('/score/update', verifyUser as unknown as RequestHandler, updateParticipantScoreController as unknown as RequestHandler);

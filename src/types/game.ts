@@ -1,21 +1,22 @@
-export type TGameStatus = "Active" | "Upcoming" | "Ended" | "Draft" | "Distributed" | "Awarded";
+export type TGameStatus = "draft" | "published";
 
 export type TGameCreate = {
     id: string;
     name: string;
     description: string;
     image: File | null;
-    userId: string;
     status: TGameStatus;
+    createdBy: string;
 }
 
 export type Game = {
     id: string;
+    userId: string;
     name: string;
     description: string;
     image: string;
     createdAt: Date;
     updatedAt: Date;
-    userId: string;
     status: TGameStatus;
+    createdBy: string;
 }

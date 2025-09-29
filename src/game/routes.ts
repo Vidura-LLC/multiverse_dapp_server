@@ -1,27 +1,24 @@
 import { Router } from "express";
-import { createGame, getAllGames, getGameById } from "./controller";
-import multer from "multer";
-
+import { createGame, getAllGames, getGameById, getGamePerformanceMetrics, updateGame } from "./controller";
+import {upload, handleMulterError} from "../middleware/mutler"
 const router = Router();
 
-// Configure multer for handling multipart form data
-const upload = multer({
-    storage: multer.memoryStorage(), // Store in memory for now
-    limits: {
-        fileSize: 5 * 1024 * 1024, // 5MB limit
-    },
-    fileFilter: (req, file, cb) => {
-        // Accept only image files
-        if (file.mimetype.startsWith('image/')) {
-            cb(null, true);
-        } else {
-            cb(new Error('Only image files are allowed'));
-        }
-    }
-});
-
-router.post('/create-game', upload.single('image'), createGame);
-router.get('/all-games', getAllGames);
+// Create game with image upload
+router.post(
+    '/games',
+    upload.single('image'), // 'image' should match the FormData field name
+    handleMulterError,
+    createGame
+  );
+  
+  // Update game with optional image upload
+  router.put(
+    '/games/:gameId',
+    upload.single('image'),
+    handleMulterError,
+    updateGame
+  );router.get('/all-games', getAllGames);
 router.get('/game/:id', getGameById);
+router.get('/performance-metrics', getGamePerformanceMetrics);
 
 export default router;

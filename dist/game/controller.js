@@ -17,9 +17,9 @@ const firebase_1 = require("../config/firebase");
 function createGame(req, res) {
     return __awaiter(this, void 0, void 0, function* () {
         try {
-            const { id, name, description, userId, status } = req.body;
+            const { id, name, description, userId, status, adminPublicKey } = req.body;
             // Validate required fields
-            if (!id || !name || !description || !userId || !status) {
+            if (!id || !name || !description || !userId || !status || !adminPublicKey) {
                 res.status(400).json({ message: "Missing required fields: id, name, description, userId, status" });
                 return;
             }
@@ -46,6 +46,7 @@ function createGame(req, res) {
                 status: status,
                 createdAt: new Date(),
                 updatedAt: new Date(),
+                createdBy: adminPublicKey,
             };
             const gameRef = (0, database_1.ref)(firebase_1.db, "games");
             const newGameRef = (0, database_1.push)(gameRef);

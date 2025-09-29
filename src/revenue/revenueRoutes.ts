@@ -6,7 +6,9 @@ import {
   distributeTournamentPrizesController,
   getTournamentPrizesDistributionController,
   confirmDistributionController,
-  confirmPrizeDistributionController
+  confirmPrizeDistributionController,
+  getAdminPrizesDistributedController,
+  getAdminDistributionTotalsController
 } from './revenueController';
 
 const router = Router();
@@ -35,6 +37,16 @@ router.post('/confirm-prize-distribution',
 // Route for getting prize distribution details
 router.get('/prize-distribution/:tournamentId', 
   getTournamentPrizesDistributionController as unknown as RequestHandler
+);
+
+// Route for admin total prizes distributed across tournaments
+router.get('/admin/prizes-distributed/:adminPubKey',
+  getAdminPrizesDistributedController as unknown as RequestHandler
+);
+
+// Route for admin distribution totals aggregation
+router.get('/admin/distribution-totals/:adminPubKey',
+  getAdminDistributionTotalsController as unknown as RequestHandler
 );
 
 

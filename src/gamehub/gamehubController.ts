@@ -1,8 +1,9 @@
 import { Request, Response } from "express";
 import { ref, get, set, push, update } from "firebase/database";
 import { db } from "../config/firebase";
-import { getTournamentPool, registerForTournamentService, initializeTournamentPoolService } from './services';
+import { getTournamentPool, registerForTournamentService, initializeTournamentPoolService, getPrizePoolService, getTotalPrizePoolsFundsService, getTotalTournamentPoolsFundsService, getTotalTournamentEntryFeesService } from './services';
 import { getTournamentLeaderboard, updateParticipantScore, getTournamentsByGame } from "./leaderboardService";
+import { getTournamentLeaderboardAgainstAdmin, getAdminTournamentsLeaderboards } from "./adminLeaderboardService";
 import { PublicKey } from "@solana/web3.js";
 import schedule from 'node-schedule'
 // Define Tournament interface
@@ -163,6 +164,37 @@ export const getActiveTournament = async (req: Request, res: Response) => {
     });
   }
 };
+
+export const getTournamentsByAdmin = async (req: Request, res: Response) => {
+  try {
+    const { adminPublicKey } = req.params;
+
+    if (!adminPublicKey) {
+      return res.status(400).json({ message: "adminPublicKey is required" });
+    }
+
+    const tournamentsRef = ref(db, "tournaments");
+    const tournamentsSnapshot = await get(tournamentsRef);
+
+    if (!tournamentsSnapshot.exists()) {
+      return res.status(404).json({ message: "No tournaments found" });
+    }
+
+    const tournaments = tournamentsSnapshot.val();
+    const adminTournaments = Object.values(tournaments).filter(
+      (tournament: any) => tournament.createdBy === adminPublicKey
+    );
+
+    return res.status(200).json({
+      message: "Tournaments fetched successfully",
+      tournaments: adminTournaments,
+    });
+  } catch (error) {
+    console.error("Error fetching tournaments by admin:", error);
+    return res.status(500).json({ message: "Internal Server Error" });
+  }
+};
+
 
 export async function getTournaments(req: Request, res: Response) {
   try {
@@ -351,6 +383,89 @@ export const getTournamentPoolController = async (req: Request, res: Response) =
   }
 };
 
+// Controller: get a single prize pool by tournamentId and adminPubKey
+export const getPrizePoolController = async (req: Request, res: Response) => {
+  try {
+    const { tournamentId, adminPubKey } = req.body;
+
+    if (!tournamentId || !adminPubKey) {
+      return res.status(400).json({ success: false, message: 'Missing required field: tournamentId or adminPubKey' });
+    }
+
+    const adminPublicKey = new PublicKey(adminPubKey);
+    const result = await getPrizePoolService(tournamentId, adminPublicKey);
+
+    if (result.success) {
+      return res.status(200).json(result);
+    } else {
+      return res.status(404).json(result);
+    }
+  } catch (error) {
+    console.error('❌ Error in getPrizePoolController:', error);
+    return res.status(500).json({ success: false, message: 'Internal server error', error: (error as any).message });
+  }
+};
+
+// Controller: aggregate funds across all prize pools (optional admin filter)
+export const getTotalPrizePoolsFundsController = async (req: Request, res: Response) => {
+  try {
+    const { adminPubKey } = req.query as { adminPubKey?: string };
+
+    const adminPublicKey = adminPubKey ? new PublicKey(adminPubKey) : undefined;
+    const result = await getTotalPrizePoolsFundsService(adminPublicKey);
+
+    if (result.success) {
+      return res.status(200).json(result);
+    } else {
+      return res.status(400).json(result);
+    }
+  } catch (error) {
+    console.error('❌ Error in getTotalPrizePoolsFundsController:', error);
+    return res.status(500).json({ success: false, message: 'Internal server error', error: (error as any).message });
+  }
+};
+
+// Controller: aggregate funds across all tournament pools (optional admin filter)
+export const getTotalTournamentPoolsFundsController = async (req: Request, res: Response) => {
+  try {
+    const { adminPubKey } = req.query as { adminPubKey?: string };
+
+    const adminPublicKey = adminPubKey ? new PublicKey(adminPubKey) : undefined;
+    const result = await getTotalTournamentPoolsFundsService(adminPublicKey);
+
+    if (result.success) {
+      return res.status(200).json(result);
+    } else {
+      return res.status(400).json(result);
+    }
+  } catch (error) {
+    console.error('❌ Error in getTotalTournamentPoolsFundsController:', error);
+    return res.status(500).json({ success: false, message: 'Internal server error', error: (error as any).message });
+  }
+};
+
+// Controller: get total entry fees from Firebase tournaments by admin
+export const getTotalTournamentEntryFeesController = async (req: Request, res: Response) => {
+  try {
+    const { adminPubKey } = req.query as { adminPubKey: string };
+
+    if (!adminPubKey) {
+      return res.status(400).json({ success: false, message: 'adminPubKey is required' });
+    }
+
+    const result = await getTotalTournamentEntryFeesService(adminPubKey);
+
+    if (result.success) {
+      return res.status(200).json(result);
+    } else {
+      return res.status(400).json(result);
+    }
+  } catch (error) {
+    console.error('❌ Error in getTotalTournamentEntryFeesController:', error);
+    return res.status(500).json({ success: false, message: 'Internal server error', error: (error as any).message });
+  }
+};
+
 
 
 
@@ -394,6 +509,50 @@ export async function updateParticipantScoreController(req: Request, res: Respon
     }
   } catch (error) {
     console.error("Error in updateParticipantScoreController:", error);
+    return res.status(500).json({ message: "Internal Server Error" });
+  }
+}
+
+// Get tournament leaderboard against admin
+export async function getTournamentLeaderboardAgainstAdminController(req: Request, res: Response) {
+  try {
+    const { id } = req.params;
+
+    if (!id) {
+      return res.status(400).json({ message: "Tournament ID is required" });
+    }
+
+    const result = await getTournamentLeaderboardAgainstAdmin(id);
+
+    if (result.success) {
+      return res.status(200).json(result);
+    } else {
+      return res.status(404).json(result);
+    }
+  } catch (error) {
+    console.error("Error in getTournamentLeaderboardAgainstAdminController:", error);
+    return res.status(500).json({ message: "Internal Server Error" });
+  }
+}
+
+// Get aggregated leaderboards for all tournaments by admin
+export async function getAdminTournamentsLeaderboardsController(req: Request, res: Response) {
+  try {
+    const { adminPublicKey } = req.params;
+
+    if (!adminPublicKey) {
+      return res.status(400).json({ message: "Admin public key is required" });
+    }
+
+    const result = await getAdminTournamentsLeaderboards(adminPublicKey);
+
+    if (result.success) {
+      return res.status(200).json(result);
+    } else {
+      return res.status(404).json(result);
+    }
+  } catch (error) {
+    console.error("Error in getAdminTournamentsLeaderboardsController:", error);
     return res.status(500).json({ message: "Internal Server Error" });
   }
 }
