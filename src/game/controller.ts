@@ -29,24 +29,24 @@ export async function createGame(req: Request, res: Response): Promise<void> {
         let imageUrl = "";
         let uploadedImageKey = "";
 
-        const imageFile = req.file;
-        if (imageFile) {
-            try {
-                console.log(`Uploading image: ${imageFile.originalname}, size: ${imageFile.size} bytes`);
+        // const imageFile = req.file;
+        // if (imageFile) {
+        //     try {
+        //         console.log(`Uploading image: ${imageFile.originalname}, size: ${imageFile.size} bytes`);
                 
-                const uploadResult = await S3Service.uploadFile(imageFile, 'games');
-                imageUrl = uploadResult.url;
-                uploadedImageKey = uploadResult.key;
+        //         const uploadResult = await S3Service.uploadFile(imageFile, 'games');
+        //         imageUrl = uploadResult.url;
+        //         uploadedImageKey = uploadResult.key;
                 
-                console.log(`Image uploaded successfully: ${imageUrl}`);
-            } catch (uploadError) {
-                console.error('Error uploading image to S3:', uploadError);
-                res.status(400).json({ 
-                    message: "Failed to upload image. Please try again." 
-                });
-                return;
-            }
-        }
+        //         console.log(`Image uploaded successfully: ${imageUrl}`);
+        //     } catch (uploadError) {
+        //         console.error('Error uploading image to S3:', uploadError);
+        //         res.status(400).json({ 
+        //             message: "Failed to upload image. Please try again." 
+        //         });
+        //         return;
+        //     }
+        // }
 
         // Create game object
         const game: Game = {

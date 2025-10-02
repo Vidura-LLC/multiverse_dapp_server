@@ -3,19 +3,19 @@ import { createGame, getAllGames, getGameById, getGamePerformanceMetrics, update
 import {upload, handleMulterError} from "../middleware/mutler"
 const router = Router();
 
-// Create game with image upload
+// Create game with multipart fields only (no file handling for now)
 router.post(
-    '/games',
-    upload.single('image'), // 'image' should match the FormData field name
-    handleMulterError,
-    createGame
-  );
+  '/create-game',
+  upload.none(),
+  handleMulterError,
+  createGame
+);
   
   // Update game with optional image upload
   router.put(
     '/games/:gameId',
-    upload.single('image'),
-    handleMulterError,
+    // upload.single('image'),
+    // handleMulterError,
     updateGame
   );router.get('/all-games', getAllGames);
 router.get('/game/:id', getGameById);
