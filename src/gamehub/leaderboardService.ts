@@ -1,12 +1,27 @@
 // src/gamehub/leaderboardService.ts
-import { ref, get, set } from "firebase/database";
+import { ref, get, set, query, orderByChild, limitToLast, startAt, endAt } from "firebase/database";
 import { db } from "../config/firebase";
 
 // Interface for leaderboard entry
 interface LeaderboardEntry {
   rank: number;
   playerId: string;
+  playerName?: string;
   score: number;
+  gameId?: string;
+  gameName?: string;
+  timestamp?: string;
+  totalGames?: number;
+  winRate?: number;
+}
+
+interface LeaderboardData {
+  period: string;
+  entries: LeaderboardEntry[];
+  totalPlayers: number;
+  lastUpdated: string;
+  nextReset?: string;
+  filters: any;
 }
 
 // Get tournament leaderboard
