@@ -1,30 +1,16 @@
 "use strict";
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const controller_1 = require("./controller");
-const multer_1 = __importDefault(require("multer"));
+const mutler_1 = require("../middleware/mutler");
 const router = (0, express_1.Router)();
-// Configure multer for handling multipart form data
-const upload = (0, multer_1.default)({
-    storage: multer_1.default.memoryStorage(), // Store in memory for now
-    limits: {
-        fileSize: 5 * 1024 * 1024, // 5MB limit
-    },
-    fileFilter: (req, file, cb) => {
-        // Accept only image files
-        if (file.mimetype.startsWith('image/')) {
-            cb(null, true);
-        }
-        else {
-            cb(new Error('Only image files are allowed'));
-        }
-    }
-});
-router.post('/create-game', upload.single('image'), controller_1.createGame);
+// Create game with image upload
+router.post('/games', mutler_1.upload.single('image'), // 'image' should match the FormData field name
+mutler_1.handleMulterError, controller_1.createGame);
+// Update game with optional image upload
+router.put('/games/:gameId', mutler_1.upload.single('image'), mutler_1.handleMulterError, controller_1.updateGame);
 router.get('/all-games', controller_1.getAllGames);
 router.get('/game/:id', controller_1.getGameById);
+router.get('/performance-metrics', controller_1.getGamePerformanceMetrics);
 exports.default = router;
 //# sourceMappingURL=routes.js.map

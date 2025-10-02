@@ -14,5 +14,9 @@ router.post('/distribute-prizes', revenueController_1.distributeTournamentPrizes
 router.post('/confirm-prize-distribution', revenueController_1.confirmPrizeDistributionController);
 // Route for getting prize distribution details
 router.get('/prize-distribution/:tournamentId', revenueController_1.getTournamentPrizesDistributionController);
+// Route for admin total prizes distributed across tournaments
+router.get('/admin/prizes-distributed/:adminPubKey', revenueController_1.getAdminPrizesDistributedController);
+// Route for admin distribution totals aggregation
+router.get('/admin/distribution-totals/:adminPubKey', revenueController_1.getAdminDistributionTotalsController);
 exports.default = router;
 //# sourceMappingURL=revenueRoutes.js.map

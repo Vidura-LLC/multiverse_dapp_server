@@ -10,7 +10,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.confirmPrizeDistributionController = exports.confirmDistributionController = exports.getTournamentPrizesDistributionController = exports.distributeTournamentPrizesController = exports.getTournamentDistributionController = exports.distributeTournamentRevenueController = void 0;
+exports.confirmPrizeDistributionController = exports.confirmDistributionController = exports.getAdminDistributionTotalsController = exports.getAdminPrizesDistributedController = exports.getTournamentPrizesDistributionController = exports.distributeTournamentPrizesController = exports.getTournamentDistributionController = exports.distributeTournamentRevenueController = void 0;
 const database_1 = require("firebase/database");
 const firebase_1 = require("../config/firebase");
 const web3_js_1 = require("@solana/web3.js");
@@ -264,6 +264,120 @@ const getTournamentPrizesDistributionController = (req, res) => __awaiter(void 0
     }
 });
 exports.getTournamentPrizesDistributionController = getTournamentPrizesDistributionController;
+/**
+ * Controller: Get total prizes distributed by an admin across all tournaments
+ */
+const getAdminPrizesDistributedController = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a, _b, _c, _d;
+    try {
+        const { adminPubKey } = req.params;
+        if (!adminPubKey) {
+            return res.status(400).json({ success: false, message: 'adminPubKey is required' });
+        }
+        // Fetch all tournaments
+        const tournamentsRef = (0, database_1.ref)(firebase_1.db, 'tournaments');
+        const tournamentsSnapshot = yield (0, database_1.get)(tournamentsRef);
+        if (!tournamentsSnapshot.exists()) {
+            return res.status(200).json({
+                success: true,
+                data: { totalPrizeRaw: '0', totalPrize: 0, tokenDecimals: 9, tournamentCount: 0 }
+            });
+        }
+        const tournaments = tournamentsSnapshot.val();
+        // Filter tournaments created by admin with prizesDistributed = true
+        const adminTournaments = Object.values(tournaments).filter((t) => t.createdBy === adminPubKey && t.prizesDistributed === true);
+        // Sum prize amounts. Prefer winners amounts; fallback to prizesDistributionDetails.prizeAmount
+        let totalPrize = BigInt(0);
+        for (const t of adminTournaments) {
+            if (t === null || t === void 0 ? void 0 : t.winners) {
+                const a1 = BigInt(((_a = t.winners.firstPlace) === null || _a === void 0 ? void 0 : _a.amount) || 0);
+                const a2 = BigInt(((_b = t.winners.secondPlace) === null || _b === void 0 ? void 0 : _b.amount) || 0);
+                const a3 = BigInt(((_c = t.winners.thirdPlace) === null || _c === void 0 ? void 0 : _c.amount) || 0);
+                totalPrize += a1 + a2 + a3;
+            }
+            else if (((_d = t === null || t === void 0 ? void 0 : t.prizesDistributionDetails) === null || _d === void 0 ? void 0 : _d.prizeAmount) != null) {
+                totalPrize += BigInt(t.prizesDistributionDetails.prizeAmount || 0);
+            }
+        }
+        const tokenDecimals = 9;
+        const totalPrizeRaw = totalPrize.toString();
+        const totalPrizeReadable = Number(totalPrizeRaw) / Math.pow(10, tokenDecimals);
+        return res.status(200).json({
+            success: true,
+            data: {
+                totalPrizeRaw,
+                totalPrize: totalPrizeReadable,
+                tokenDecimals,
+                tournamentCount: adminTournaments.length,
+            }
+        });
+    }
+    catch (err) {
+        console.error('Error in getAdminPrizesDistributedController:', err);
+        return res.status(500).json({ success: false, message: 'Failed to aggregate prizes distributed', error: err.message });
+    }
+});
+exports.getAdminPrizesDistributedController = getAdminPrizesDistributedController;
+/**
+ * Controller: Get aggregated distribution totals (prize, revenue, staking, burn)
+ * across all tournaments created by an admin.
+ */
+const getAdminDistributionTotalsController = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const { adminPubKey } = req.params;
+        if (!adminPubKey) {
+            return res.status(400).json({ success: false, message: 'adminPubKey is required' });
+        }
+        // Fetch all tournaments
+        const tournamentsRef = (0, database_1.ref)(firebase_1.db, 'tournaments');
+        const tournamentsSnapshot = yield (0, database_1.get)(tournamentsRef);
+        if (!tournamentsSnapshot.exists()) {
+            return res.status(200).json({
+                success: true,
+                data: {
+                    prizeAmountRaw: '0', revenueAmountRaw: '0', stakingAmountRaw: '0', burnAmountRaw: '0',
+                    prizeAmount: 0, revenueAmount: 0, stakingAmount: 0, burnAmount: 0,
+                    tokenDecimals: 9, tournamentCount: 0
+                }
+            });
+        }
+        const tournaments = tournamentsSnapshot.val();
+        const adminTournaments = Object.values(tournaments).filter((t) => t.createdBy === adminPubKey && t.distributionCompleted === true);
+        // Aggregate using BigInt
+        let prize = BigInt(0);
+        let revenue = BigInt(0);
+        let staking = BigInt(0);
+        let burn = BigInt(0);
+        for (const t of adminTournaments) {
+            const d = (t === null || t === void 0 ? void 0 : t.distributionDetails) || {};
+            prize += BigInt(d.prizeAmount || 0);
+            revenue += BigInt(d.revenueAmount || 0);
+            staking += BigInt(d.stakingAmount || 0);
+            burn += BigInt(d.burnAmount || 0);
+        }
+        const tokenDecimals = 9;
+        const prizeAmountRaw = prize.toString();
+        const revenueAmountRaw = revenue.toString();
+        const stakingAmountRaw = staking.toString();
+        const burnAmountRaw = burn.toString();
+        const divisor = Math.pow(10, tokenDecimals);
+        return res.status(200).json({
+            success: true,
+            data: {
+                prizeAmount: Number(prizeAmountRaw) / divisor,
+                revenueAmount: Number(revenueAmountRaw) / divisor,
+                stakingAmount: Number(stakingAmountRaw) / divisor,
+                burnAmount: Number(burnAmountRaw) / divisor,
+                tournamentCount: adminTournaments.length,
+            }
+        });
+    }
+    catch (err) {
+        console.error('Error in getAdminDistributionTotalsController:', err);
+        return res.status(500).json({ success: false, message: 'Failed to aggregate distribution totals', error: err.message });
+    }
+});
+exports.getAdminDistributionTotalsController = getAdminDistributionTotalsController;
 /**
  * Controller function to confirm tournament revenue distribution after frontend signs transaction
  */
