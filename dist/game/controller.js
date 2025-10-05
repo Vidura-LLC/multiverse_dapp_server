@@ -20,7 +20,7 @@ const s3Service_1 = require("./s3Service");
 function createGame(req, res) {
     return __awaiter(this, void 0, void 0, function* () {
         try {
-            const { id, name, description, userId, status, adminPublicKey } = req.body;
+            const { id, name, description, userId, status, adminPublicKey, image } = req.body;
             // Validate required fields
             if (!id || !name || !description || !userId || !status || !adminPublicKey) {
                 res.status(400).json({
@@ -36,33 +36,13 @@ function createGame(req, res) {
                 });
                 return;
             }
-            // Handle image upload
-            let imageUrl = "";
-            let uploadedImageKey = "";
-            const imageFile = req.file;
-            if (imageFile) {
-                try {
-                    console.log(`Uploading image: ${imageFile.originalname}, size: ${imageFile.size} bytes`);
-                    const uploadResult = yield s3Service_1.S3Service.uploadFile(imageFile, 'games');
-                    imageUrl = uploadResult.url;
-                    uploadedImageKey = uploadResult.key;
-                    console.log(`Image uploaded successfully: ${imageUrl}`);
-                }
-                catch (uploadError) {
-                    console.error('Error uploading image to S3:', uploadError);
-                    res.status(400).json({
-                        message: "Failed to upload image. Please try again."
-                    });
-                    return;
-                }
-            }
             // Create game object
             const game = {
                 id,
                 userId,
                 name,
                 description,
-                image: imageUrl, // Now contains S3 URL or empty string
+                image: image || "",
                 status: status,
                 createdAt: new Date(),
                 updatedAt: new Date(),
@@ -73,19 +53,6 @@ function createGame(req, res) {
                 const gameRef = (0, database_1.ref)(firebase_1.db, "games");
                 const newGameRef = (0, database_1.push)(gameRef);
                 const gameId = newGameRef.key;
-                if (!gameId) {
-                    // If Firebase save fails and we uploaded an image, clean up S3
-                    if (uploadedImageKey) {
-                        try {
-                            yield s3Service_1.S3Service.deleteFile(uploadedImageKey);
-                        }
-                        catch (cleanupError) {
-                            console.error('Error cleaning up uploaded image:', cleanupError);
-                        }
-                    }
-                    res.status(500).json({ message: "Failed to generate game ID" });
-                    return;
-                }
                 yield (0, database_1.set)(newGameRef, game);
                 res.status(201).json({
                     message: "Game created successfully",
@@ -96,15 +63,6 @@ function createGame(req, res) {
             }
             catch (dbError) {
                 console.error('Error saving to Firebase:', dbError);
-                // If Firebase save fails and we uploaded an image, clean up S3
-                if (uploadedImageKey) {
-                    try {
-                        yield s3Service_1.S3Service.deleteFile(uploadedImageKey);
-                    }
-                    catch (cleanupError) {
-                        console.error('Error cleaning up uploaded image:', cleanupError);
-                    }
-                }
                 res.status(500).json({ message: "Failed to save game to database" });
                 return;
             }
