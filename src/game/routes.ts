@@ -6,16 +6,12 @@ const router = Router();
 // Create game with multipart fields only (no file handling for now)
 router.post(
   '/create-game',
-  upload.none(),
-  handleMulterError,
   createGame
 );
   
   // Update game with optional image upload
   router.put(
     '/games/:gameId',
-    // upload.single('image'),
-    // handleMulterError,
     updateGame
   );router.get('/all-games', getAllGames);
 router.get('/game/:id', getGameById);

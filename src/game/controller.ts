@@ -6,12 +6,12 @@ import { Game, TGameStatus } from '../types/game'; // Adjust import path
 
 export async function createGame(req: Request, res: Response): Promise<void> {
     try {
-        const { id, name, description, userId, status, adminPublicKey } = req.body;
+        const { id, name, description, userId, status, adminPublicKey, image } = req.body;
 
         // Validate required fields
         if (!id || !name || !description || !userId || !status || !adminPublicKey) {
-            res.status(400).json({ 
-                message: "Missing required fields: id, name, description, userId, status, adminPublicKey" 
+            res.status(400).json({
+                message: "Missing required fields: id, name, description, userId, status, adminPublicKey"
             });
             return;
         }
@@ -19,34 +19,11 @@ export async function createGame(req: Request, res: Response): Promise<void> {
         // Validate status field  
         const validStatuses = ["draft", "published"];
         if (!validStatuses.includes(status)) {
-            res.status(400).json({ 
-                message: "Invalid status. Must be one of: draft, published" 
+            res.status(400).json({
+                message: "Invalid status. Must be one of: draft, published"
             });
             return;
         }
-
-        // Handle image upload
-        let imageUrl = "";
-        let uploadedImageKey = "";
-
-        // const imageFile = req.file;
-        // if (imageFile) {
-        //     try {
-        //         console.log(`Uploading image: ${imageFile.originalname}, size: ${imageFile.size} bytes`);
-                
-        //         const uploadResult = await S3Service.uploadFile(imageFile, 'games');
-        //         imageUrl = uploadResult.url;
-        //         uploadedImageKey = uploadResult.key;
-                
-        //         console.log(`Image uploaded successfully: ${imageUrl}`);
-        //     } catch (uploadError) {
-        //         console.error('Error uploading image to S3:', uploadError);
-        //         res.status(400).json({ 
-        //             message: "Failed to upload image. Please try again." 
-        //         });
-        //         return;
-        //     }
-        // }
 
         // Create game object
         const game: Game = {
@@ -54,7 +31,7 @@ export async function createGame(req: Request, res: Response): Promise<void> {
             userId,
             name,
             description,
-            image: imageUrl, // Now contains S3 URL or empty string
+            image: image || "",
             status: status as TGameStatus,
             createdAt: new Date(),
             updatedAt: new Date(),
@@ -66,25 +43,11 @@ export async function createGame(req: Request, res: Response): Promise<void> {
             const gameRef = ref(db, "games");
             const newGameRef = push(gameRef);
             const gameId = newGameRef.key;
-            
-            if (!gameId) {
-                // If Firebase save fails and we uploaded an image, clean up S3
-                if (uploadedImageKey) {
-                    try {
-                        await S3Service.deleteFile(uploadedImageKey);
-                    } catch (cleanupError) {
-                        console.error('Error cleaning up uploaded image:', cleanupError);
-                    }
-                }
-                
-                res.status(500).json({ message: "Failed to generate game ID" });
-                return;
-            }
 
             await set(newGameRef, game);
-            
-            res.status(201).json({ 
-                message: "Game created successfully", 
+
+            res.status(201).json({
+                message: "Game created successfully",
                 gameId,
                 game: {
                     ...game,
@@ -92,23 +55,11 @@ export async function createGame(req: Request, res: Response): Promise<void> {
                 }
             });
             return;
-            
         } catch (dbError) {
             console.error('Error saving to Firebase:', dbError);
-            
-            // If Firebase save fails and we uploaded an image, clean up S3
-            if (uploadedImageKey) {
-                try {
-                    await S3Service.deleteFile(uploadedImageKey);
-                } catch (cleanupError) {
-                    console.error('Error cleaning up uploaded image:', cleanupError);
-                }
-            }
-            
             res.status(500).json({ message: "Failed to save game to database" });
             return;
         }
-        
     } catch (error) {
         console.error('Unexpected error in createGame:', error);
         res.status(500).json({ message: "Internal Server Error" });
@@ -182,7 +133,7 @@ export async function getGamePerformanceMetrics(req: Request, res: Response): Pr
         // Calculate performance metrics for each game
         const gamePerformanceMetrics = games.map((game: Game) => {
             // Filter tournaments for this game
-            const gameTournaments = tournaments.filter((tournament: any) => 
+            const gameTournaments = tournaments.filter((tournament: any) =>
                 tournament.gameId === game.id
             );
 
@@ -211,16 +162,16 @@ export async function getGamePerformanceMetrics(req: Request, res: Response): Pr
             };
         });
 
-        res.status(200).json({ 
-            success: true, 
-            data: gamePerformanceMetrics 
+        res.status(200).json({
+            success: true,
+            data: gamePerformanceMetrics
         });
         return;
     } catch (error) {
         console.error("Error fetching game performance metrics:", error);
-        res.status(500).json({ 
-            success: false, 
-            message: "Internal Server Error" 
+        res.status(500).json({
+            success: false,
+            message: "Internal Server Error"
         });
         return;
     }
@@ -230,7 +181,7 @@ export async function updateGame(req: Request, res: Response): Promise<void> {
     try {
         const { gameId } = req.params;
         const { name, description, status, adminPublicKey } = req.body;
-        
+
         if (!gameId) {
             res.status(400).json({ message: "Game ID is required" });
             return;
@@ -239,23 +190,23 @@ export async function updateGame(req: Request, res: Response): Promise<void> {
         // Get current game data to handle image replacement
         const gameRef = ref(db, `games/${gameId}`);
         // You'll need to implement get functionality here
-        
+
         let imageUrl = "";
         let oldImageKey = "";
-        
+
         // Handle new image upload
         const imageFile = req.file;
         if (imageFile) {
             try {
                 const uploadResult = await S3Service.uploadFile(imageFile, 'games');
                 imageUrl = uploadResult.url;
-                
+
                 // TODO: Get old image URL from existing game data and extract key for deletion
                 // const oldImageUrl = existingGame.image;
                 // if (oldImageUrl) {
                 //     oldImageKey = S3Service.extractKeyFromUrl(oldImageUrl);
                 // }
-                
+
             } catch (uploadError) {
                 console.error('Error uploading new image:', uploadError);
                 res.status(400).json({ message: "Failed to upload new image" });
@@ -275,7 +226,7 @@ export async function updateGame(req: Request, res: Response): Promise<void> {
 
         // Update in Firebase
         await set(gameRef, updateData);
-        
+
         // Delete old image if new one was uploaded
         if (oldImageKey && imageUrl) {
             try {
@@ -286,11 +237,11 @@ export async function updateGame(req: Request, res: Response): Promise<void> {
             }
         }
 
-        res.status(200).json({ 
+        res.status(200).json({
             message: "Game updated successfully",
-            gameId 
+            gameId
         });
-        
+
     } catch (error) {
         console.error('Error updating game:', error);
         res.status(500).json({ message: "Internal Server Error" });
