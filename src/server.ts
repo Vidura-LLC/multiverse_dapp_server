@@ -8,6 +8,7 @@ import revenueRoutes from './revenue/revenueRoutes';
 import webhooksRoutes from './webhooks/routes'
 import adminDashboardRoutes from "./adminDashboard/adminDashboardRoutes";
 import gameRoutes from "./game/routes";
+import userRoutes from "./user/route";
 
 // Load environment variables
 dotenv.config();
@@ -26,6 +27,7 @@ app.use(bodyParser.json());
 
 // Routes
 app.use("/api/admin", adminDashboardRoutes);
+app.use("/api/user", userRoutes);
 app.use("/api/staking", stakingRoutes);
 app.use("/api/gamehub/", gamehubRoutes);
 app.use('/api/revenue/', revenueRoutes);
