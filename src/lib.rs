@@ -6,6 +6,21 @@ use anchor_spl::token_interface::{Mint, TokenAccount};
 declare_id!("Dz4rTCCmWrK9Ky6kzVqNK1GPeqjAecrZzKoyXvtue4Pr");
 
 // ==============================
+// TOKEN TYPE ENUM
+// ==============================
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Debug)]
+pub enum TokenType {
+    SPL,  // SPL Token (Token-2022)
+    SOL,  // Native SOL
+}
+
+impl Default for TokenType {
+    fn default() -> Self {
+        TokenType::SPL
+    }
+}
+
+// ==============================
 // Global constants and helpers
 // ==============================
 // Fixed-point precision for reward accumulator
@@ -210,13 +225,12 @@ pub mod multiversed_dapp {
             .saturating_mul(staking_pool.acc_reward_per_weight)
             .checked_div(ACC_PRECISION)
             .unwrap_or(0);
-        let pending_now: u128 = accumulated_per_user
-            .saturating_sub(user_staking_account.reward_debt);
+        let pending_now: u128 =
+            accumulated_per_user.saturating_sub(user_staking_account.reward_debt);
         if pending_now > 0 {
             let add: u64 = pending_now.min(u128::from(u64::MAX)) as u64;
-            user_staking_account.pending_rewards = user_staking_account
-                .pending_rewards
-                .saturating_add(add);
+            user_staking_account.pending_rewards =
+                user_staking_account.pending_rewards.saturating_add(add);
         }
 
         // Principal and lock details
@@ -278,13 +292,12 @@ pub mod multiversed_dapp {
             .saturating_mul(staking_pool.acc_reward_per_weight)
             .checked_div(ACC_PRECISION)
             .unwrap_or(0);
-        let pending_now: u128 = accumulated_per_user
-            .saturating_sub(user_staking_account.reward_debt);
+        let pending_now: u128 =
+            accumulated_per_user.saturating_sub(user_staking_account.reward_debt);
         if pending_now > 0 {
             let add: u64 = pending_now.min(u128::from(u64::MAX)) as u64;
-            user_staking_account.pending_rewards = user_staking_account
-                .pending_rewards
-                .saturating_add(add);
+            user_staking_account.pending_rewards =
+                user_staking_account.pending_rewards.saturating_add(add);
         }
 
         // Prepare signer seeds using copies to avoid conflicting borrows
@@ -324,7 +337,9 @@ pub mod multiversed_dapp {
             .ok_or(StakingError::MathOverflow)?;
 
         // Remove weight from pool and reset user's weight and debt
-        staking_pool.total_weight = staking_pool.total_weight.saturating_sub(user_staking_account.weight);
+        staking_pool.total_weight = staking_pool
+            .total_weight
+            .saturating_sub(user_staking_account.weight);
         user_staking_account.weight = 0;
         user_staking_account.reward_debt = 0;
 
@@ -545,9 +560,11 @@ pub mod multiversed_dapp {
     ) -> Result<()> {
         // Early validation to fail fast and reduce stack usage
         require!(
-            prize_percentage.saturating_add(revenue_percentage)
+            prize_percentage
+                .saturating_add(revenue_percentage)
                 .saturating_add(staking_percentage)
-                .saturating_add(burn_percentage) == 100,
+                .saturating_add(burn_percentage)
+                == 100,
             TournamentError::InvalidPercentages
         );
 
@@ -561,10 +578,16 @@ pub mod multiversed_dapp {
         // Get references early to reduce dereferencing overhead
         let tournament_pool = &ctx.accounts.tournament_pool;
         let mint = &ctx.accounts.mint;
-        
+
         // Early checks to fail fast
-        require!(tournament_pool.is_active, TournamentError::TournamentNotActive);
-        require!(tournament_pool.total_funds > 0, TournamentError::InsufficientFunds);
+        require!(
+            tournament_pool.is_active,
+            TournamentError::TournamentNotActive
+        );
+        require!(
+            tournament_pool.total_funds > 0,
+            TournamentError::InsufficientFunds
+        );
 
         // Store values in local variables to reduce repeated access
         let total_funds = tournament_pool.total_funds;
@@ -596,8 +619,11 @@ pub mod multiversed_dapp {
                 prize_amount,
                 decimals,
             )?;
-            
-            ctx.accounts.prize_pool.total_funds = ctx.accounts.prize_pool.total_funds
+
+            ctx.accounts.prize_pool.total_funds = ctx
+                .accounts
+                .prize_pool
+                .total_funds
                 .saturating_add(prize_amount);
         }
 
@@ -616,8 +642,11 @@ pub mod multiversed_dapp {
                 revenue_amount,
                 decimals,
             )?;
-            
-            ctx.accounts.revenue_pool.total_funds = ctx.accounts.revenue_pool.total_funds
+
+            ctx.accounts.revenue_pool.total_funds = ctx
+                .accounts
+                .revenue_pool
+                .total_funds
                 .saturating_add(revenue_amount);
         }
 
@@ -637,7 +666,10 @@ pub mod multiversed_dapp {
                 decimals,
             )?;
 
-            ctx.accounts.reward_pool.total_funds = ctx.accounts.reward_pool.total_funds
+            ctx.accounts.reward_pool.total_funds = ctx
+                .accounts
+                .reward_pool
+                .total_funds
                 .saturating_add(staking_amount);
 
             // ✅ AUTOMATIC: Update reward accumulator for current stakers
@@ -649,7 +681,7 @@ pub mod multiversed_dapp {
                     .unwrap_or(0);
                 sp.acc_reward_per_weight = sp.acc_reward_per_weight.saturating_add(delta);
                 sp.epoch_index = sp.epoch_index.saturating_add(1);
-                
+
                 msg!(
                     "✅ Reward accumulator updated: +{} (total: {})",
                     delta,
@@ -701,13 +733,17 @@ pub mod multiversed_dapp {
             .saturating_mul(staking_pool.acc_reward_per_weight)
             .checked_div(ACC_PRECISION)
             .unwrap_or(0);
-        let claimable_u128: u128 = accumulated.saturating_sub(user_staking_account.reward_debt)
+        let claimable_u128: u128 = accumulated
+            .saturating_sub(user_staking_account.reward_debt)
             .saturating_add(user_staking_account.pending_rewards as u128);
         let claimable: u64 = claimable_u128.min(u128::from(u64::MAX)) as u64;
         require!(claimable > 0, StakingError::InsufficientStakedBalance); // nothing to claim
 
         // Ensure RewardPool has sufficient funds
-        require!(reward_pool.total_funds >= claimable, TournamentError::InsufficientFunds);
+        require!(
+            reward_pool.total_funds >= claimable,
+            TournamentError::InsufficientFunds
+        );
 
         // Transfer from reward escrow to user token account
         let decimals = ctx.accounts.mint.decimals;
@@ -758,20 +794,19 @@ pub mod multiversed_dapp {
             .saturating_mul(staking_pool.acc_reward_per_weight)
             .checked_div(ACC_PRECISION)
             .unwrap_or(0);
-        
+
         // Calculate pending rewards (accumulated - reward debt)
         let pending_now: u128 = accumulated.saturating_sub(user_staking_account.reward_debt);
-        
+
         if pending_now > 0 {
             // Add to pending rewards (capped to u64::MAX to prevent overflow)
             let add: u64 = pending_now.min(u128::from(u64::MAX)) as u64;
-            user_staking_account.pending_rewards = user_staking_account
-                .pending_rewards
-                .saturating_add(add);
-            
+            user_staking_account.pending_rewards =
+                user_staking_account.pending_rewards.saturating_add(add);
+
             // Update reward debt to current baseline
             user_staking_account.reward_debt = accumulated;
-            
+
             msg!(
                 "✅ Rewards accrued for user {}: {} (pending total: {})",
                 ctx.accounts.user.key(),
@@ -1240,7 +1275,12 @@ pub mod multiversed_dapp {
         pub total_weight: u128,
         pub acc_reward_per_weight: u128,
         pub epoch_index: u64,
+        pub token_type: TokenType,
         pub bump: u8,
+    }
+
+    imp StakingPool {
+        pub const LEN: usize = 8 + 32 + 32 + 8 + 16 + 16 + 8 + 1 + 1;
     }
 
     #[account]
@@ -1265,7 +1305,11 @@ pub mod multiversed_dapp {
         pub max_participants: u16,
         pub end_time: i64,
         pub is_active: bool,
+        pub token_type: TokenType,
         pub bump: u8,
+    }
+        imp TournamentPool {
+        pub const LEN: usize = 8 + 32 + 32 + 32 + 8 + 8 + 2 + 2 + 8 + 1 + 1 + 1;
     }
 
     #[account]
@@ -1285,7 +1329,12 @@ pub mod multiversed_dapp {
         pub tournament_id: [u8; 32], // Increased from 10 to 32
         pub total_funds: u64,
         pub distributed: bool,
+        pub token_type: TokenType,
         pub bump: u8,
+    }
+
+    imp PrizePool {
+        pub const LEN: usize =  8 + 32 + 32 + 32 + 32 + 8 + 1 + 1 + 1;
     }
 
     #[account]
@@ -1294,7 +1343,12 @@ pub mod multiversed_dapp {
         pub mint: Pubkey,
         pub total_funds: u64,
         pub last_distribution: i64,
+        pub token_type: TokenType,
         pub bump: u8,
+    }
+
+    imp RevenuePool {
+        pub const LEN: usize = 8 + 32 + 32 + 8 + 8 + 1 + 1;
     }
 
     // Dedicated Reward Pool for staking rewards (5%)
@@ -1304,6 +1358,7 @@ pub mod multiversed_dapp {
         pub mint: Pubkey,
         pub total_funds: u64,
         pub last_distribution: i64,
+        pub token_type: TokenType,
         pub bump: u8,
     }
 
