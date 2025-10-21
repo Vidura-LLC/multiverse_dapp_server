@@ -408,78 +408,126 @@ pub mod multiversed_dapp {
         _tournament_id: String,
     ) -> Result<()> {
         let tournament_pool = &mut ctx.accounts.tournament_pool;
-        let user_token_account = &mut ctx.accounts.user_token_account;
         let user = &ctx.accounts.user;
-        let mint = &ctx.accounts.mint;
-
+    
         // Check if tournament is active
         require!(
             tournament_pool.is_active,
             TournamentError::TournamentNotActive
         );
-
+    
         // Check if tournament is full
         require!(
             tournament_pool.participant_count < tournament_pool.max_participants,
             TournamentError::TournamentFull
         );
-
+    
         // Check if tournament has ended
         let current_time = Clock::get()?.unix_timestamp;
         require!(
             current_time < tournament_pool.end_time,
             TournamentError::TournamentEnded
         );
-
-        // Check if user has sufficient funds
+    
         let entry_fee = tournament_pool.entry_fee;
-        let balance = user_token_account.amount;
-        require!(balance >= entry_fee, TournamentError::InsufficientFunds);
-
-        // Create registration record if not already exists
+    
+        // Create registration record
         let registration_account = &mut ctx.accounts.registration_account;
         require!(
-            registration_account.is_initialized == false,
+            !registration_account.is_initialized,
             TournamentError::AlreadyRegistered
         );
-
-        // Register user
+    
         registration_account.user = user.key();
         registration_account.tournament_pool = tournament_pool.key();
         registration_account.is_initialized = true;
         registration_account.registration_time = current_time;
         registration_account.bump = ctx.bumps.registration_account;
-
-        // Transfer entry fee to escrow account
-        let transfer_ctx = CpiContext::new(
-            ctx.accounts.token_program.to_account_info(),
-            TransferChecked {
-                from: user_token_account.to_account_info(),
-                to: ctx.accounts.pool_escrow_account.to_account_info(),
-                mint: ctx.accounts.mint.to_account_info(),
-                authority: user.to_account_info(),
-            },
-        );
-
-        // Get decimals from mint account instead of hardcoding
-        let decimals = mint.decimals;
-
-        token_2022::transfer_checked(transfer_ctx, entry_fee, decimals)?;
-
-        // Update tournament pool
-        tournament_pool.total_funds += entry_fee;
-        tournament_pool.participant_count += 1;
-
+    
+        // ==============================
+        // TOKEN TYPE CONDITIONAL LOGIC
+        // ==============================
+        match tournament_pool.token_type {
+            TokenType::SOL => {
+                // SOL PAYMENT: Transfer lamports directly to tournament pool PDA
+                let user_balance = ctx.accounts.user.lamports();
+                require!(
+                    user_balance >= entry_fee,
+                    TournamentError::InsufficientFunds
+                );
+    
+                // Transfer SOL from user to tournament pool PDA
+                let transfer_instruction = anchor_lang::system_program::Transfer {
+                    from: ctx.accounts.user.to_account_info(),
+                    to: ctx.accounts.tournament_pool.to_account_info(),
+                };
+    
+                anchor_lang::system_program::transfer(
+                    CpiContext::new(
+                        ctx.accounts.system_program.to_account_info(),
+                        transfer_instruction,
+                    ),
+                    entry_fee,
+                )?;
+    
+                msg!(
+                    "✅ User {} registered with {} lamports SOL",
+                    user.key(),
+                    entry_fee
+                );
+            }
+            TokenType::SPL => {
+                // SPL TOKEN PAYMENT: Use existing token transfer logic
+                let user_token_account = &ctx.accounts.user_token_account;
+                let mint = &ctx.accounts.mint;
+    
+                // Check if user has sufficient token balance
+                let balance = user_token_account.amount;
+                require!(balance >= entry_fee, TournamentError::InsufficientFunds);
+    
+                // Transfer SPL tokens to escrow account
+                let transfer_ctx = CpiContext::new(
+                    ctx.accounts.token_program.to_account_info(),
+                    TransferChecked {
+                        from: user_token_account.to_account_info(),
+                        to: ctx.accounts.pool_escrow_account.to_account_info(),
+                        mint: mint.to_account_info(),
+                        authority: user.to_account_info(),
+                    },
+                );
+    
+                let decimals = mint.decimals;
+                token_2022::transfer_checked(transfer_ctx, entry_fee, decimals)?;
+    
+                msg!(
+                    "✅ User {} registered with {} SPL tokens",
+                    user.key(),
+                    entry_fee
+                );
+            }
+        }
+    
+        // Update tournament pool state
+        tournament_pool.total_funds = tournament_pool
+            .total_funds
+            .checked_add(entry_fee)
+            .ok_or(TournamentError::MathOverflow)?;
+        
+        tournament_pool.participant_count = tournament_pool
+            .participant_count
+            .checked_add(1)
+            .ok_or(TournamentError::MathOverflow)?;
+    
         msg!(
-            "User {} registered for tournament {} with {} tokens.",
-            user.key(),
+            "Tournament {} now has {} participants with {} total funds",
             String::from_utf8_lossy(&tournament_pool.tournament_id),
-            entry_fee
+            tournament_pool.participant_count,
+            tournament_pool.total_funds
         );
-
+    
         Ok(())
     }
-
+    
     // Modified instruction to initialize just the global revenue pool
     pub fn initialize_revenue_pool(ctx: Context<InitializeRevenuePool>) -> Result<()> {
         let revenue_pool = &mut ctx.accounts.revenue_pool;
