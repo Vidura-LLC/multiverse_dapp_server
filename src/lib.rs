@@ -185,13 +185,9 @@ pub mod multiversed_dapp {
         Ok(())
     }
 
-    /// Allows a user to stake tokens
-    pub fn stake(ctx: Context<Stake>, amount: u64, lock_duration: i64) -> Result<()> {
-        let mint_decimals = ctx.accounts.mint.decimals;
-        let amount_in_base_units = amount
-            .checked_mul(10_u64.pow(mint_decimals as u32))
-            .ok_or(StakingError::MathOverflow)?;
 
+    //Stake tokens (SOL or SPL)
+    pub fn stake(ctx: Context<Stake>, amount: u64, lock_duration: i64) -> Result<()> {
         require!(
             lock_duration == ONE_MONTH
                 || lock_duration == THREE_MONTHS
@@ -199,89 +195,121 @@ pub mod multiversed_dapp {
                 || lock_duration == TWELVE_MONTHS,
             StakingError::InvalidLockDuration
         );
-
-        // Transfer tokens to escrow
-        let cpi_accounts = TransferChecked {
-            from: ctx.accounts.user_token_account.to_account_info(),
-            to: ctx.accounts.pool_escrow_account.to_account_info(),
-            mint: ctx.accounts.mint.to_account_info(),
-            authority: ctx.accounts.user.to_account_info(),
-        };
-
-        token_2022::transfer_checked(
-            CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts),
-            amount_in_base_units,
-            mint_decimals,
-        )?;
-
-        // Update user staking account and pool weight
-        let user_staking_account = &mut ctx.accounts.user_staking_account;
+    
         let staking_pool = &mut ctx.accounts.staking_pool;
-        let _current_timestamp = Clock::get()?.unix_timestamp;
-
-        // Accrue pending before changing weight
-        let accumulated_per_user: u128 = user_staking_account
-            .weight
-            .saturating_mul(staking_pool.acc_reward_per_weight)
-            .checked_div(ACC_PRECISION)
-            .unwrap_or(0);
-        let pending_now: u128 =
-            accumulated_per_user.saturating_sub(user_staking_account.reward_debt);
-        if pending_now > 0 {
-            let add: u64 = pending_now.min(u128::from(u64::MAX)) as u64;
-            user_staking_account.pending_rewards =
-                user_staking_account.pending_rewards.saturating_add(add);
-        }
-
-        // Principal and lock details
-        user_staking_account.owner = ctx.accounts.user.key();
+        let user_staking_account = &mut ctx.accounts.user_staking_account;
+        let user = &ctx.accounts.user;
+    
+        // ==============================
+        // TOKEN TYPE CONDITIONAL LOGIC
+        // ==============================
+        let amount_in_base_units = match staking_pool.token_type {
+            TokenType::SOL => {
+                // SOL STAKING: amount is already in lamports (base units)
+                // Verify user has sufficient SOL balance
+                let user_balance = user.lamports();
+                require!(
+                    user_balance >= amount,
+                    StakingError::InsufficientStakedBalance
+                );
+    
+                // Transfer SOL from user to staking pool PDA
+                let transfer_instruction = anchor_lang::system_program::Transfer {
+                    from: user.to_account_info(),
+                    to: staking_pool.to_account_info(),
+                };
+    
+                anchor_lang::system_program::transfer(
+                    CpiContext::new(
+                        ctx.accounts.system_program.to_account_info(),
+                        transfer_instruction,
+                    ),
+                    amount,
+                )?;
+    
+                msg!("✅ Staked {} lamports SOL", amount);
+                amount // Already in base units (lamports)
+            }
+            TokenType::SPL => {
+                // SPL STAKING: Convert amount to base units using decimals
+                let mint = &ctx.accounts.mint;
+                let mint_decimals = mint.decimals;
+                let amount_with_decimals = amount
+                    .checked_mul(10_u64.pow(mint_decimals as u32))
+                    .ok_or(StakingError::MathOverflow)?;
+    
+                // Transfer SPL tokens to escrow
+                let cpi_accounts = TransferChecked {
+                    from: ctx.accounts.user_token_account.to_account_info(),
+                    to: ctx.accounts.pool_escrow_account.to_account_info(),
+                    mint: mint.to_account_info(),
+                    authority: user.to_account_info(),
+                };
+    
+                token_2022::transfer_checked(
+                    CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts),
+                    amount_with_decimals,
+                    mint_decimals,
+                )?;
+    
+                msg!("✅ Staked {} SPL tokens (base units: {})", amount, amount_with_decimals);
+                amount_with_decimals
+            }
+        };
+    
+        // Calculate weight using lock multiplier
+        let multiplier_bps = lock_multiplier_bps(lock_duration);
+        let weight: u128 = (amount_in_base_units as u128)
+            .saturating_mul(multiplier_bps as u128)
+            .checked_div(BPS_DENOMINATOR as u128)
+            .ok_or(StakingError::MathOverflow)?;
+    
+        // Update user staking account
         user_staking_account.staked_amount = user_staking_account
             .staked_amount
             .checked_add(amount_in_base_units)
             .ok_or(StakingError::MathOverflow)?;
-        user_staking_account.stake_timestamp = _current_timestamp;
+    
+        user_staking_account.stake_timestamp = Clock::get()?.unix_timestamp;
         user_staking_account.lock_duration = lock_duration;
-
-        // Pool totals and weight
-        staking_pool.total_staked = staking_pool
-            .total_staked
-            .saturating_add(amount_in_base_units);
-
-        let multiplier_bps: u64 = lock_multiplier_bps(lock_duration);
-        let added_weight: u128 = (amount_in_base_units as u128)
-            .saturating_mul(multiplier_bps as u128)
-            .checked_div(BPS_DENOMINATOR as u128)
-            .unwrap_or(0);
-        staking_pool.total_weight = staking_pool.total_weight.saturating_add(added_weight);
-        user_staking_account.weight = user_staking_account.weight.saturating_add(added_weight);
-
-        // Sync reward debt to new baseline
+        user_staking_account.weight = user_staking_account
+            .weight
+            .checked_add(weight)
+            .ok_or(StakingError::MathOverflow)?;
+    
+        // Update reward debt
         user_staking_account.reward_debt = user_staking_account
             .weight
             .saturating_mul(staking_pool.acc_reward_per_weight)
             .checked_div(ACC_PRECISION)
             .unwrap_or(0);
-
+    
+        // Update staking pool totals
+        staking_pool.total_staked = staking_pool
+            .total_staked
+            .checked_add(amount_in_base_units)
+            .ok_or(StakingError::MathOverflow)?;
+    
+        staking_pool.total_weight = staking_pool
+            .total_weight
+            .checked_add(weight)
+            .ok_or(StakingError::MathOverflow)?;
+    
         msg!(
-            "✅ {} tokens staked by user: {} for {} seconds",
-            amount,
-            ctx.accounts.user.key(),
+            "✅ User {} staked {} (weight: {}, lock: {}s)",
+            user.key(),
+            amount_in_base_units,
+            weight,
             lock_duration
         );
-
+    
         Ok(())
     }
-
-    /// Allows users to unstake all of their tokens at any time
+    //Unstake tokens (SOL or SPL)
     pub fn unstake(ctx: Context<Unstake>) -> Result<()> {
         let user_staking_account = &mut ctx.accounts.user_staking_account;
         let staking_pool = &mut ctx.accounts.staking_pool;
-
-        // Ensure the user has a staked balance
-        require!(
-            user_staking_account.staked_amount > 0,
-            StakingError::InsufficientStakedBalance
-        );
+        let user = &ctx.accounts.user;
 
         let mint_decimals = ctx.accounts.mint.decimals;
         let amount_in_base_units = user_staking_account.staked_amount;
