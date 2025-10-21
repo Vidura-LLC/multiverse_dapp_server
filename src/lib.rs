@@ -310,73 +310,94 @@ pub mod multiversed_dapp {
         let user_staking_account = &mut ctx.accounts.user_staking_account;
         let staking_pool = &mut ctx.accounts.staking_pool;
         let user = &ctx.accounts.user;
-
-        let mint_decimals = ctx.accounts.mint.decimals;
-        let amount_in_base_units = user_staking_account.staked_amount;
-
-        // Accrue pending rewards up to now
-        let accumulated_per_user: u128 = user_staking_account
-            .weight
-            .saturating_mul(staking_pool.acc_reward_per_weight)
-            .checked_div(ACC_PRECISION)
-            .unwrap_or(0);
-        let pending_now: u128 =
-            accumulated_per_user.saturating_sub(user_staking_account.reward_debt);
-        if pending_now > 0 {
-            let add: u64 = pending_now.min(u128::from(u64::MAX)) as u64;
-            user_staking_account.pending_rewards =
-                user_staking_account.pending_rewards.saturating_add(add);
-        }
-
-        // Prepare signer seeds using copies to avoid conflicting borrows
-        let staking_pool_admin = staking_pool.admin;
-        let staking_pool_bump = staking_pool.bump;
-        // Transfer all staked tokens from the escrow account to the user's token account
-        let staking_pool_seeds = &[
-            b"staking_pool",
-            staking_pool_admin.as_ref(),
-            &[staking_pool_bump],
-        ];
-        let signer_seeds: &[&[&[u8]]] = &[staking_pool_seeds];
-
-        let transfer_ctx = CpiContext::new_with_signer(
-            ctx.accounts.token_program.to_account_info(),
-            TransferChecked {
-                from: ctx.accounts.pool_escrow_account.to_account_info(),
-                to: ctx.accounts.user_token_account.to_account_info(),
-                mint: ctx.accounts.mint.to_account_info(),
-                authority: staking_pool.to_account_info(),
-            },
-            signer_seeds,
-        );
-
-        // Execute the transfer of tokens (entire staked amount)
-        token_2022::transfer_checked(transfer_ctx, amount_in_base_units, mint_decimals)?;
-
-        // Update the staking data
-        user_staking_account.staked_amount = user_staking_account
-            .staked_amount
-            .checked_sub(amount_in_base_units)
+    
+        // Check if lock period has passed
+        let current_time = Clock::get()?.unix_timestamp;
+        let unlock_time = user_staking_account
+            .stake_timestamp
+            .checked_add(user_staking_account.lock_duration)
             .ok_or(StakingError::MathOverflow)?;
-
+    
+        require!(
+            current_time >= unlock_time,
+            StakingError::StakeLockActive
+        );
+    
+        let staked_amount = user_staking_account.staked_amount;
+        require!(staked_amount > 0, StakingError::InsufficientStakedBalance);
+    
+        // ==============================
+        // TOKEN TYPE CONDITIONAL LOGIC
+        // ==============================
+        match staking_pool.token_type {
+            TokenType::SOL => {
+                // SOL UNSTAKING: Transfer lamports from staking pool PDA to user
+                
+                // Verify staking pool has sufficient balance
+                let pool_balance = staking_pool.to_account_info().lamports();
+                require!(
+                    pool_balance >= staked_amount,
+                    StakingError::InsufficientStakedBalance
+                );
+    
+                // Transfer SOL from staking pool PDA to user using PDA signer
+                **staking_pool.to_account_info().try_borrow_mut_lamports()? -= staked_amount;
+                **user.to_account_info().try_borrow_mut_lamports()? += staked_amount;
+    
+                msg!("✅ Unstaked {} lamports SOL", staked_amount);
+            }
+            TokenType::SPL => {
+                // SPL UNSTAKING: Transfer tokens from escrow to user
+                let mint = &ctx.accounts.mint;
+                let decimals = mint.decimals;
+    
+                // Use PDA signer for the transfer
+                let admin = staking_pool.admin;
+                let bump = staking_pool.bump;
+                let signer_seeds: &[&[&[u8]]] = &[&[
+                    b"staking_pool",
+                    admin.as_ref(),
+                    &[bump],
+                ]];
+    
+                let transfer_ctx = CpiContext::new_with_signer(
+                    ctx.accounts.token_program.to_account_info(),
+                    TransferChecked {
+                        from: ctx.accounts.pool_escrow_account.to_account_info(),
+                        to: ctx.accounts.user_token_account.to_account_info(),
+                        mint: mint.to_account_info(),
+                        authority: staking_pool.to_account_info(),
+                    },
+                    signer_seeds,
+                );
+    
+                token_2022::transfer_checked(transfer_ctx, staked_amount, decimals)?;
+    
+                msg!("✅ Unstaked {} SPL tokens", staked_amount);
+            }
+        }
+    
+        // Update staking pool totals
         staking_pool.total_staked = staking_pool
             .total_staked
-            .checked_sub(amount_in_base_units)
+            .checked_sub(staked_amount)
             .ok_or(StakingError::MathOverflow)?;
-
-        // Remove weight from pool and reset user's weight and debt
+    
         staking_pool.total_weight = staking_pool
             .total_weight
             .saturating_sub(user_staking_account.weight);
+    
+        // Reset user staking account
+        user_staking_account.staked_amount = 0;
         user_staking_account.weight = 0;
         user_staking_account.reward_debt = 0;
-
+    
         msg!(
-            "✅ User {} unstaked all tokens. Remaining: {}",
-            ctx.accounts.user.key(),
-            user_staking_account.staked_amount
+            "✅ User {} unstaked all tokens. Pool total: {}",
+            user.key(),
+            staking_pool.total_staked
         );
-
+    
         Ok(())
     }
 
