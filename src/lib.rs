@@ -946,19 +946,22 @@ pub mod multiversed_dapp {
         pub system_program: Program<'info, System>,
     }
 
+
+
+    //Register for tournament context
     #[derive(Accounts)]
     #[instruction(tournament_id: String)]
     pub struct RegisterForTournament<'info> {
         #[account(mut)]
         pub user: Signer<'info>,
-
+    
         #[account(
             mut,
             seeds = [b"tournament_pool", tournament_pool.admin.as_ref(), tournament_id.as_bytes()],
             bump = tournament_pool.bump
         )]
         pub tournament_pool: Account<'info, TournamentPool>,
-
+    
         #[account(
             init,
             payer = user,
@@ -967,24 +970,24 @@ pub mod multiversed_dapp {
             bump
         )]
         pub registration_account: Account<'info, RegistrationRecord>,
-
-        #[account(mut, constraint = user_token_account.mint == tournament_pool.mint)]
-        pub user_token_account: InterfaceAccount<'info, TokenAccount>,
-
-        #[account(
-            mut,
-            token::mint = tournament_pool.mint,
-            token::authority = tournament_pool.admin
-        )]
-        pub pool_escrow_account: InterfaceAccount<'info, TokenAccount>,
-
-        #[account(mut, constraint = mint.key() == tournament_pool.mint)]
-        pub mint: InterfaceAccount<'info, Mint>,
-
+    
+        // Optional: Only required for SPL token tournaments
+        /// CHECK: This account is only used for SPL token tournaments
+        #[account(mut)]
+        pub user_token_account: UncheckedAccount<'info>,
+    
+        // Optional: Only required for SPL token tournaments
+        /// CHECK: This account is only used for SPL token tournaments
+        #[account(mut)]
+        pub pool_escrow_account: UncheckedAccount<'info>,
+    
+        // Optional: Only required for SPL token tournaments
+        /// CHECK: This account is only used for SPL token tournaments
+        pub mint: UncheckedAccount<'info>,
+    
         pub token_program: Program<'info, Token2022>,
         pub system_program: Program<'info, System>,
     }
-
     #[derive(Accounts)]
     pub struct InitializeRevenuePool<'info> {
         #[account(
