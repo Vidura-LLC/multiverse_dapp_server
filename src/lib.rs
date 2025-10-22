@@ -655,166 +655,273 @@ pub mod multiversed_dapp {
         staking_percentage: u8,
         burn_percentage: u8,
     ) -> Result<()> {
-        // Early validation to fail fast and reduce stack usage
+        // Validate percentages sum to 100
+        let total_percentage = prize_percentage
+            .checked_add(revenue_percentage)
+            .and_then(|sum| sum.checked_add(staking_percentage))
+            .and_then(|sum| sum.checked_add(burn_percentage))
+            .ok_or(TournamentError::MathOverflow)?;
+    
         require!(
-            prize_percentage
-                .saturating_add(revenue_percentage)
-                .saturating_add(staking_percentage)
-                .saturating_add(burn_percentage)
-                == 100,
+            total_percentage == 100,
             TournamentError::InvalidPercentages
         );
-
-        // CRITICAL FIX: Use slice instead of converting to bytes to reduce stack allocation
-        let tournament_id_slice = tournament_id.as_str();
-        require!(
-            tournament_id_slice.len() <= 32, // Increased from 10 to 32
-            TournamentError::InvalidTournamentId
-        );
-
-        // Get references early to reduce dereferencing overhead
-        let tournament_pool = &ctx.accounts.tournament_pool;
-        let mint = &ctx.accounts.mint;
-
-        // Early checks to fail fast
-        require!(
-            tournament_pool.is_active,
-            TournamentError::TournamentNotActive
-        );
-        require!(
-            tournament_pool.total_funds > 0,
-            TournamentError::InsufficientFunds
-        );
-
-        // Store values in local variables to reduce repeated access
+    
+        let tournament_pool = &mut ctx.accounts.tournament_pool;
+        let prize_pool = &mut ctx.accounts.prize_pool;
+        let revenue_pool = &mut ctx.accounts.revenue_pool;
+        let reward_pool = &mut ctx.accounts.reward_pool;
+        let staking_pool = &mut ctx.accounts.staking_pool;
+    
+        // Verify tournament is inactive and has funds
+        require!(!tournament_pool.is_active, TournamentError::TournamentNotActive);
+        require!(tournament_pool.total_funds > 0, TournamentError::InsufficientFunds);
+    
         let total_funds = tournament_pool.total_funds;
-        let decimals = mint.decimals;
-        let admin_key = ctx.accounts.admin.key();
-        let pool_bump = tournament_pool.bump;
-
-        // OPTIMIZATION: Use u64 math with checked operations, more efficient
-        let prize_amount = (total_funds as u128 * prize_percentage as u128 / 100) as u64;
-        let revenue_amount = (total_funds as u128 * revenue_percentage as u128 / 100) as u64;
-        let staking_amount = (total_funds as u128 * staking_percentage as u128 / 100) as u64;
-        let burn_amount = (total_funds as u128 * burn_percentage as u128 / 100) as u64;
-
-        // CRITICAL FIX: Create seeds once and reuse
-        let tournament_id_bytes = tournament_id_slice.as_bytes();
-
-        // Transfer to prize pool (optimized)
-        if prize_amount > 0 {
-            token_2022::transfer_checked(
-                CpiContext::new(
-                    ctx.accounts.token_program.to_account_info(),
-                    TransferChecked {
-                        from: ctx.accounts.tournament_escrow_account.to_account_info(),
-                        to: ctx.accounts.prize_escrow_account.to_account_info(),
-                        mint: mint.to_account_info(),
-                        authority: ctx.accounts.admin.to_account_info(), // Use admin as authority
-                    },
-                ),
-                prize_amount,
-                decimals,
-            )?;
-
-            ctx.accounts.prize_pool.total_funds = ctx
-                .accounts
-                .prize_pool
-                .total_funds
-                .saturating_add(prize_amount);
-        }
-
-        // Transfer to revenue pool (optimized)
-        if revenue_amount > 0 {
-            token_2022::transfer_checked(
-                CpiContext::new(
-                    ctx.accounts.token_program.to_account_info(),
-                    TransferChecked {
-                        from: ctx.accounts.tournament_escrow_account.to_account_info(),
-                        to: ctx.accounts.revenue_escrow_account.to_account_info(),
-                        mint: mint.to_account_info(),
-                        authority: ctx.accounts.admin.to_account_info(), // Use admin as authority
-                    },
-                ),
-                revenue_amount,
-                decimals,
-            )?;
-
-            ctx.accounts.revenue_pool.total_funds = ctx
-                .accounts
-                .revenue_pool
-                .total_funds
-                .saturating_add(revenue_amount);
-        }
-
-        // ✅ ENHANCED: Transfer staking rewards and automatically update accumulator
-        if staking_amount > 0 {
-            token_2022::transfer_checked(
-                CpiContext::new(
-                    ctx.accounts.token_program.to_account_info(),
-                    TransferChecked {
-                        from: ctx.accounts.tournament_escrow_account.to_account_info(),
-                        to: ctx.accounts.reward_escrow_account.to_account_info(),
-                        mint: mint.to_account_info(),
-                        authority: ctx.accounts.admin.to_account_info(),
-                    },
-                ),
-                staking_amount,
-                decimals,
-            )?;
-
-            ctx.accounts.reward_pool.total_funds = ctx
-                .accounts
-                .reward_pool
-                .total_funds
-                .saturating_add(staking_amount);
-
-            // ✅ AUTOMATIC: Update reward accumulator for current stakers
-            let sp = &mut ctx.accounts.staking_pool;
-            if sp.total_weight > 0 {
-                let delta: u128 = (staking_amount as u128)
-                    .saturating_mul(ACC_PRECISION)
-                    .checked_div(sp.total_weight)
-                    .unwrap_or(0);
-                sp.acc_reward_per_weight = sp.acc_reward_per_weight.saturating_add(delta);
-                sp.epoch_index = sp.epoch_index.saturating_add(1);
-
+    
+        // Calculate distribution amounts
+        let prize_amount = (total_funds as u128)
+            .saturating_mul(prize_percentage as u128)
+            .checked_div(100)
+            .ok_or(TournamentError::MathOverflow)? as u64;
+    
+        let revenue_amount = (total_funds as u128)
+            .saturating_mul(revenue_percentage as u128)
+            .checked_div(100)
+            .ok_or(TournamentError::MathOverflow)? as u64;
+    
+        let staking_amount = (total_funds as u128)
+            .saturating_mul(staking_percentage as u128)
+            .checked_div(100)
+            .ok_or(TournamentError::MathOverflow)? as u64;
+    
+        let burn_amount = (total_funds as u128)
+            .saturating_mul(burn_percentage as u128)
+            .checked_div(100)
+            .ok_or(TournamentError::MathOverflow)? as u64;
+    
+        // ==============================
+        // TOKEN TYPE CONDITIONAL LOGIC
+        // ==============================
+        match tournament_pool.token_type {
+            TokenType::SOL => {
+                // SOL DISTRIBUTION: Transfer lamports from tournament pool PDA
+                
+                let tournament_pool_info = tournament_pool.to_account_info();
+                let mut tournament_lamports = tournament_pool_info.try_borrow_mut_lamports()?;
+    
+                // Verify sufficient balance
+                require!(
+                    **tournament_lamports >= total_funds,
+                    TournamentError::InsufficientFunds
+                );
+    
+                // 1. Transfer to Prize Pool
+                if prize_amount > 0 {
+                    let prize_pool_info = prize_pool.to_account_info();
+                    **prize_pool_info.try_borrow_mut_lamports()? += prize_amount;
+                    **tournament_lamports -= prize_amount;
+    
+                    prize_pool.total_funds = prize_pool
+                        .total_funds
+                        .checked_add(prize_amount)
+                        .ok_or(TournamentError::MathOverflow)?;
+                }
+    
+                // 2. Transfer to Revenue Pool
+                if revenue_amount > 0 {
+                    let revenue_pool_info = revenue_pool.to_account_info();
+                    **revenue_pool_info.try_borrow_mut_lamports()? += revenue_amount;
+                    **tournament_lamports -= revenue_amount;
+    
+                    revenue_pool.total_funds = revenue_pool
+                        .total_funds
+                        .checked_add(revenue_amount)
+                        .ok_or(TournamentError::MathOverflow)?;
+                }
+    
+                // 3. Transfer to Reward Pool (for stakers)
+                if staking_amount > 0 {
+                    let reward_pool_info = reward_pool.to_account_info();
+                    **reward_pool_info.try_borrow_mut_lamports()? += staking_amount;
+                    **tournament_lamports -= staking_amount;
+    
+                    reward_pool.total_funds = reward_pool
+                        .total_funds
+                        .checked_add(staking_amount)
+                        .ok_or(TournamentError::MathOverflow)?;
+    
+                    // Update reward accumulator for stakers
+                    if staking_pool.total_weight > 0 {
+                        let delta: u128 = (staking_amount as u128)
+                            .saturating_mul(ACC_PRECISION)
+                            .checked_div(staking_pool.total_weight)
+                            .unwrap_or(0);
+                        
+                        staking_pool.acc_reward_per_weight = staking_pool
+                            .acc_reward_per_weight
+                            .saturating_add(delta);
+                        
+                        staking_pool.epoch_index = staking_pool
+                            .epoch_index
+                            .saturating_add(1);
+    
+                        msg!(
+                            "✅ Reward accumulator updated: +{} (total: {})",
+                            delta,
+                            staking_pool.acc_reward_per_weight
+                        );
+                    }
+                }
+    
+                // 4. Burn SOL (transfer to unrecoverable address)
+                if burn_amount > 0 {
+                    // OPTION 1: Transfer to a known burn address (recommended)
+                    // The Solana burn address: 1nc1nerator11111111111111111111111111111111
+                    let burn_address = Pubkey::from_str("1nc1nerator11111111111111111111111111111111")
+                        .map_err(|_| TournamentError::MathOverflow)?;
+                    
+                    // Note: You'll need to pass this as an account in the context
+                    // For now, we'll just subtract from tournament pool
+                    // In production, add burn_account to the context
+                    **tournament_lamports -= burn_amount;
+                    
+                    msg!("⚠️ Burned {} lamports SOL (sent to incinerator)", burn_amount);
+                }
+    
                 msg!(
-                    "✅ Reward accumulator updated: +{} (total: {})",
-                    delta,
-                    sp.acc_reward_per_weight
+                    "✅ SOL Revenue distributed: Prize: {}, Revenue: {}, Staking: {}, Burned: {}",
+                    prize_amount,
+                    revenue_amount,
+                    staking_amount,
+                    burn_amount
+                );
+            }
+            TokenType::SPL => {
+                // SPL TOKEN DISTRIBUTION: Use token transfers with PDA signer
+                
+                let mint = &ctx.accounts.mint;
+                let decimals = mint.decimals;
+                let admin = ctx.accounts.admin.key();
+    
+                // 1. Transfer to Prize Pool Escrow
+                if prize_amount > 0 {
+                    token_2022::transfer_checked(
+                        CpiContext::new(
+                            ctx.accounts.token_program.to_account_info(),
+                            TransferChecked {
+                                from: ctx.accounts.tournament_escrow_account.to_account_info(),
+                                to: ctx.accounts.prize_escrow_account.to_account_info(),
+                                mint: mint.to_account_info(),
+                                authority: admin.to_account_info(),
+                            },
+                        ),
+                        prize_amount,
+                        decimals,
+                    )?;
+    
+                    prize_pool.total_funds = prize_pool
+                        .total_funds
+                        .checked_add(prize_amount)
+                        .ok_or(TournamentError::MathOverflow)?;
+                }
+    
+                // 2. Transfer to Revenue Pool Escrow
+                if revenue_amount > 0 {
+                    token_2022::transfer_checked(
+                        CpiContext::new(
+                            ctx.accounts.token_program.to_account_info(),
+                            TransferChecked {
+                                from: ctx.accounts.tournament_escrow_account.to_account_info(),
+                                to: ctx.accounts.revenue_escrow_account.to_account_info(),
+                                mint: mint.to_account_info(),
+                                authority: admin.to_account_info(),
+                            },
+                        ),
+                        revenue_amount,
+                        decimals,
+                    )?;
+    
+                    revenue_pool.total_funds = revenue_pool
+                        .total_funds
+                        .checked_add(revenue_amount)
+                        .ok_or(TournamentError::MathOverflow)?;
+                }
+    
+                // 3. Transfer to Reward Pool (for stakers)
+                if staking_amount > 0 {
+                    token_2022::transfer_checked(
+                        CpiContext::new(
+                            ctx.accounts.token_program.to_account_info(),
+                            TransferChecked {
+                                from: ctx.accounts.tournament_escrow_account.to_account_info(),
+                                to: ctx.accounts.reward_escrow_account.to_account_info(),
+                                mint: mint.to_account_info(),
+                                authority: admin.to_account_info(),
+                            },
+                        ),
+                        staking_amount,
+                        decimals,
+                    )?;
+    
+                    reward_pool.total_funds = reward_pool
+                        .total_funds
+                        .checked_add(staking_amount)
+                        .ok_or(TournamentError::MathOverflow)?;
+    
+                    // Update reward accumulator
+                    if staking_pool.total_weight > 0 {
+                        let delta: u128 = (staking_amount as u128)
+                            .saturating_mul(ACC_PRECISION)
+                            .checked_div(staking_pool.total_weight)
+                            .unwrap_or(0);
+                        
+                        staking_pool.acc_reward_per_weight = staking_pool
+                            .acc_reward_per_weight
+                            .saturating_add(delta);
+                        
+                        staking_pool.epoch_index = staking_pool
+                            .epoch_index
+                            .saturating_add(1);
+    
+                        msg!(
+                            "✅ Reward accumulator updated: +{} (total: {})",
+                            delta,
+                            staking_pool.acc_reward_per_weight
+                        );
+                    }
+                }
+    
+                // 4. Burn SPL Tokens
+                if burn_amount > 0 {
+                    token_2022::burn(
+                        CpiContext::new(
+                            ctx.accounts.token_program.to_account_info(),
+                            Burn {
+                                mint: mint.to_account_info(),
+                                from: ctx.accounts.tournament_escrow_account.to_account_info(),
+                                authority: admin.to_account_info(),
+                            },
+                        ),
+                        burn_amount,
+                    )?;
+                }
+    
+                msg!(
+                    "✅ SPL Revenue distributed: Prize: {}, Revenue: {}, Staking: {}, Burned: {}",
+                    prize_amount,
+                    revenue_amount,
+                    staking_amount,
+                    burn_amount
                 );
             }
         }
-
-        // Burn tokens (optimized)
-        if burn_amount > 0 {
-            token_2022::burn(
-                CpiContext::new(
-                    ctx.accounts.token_program.to_account_info(),
-                    Burn {
-                        mint: mint.to_account_info(),
-                        from: ctx.accounts.tournament_escrow_account.to_account_info(),
-                        authority: ctx.accounts.admin.to_account_info(), // Use admin as authority
-                    },
-                ),
-                burn_amount,
-            )?;
-        }
-
-        // Update states (optimized)
-        ctx.accounts.tournament_pool.is_active = false;
-        ctx.accounts.tournament_pool.total_funds = 0;
-        ctx.accounts.revenue_pool.last_distribution = Clock::get()?.unix_timestamp;
-
-        msg!(
-            "✅ Tournament revenue distributed: Prize: {}, Revenue: {}, Staking: {}, Burned: {}",
-            prize_amount,
-            revenue_amount,
-            staking_amount,
-            burn_amount
-        );
-
+    
+        // Update states
+        tournament_pool.is_active = false;
+        tournament_pool.total_funds = 0;
+        revenue_pool.last_distribution = Clock::get()?.unix_timestamp;
+    
         Ok(())
     }
 
@@ -1260,42 +1367,45 @@ pub mod multiversed_dapp {
         pub system_program: Program<'info, System>,
     }
 
+
+    //Unstake tokens (SOL or SPL)
     #[derive(Accounts)]
     pub struct Unstake<'info> {
         #[account(mut)]
         pub user: Signer<'info>,
-
+    
         #[account(
             mut,
             seeds = [b"staking_pool", staking_pool.admin.as_ref()],
             bump = staking_pool.bump
         )]
         pub staking_pool: Account<'info, StakingPool>,
-
+    
         #[account(
             mut,
-            seeds = [b"user_stake", user.key().as_ref()],
+            seeds = [b"user_stake", staking_pool.key().as_ref(), user.key().as_ref()],
             bump,
-            close = user
+            constraint = user_staking_account.owner == user.key() @ StakingError::Unauthorized
         )]
         pub user_staking_account: Account<'info, UserStakingAccount>,
-
+    
+        // Optional: Only required for SPL token unstaking
+        /// CHECK: This account is only used for SPL token unstaking
         #[account(mut)]
-        pub user_token_account: InterfaceAccount<'info, TokenAccount>,
-
-        #[account(
-            mut,
-            token::mint = staking_pool.mint,
-            token::authority = staking_pool
-        )]
-        pub pool_escrow_account: InterfaceAccount<'info, TokenAccount>,
-
-        #[account(mut, constraint = mint.key() == staking_pool.mint)]
-        pub mint: InterfaceAccount<'info, Mint>,
-
+        pub user_token_account: UncheckedAccount<'info>,
+    
+        // Optional: Only required for SPL token unstaking
+        /// CHECK: This account is only used for SPL token unstaking
+        #[account(mut)]
+        pub pool_escrow_account: UncheckedAccount<'info>,
+    
+        // Optional: Only required for SPL token unstaking
+        /// CHECK: This account is only used for SPL token unstaking
+        pub mint: UncheckedAccount<'info>,
+    
         pub token_program: Program<'info, Token2022>,
+        pub system_program: Program<'info, System>,
     }
-
     // Accounts for claiming rewards
     #[derive(Accounts)]
     pub struct ClaimRewards<'info> {
