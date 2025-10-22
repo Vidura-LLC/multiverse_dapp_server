@@ -67,124 +67,223 @@ pub mod multiversed_dapp {
         Ok(())
     }
 
-    // Prize distribution function - matches the TypeScript service exactly
+    // Prize Distribution Logic
     pub fn distribute_tournament_prizes(
         ctx: Context<DistributeTournamentPrizes>,
         tournament_id: String,
     ) -> Result<()> {
         // Fixed percentages for the top 3 positions
         const PERCENTAGES: [u8; 3] = [50, 30, 20]; // 1st: 50%, 2nd: 30%, 3rd: 20%
-
+    
+        let prize_pool = &mut ctx.accounts.prize_pool;
+    
         // Convert tournament_id to fixed-size bytes for comparison
         let mut tournament_id_bytes = [0u8; 32];
         let id_bytes = tournament_id.as_bytes();
         let len = id_bytes.len().min(32);
         tournament_id_bytes[..len].copy_from_slice(&id_bytes[..len]);
-
+    
         // Verify tournament ID matches
         require!(
-            ctx.accounts.prize_pool.tournament_id == tournament_id_bytes,
+            prize_pool.tournament_id == tournament_id_bytes,
             TournamentError::Unauthorized
         );
-
+    
         // Ensure prize pool hasn't been distributed yet
         require!(
-            !ctx.accounts.prize_pool.distributed,
+            !prize_pool.distributed,
             TournamentError::AlreadyDistributed
         );
-
+    
         // Ensure there are funds to distribute
         require!(
-            ctx.accounts.prize_pool.total_funds > 0,
+            prize_pool.total_funds > 0,
             TournamentError::InsufficientFunds
         );
-
-        let total_prize_funds = ctx.accounts.prize_pool.total_funds;
-        let decimals = ctx.accounts.mint.decimals;
-
-        // Calculate prize amounts for each position
-        let first_place_amount = (total_prize_funds as u128 * PERCENTAGES[0] as u128 / 100) as u64;
-        let second_place_amount = (total_prize_funds as u128 * PERCENTAGES[1] as u128 / 100) as u64;
-        let third_place_amount = (total_prize_funds as u128 * PERCENTAGES[2] as u128 / 100) as u64;
-
-        // Create signer seeds for prize pool PDA
-        let tournament_pool_key = ctx.accounts.tournament_pool.key();
-        let prize_pool_seeds = &[
-            b"prize_pool",
-            tournament_pool_key.as_ref(),
-            &[ctx.accounts.prize_pool.bump],
-        ];
-        let signer_seeds: &[&[&[u8]]] = &[prize_pool_seeds];
-
-        // Transfer prizes to winners
-        // 1st Place
-        if first_place_amount > 0 {
-            token_2022::transfer_checked(
-                CpiContext::new_with_signer(
-                    ctx.accounts.token_program.to_account_info(),
-                    TransferChecked {
-                        from: ctx.accounts.prize_escrow_account.to_account_info(),
-                        to: ctx.accounts.first_place_token_account.to_account_info(),
-                        mint: ctx.accounts.mint.to_account_info(),
-                        authority: ctx.accounts.prize_pool.to_account_info(),
-                    },
-                    signer_seeds,
-                ),
-                first_place_amount,
-                decimals,
-            )?;
+    
+        let total_prize_pool = prize_pool.total_funds;
+    
+        // Calculate prize amounts for each winner
+        let first_place_amount = (total_prize_pool as u128)
+            .saturating_mul(PERCENTAGES[0] as u128)
+            .checked_div(100)
+            .ok_or(TournamentError::MathOverflow)? as u64;
+    
+        let second_place_amount = (total_prize_pool as u128)
+            .saturating_mul(PERCENTAGES[1] as u128)
+            .checked_div(100)
+            .ok_or(TournamentError::MathOverflow)? as u64;
+    
+        let third_place_amount = (total_prize_pool as u128)
+            .saturating_mul(PERCENTAGES[2] as u128)
+            .checked_div(100)
+            .ok_or(TournamentError::MathOverflow)? as u64;
+    
+        // ==============================
+        // TOKEN TYPE CONDITIONAL LOGIC
+        // ==============================
+        match prize_pool.token_type {
+            TokenType::SOL => {
+                // SOL PRIZE DISTRIBUTION: Transfer lamports directly to winners
+                
+                let prize_pool_info = prize_pool.to_account_info();
+                let mut prize_pool_lamports = prize_pool_info.try_borrow_mut_lamports()?;
+    
+                // Verify sufficient balance
+                require!(
+                    **prize_pool_lamports >= total_prize_pool,
+                    TournamentError::InsufficientFunds
+                );
+    
+                // Transfer to 1st Place Winner
+                if first_place_amount > 0 {
+                    **ctx.accounts.first_place_winner.try_borrow_mut_lamports()? += first_place_amount;
+                    **prize_pool_lamports -= first_place_amount;
+    
+                    msg!(
+                        "✅ 1st place: {} received {} lamports SOL",
+                        ctx.accounts.first_place_winner.key(),
+                        first_place_amount
+                    );
+                }
+    
+                // Transfer to 2nd Place Winner
+                if second_place_amount > 0 {
+                    **ctx.accounts.second_place_winner.try_borrow_mut_lamports()? += second_place_amount;
+                    **prize_pool_lamports -= second_place_amount;
+    
+                    msg!(
+                        "✅ 2nd place: {} received {} lamports SOL",
+                        ctx.accounts.second_place_winner.key(),
+                        second_place_amount
+                    );
+                }
+    
+                // Transfer to 3rd Place Winner
+                if third_place_amount > 0 {
+                    **ctx.accounts.third_place_winner.try_borrow_mut_lamports()? += third_place_amount;
+                    **prize_pool_lamports -= third_place_amount;
+    
+                    msg!(
+                        "✅ 3rd place: {} received {} lamports SOL",
+                        ctx.accounts.third_place_winner.key(),
+                        third_place_amount
+                    );
+                }
+    
+                msg!(
+                    "✅ SOL Tournament prizes distributed: 1st: {}, 2nd: {}, 3rd: {}",
+                    first_place_amount,
+                    second_place_amount,
+                    third_place_amount
+                );
+            }
+            TokenType::SPL => {
+                // SPL TOKEN PRIZE DISTRIBUTION: Transfer tokens from escrow to winner accounts
+                
+                let mint = &ctx.accounts.mint;
+                let decimals = mint.decimals;
+    
+                // Use PDA signer for transfers
+                let admin = prize_pool.admin;
+                let tournament_pool = prize_pool.tournament_pool;
+                let bump = prize_pool.bump;
+                let signer_seeds: &[&[&[u8]]] = &[&[
+                    b"prize_pool",
+                    tournament_pool.as_ref(),
+                    &[bump],
+                ]];
+    
+                // Transfer to 1st Place Winner
+                if first_place_amount > 0 {
+                    token_2022::transfer_checked(
+                        CpiContext::new_with_signer(
+                            ctx.accounts.token_program.to_account_info(),
+                            TransferChecked {
+                                from: ctx.accounts.prize_escrow_account.to_account_info(),
+                                to: ctx.accounts.first_place_token_account.to_account_info(),
+                                mint: mint.to_account_info(),
+                                authority: prize_pool.to_account_info(),
+                            },
+                            signer_seeds,
+                        ),
+                        first_place_amount,
+                        decimals,
+                    )?;
+    
+                    msg!(
+                        "✅ 1st place: {} received {} SPL tokens",
+                        ctx.accounts.first_place_token_account.key(),
+                        first_place_amount
+                    );
+                }
+    
+                // Transfer to 2nd Place Winner
+                if second_place_amount > 0 {
+                    token_2022::transfer_checked(
+                        CpiContext::new_with_signer(
+                            ctx.accounts.token_program.to_account_info(),
+                            TransferChecked {
+                                from: ctx.accounts.prize_escrow_account.to_account_info(),
+                                to: ctx.accounts.second_place_token_account.to_account_info(),
+                                mint: mint.to_account_info(),
+                                authority: prize_pool.to_account_info(),
+                            },
+                            signer_seeds,
+                        ),
+                        second_place_amount,
+                        decimals,
+                    )?;
+    
+                    msg!(
+                        "✅ 2nd place: {} received {} SPL tokens",
+                        ctx.accounts.second_place_token_account.key(),
+                        second_place_amount
+                    );
+                }
+    
+                // Transfer to 3rd Place Winner
+                if third_place_amount > 0 {
+                    token_2022::transfer_checked(
+                        CpiContext::new_with_signer(
+                            ctx.accounts.token_program.to_account_info(),
+                            TransferChecked {
+                                from: ctx.accounts.prize_escrow_account.to_account_info(),
+                                to: ctx.accounts.third_place_token_account.to_account_info(),
+                                mint: mint.to_account_info(),
+                                authority: prize_pool.to_account_info(),
+                            },
+                            signer_seeds,
+                        ),
+                        third_place_amount,
+                        decimals,
+                    )?;
+    
+                    msg!(
+                        "✅ 3rd place: {} received {} SPL tokens",
+                        ctx.accounts.third_place_token_account.key(),
+                        third_place_amount
+                    );
+                }
+    
+                msg!(
+                    "✅ SPL Tournament prizes distributed: 1st: {}, 2nd: {}, 3rd: {}",
+                    first_place_amount,
+                    second_place_amount,
+                    third_place_amount
+                );
+            }
         }
-
-        // 2nd Place
-        if second_place_amount > 0 {
-            token_2022::transfer_checked(
-                CpiContext::new_with_signer(
-                    ctx.accounts.token_program.to_account_info(),
-                    TransferChecked {
-                        from: ctx.accounts.prize_escrow_account.to_account_info(),
-                        to: ctx.accounts.second_place_token_account.to_account_info(),
-                        mint: ctx.accounts.mint.to_account_info(),
-                        authority: ctx.accounts.prize_pool.to_account_info(),
-                    },
-                    signer_seeds,
-                ),
-                second_place_amount,
-                decimals,
-            )?;
-        }
-
-        // 3rd Place
-        if third_place_amount > 0 {
-            token_2022::transfer_checked(
-                CpiContext::new_with_signer(
-                    ctx.accounts.token_program.to_account_info(),
-                    TransferChecked {
-                        from: ctx.accounts.prize_escrow_account.to_account_info(),
-                        to: ctx.accounts.third_place_token_account.to_account_info(),
-                        mint: ctx.accounts.mint.to_account_info(),
-                        authority: ctx.accounts.prize_pool.to_account_info(),
-                    },
-                    signer_seeds,
-                ),
-                third_place_amount,
-                decimals,
-            )?;
-        }
-
+    
         // Mark prize pool as distributed
-        ctx.accounts.prize_pool.distributed = true;
-        ctx.accounts.prize_pool.total_funds = 0; // Reset funds after distribution
-
-        msg!(
-            "✅ Tournament prizes distributed: 1st: {}, 2nd: {}, 3rd: {}",
-            first_place_amount,
-            second_place_amount,
-            third_place_amount
-        );
-
+        prize_pool.distributed = true;
+        prize_pool.total_funds = 0; // Reset funds after distribution
+    
+        msg!("✅ Prize distribution complete for tournament: {}", tournament_id);
+    
         Ok(())
     }
-
+    
 
     //Stake tokens (SOL or SPL)
     pub fn stake(ctx: Context<Stake>, amount: u64, lock_duration: i64) -> Result<()> {
