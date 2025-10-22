@@ -1243,7 +1243,7 @@ pub mod multiversed_dapp {
     pub struct DistributeTournamentRevenue<'info> {
         #[account(mut)]
         pub admin: Signer<'info>,
-
+    
         #[account(
             mut,
             seeds = [b"tournament_pool", admin.key().as_ref(), tournament_id.as_bytes()],
@@ -1251,54 +1251,59 @@ pub mod multiversed_dapp {
             constraint = tournament_pool.admin == admin.key() @ TournamentError::Unauthorized
         )]
         pub tournament_pool: Account<'info, TournamentPool>,
-
+    
         #[account(
             mut,
             seeds = [b"prize_pool", tournament_pool.key().as_ref()],
             bump = prize_pool.bump
         )]
         pub prize_pool: Account<'info, PrizePool>,
-
+    
         #[account(
             mut,
             seeds = [b"revenue_pool", admin.key().as_ref()],
             bump = revenue_pool.bump
         )]
         pub revenue_pool: Account<'info, RevenuePool>,
-
+    
         #[account(
             mut,
             seeds = [b"staking_pool", admin.key().as_ref()],
             bump = staking_pool.bump
         )]
         pub staking_pool: Account<'info, StakingPool>,
-
+    
         #[account(
             mut,
             seeds = [b"reward_pool", admin.key().as_ref()],
             bump = reward_pool.bump
         )]
         pub reward_pool: Account<'info, RewardPool>,
-
-        // CRITICAL FIX: Removed explicit authority constraints to reduce validation overhead
+    
+        // Optional: Only required for SPL token distribution
+        /// CHECK: This account is only used for SPL token distribution
         #[account(mut)]
-        pub tournament_escrow_account: InterfaceAccount<'info, TokenAccount>,
-
+        pub tournament_escrow_account: UncheckedAccount<'info>,
+    
+        /// CHECK: This account is only used for SPL token distribution
         #[account(mut)]
-        pub prize_escrow_account: InterfaceAccount<'info, TokenAccount>,
-
+        pub prize_escrow_account: UncheckedAccount<'info>,
+    
+        /// CHECK: This account is only used for SPL token distribution
         #[account(mut)]
-        pub revenue_escrow_account: InterfaceAccount<'info, TokenAccount>,
-
+        pub revenue_escrow_account: UncheckedAccount<'info>,
+    
+        /// CHECK: This account is only used for SPL token distribution
         #[account(mut)]
-        pub reward_escrow_account: InterfaceAccount<'info, TokenAccount>,
-
+        pub reward_escrow_account: UncheckedAccount<'info>,
+    
+        /// CHECK: This account is only used for SPL token distribution
         #[account(mut)]
-        pub mint: InterfaceAccount<'info, Mint>,
-
+        pub mint: UncheckedAccount<'info>,
+    
         pub token_program: Program<'info, Token2022>,
+        pub system_program: Program<'info, System>,
     }
-
     #[derive(Accounts)]
     pub struct InitializeAccounts<'info> {
         #[account(
