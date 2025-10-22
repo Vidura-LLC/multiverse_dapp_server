@@ -1029,56 +1029,111 @@ pub mod multiversed_dapp {
         let staking_pool = &mut ctx.accounts.staking_pool;
         let reward_pool = &mut ctx.accounts.reward_pool;
         let user_staking_account = &mut ctx.accounts.user_staking_account;
-
-        // Compute claimable based on accumulator
+        let user = &ctx.accounts.user;
+    
+        // Compute claimable rewards based on accumulator
         let accumulated: u128 = user_staking_account
             .weight
             .saturating_mul(staking_pool.acc_reward_per_weight)
             .checked_div(ACC_PRECISION)
             .unwrap_or(0);
+    
         let claimable_u128: u128 = accumulated
             .saturating_sub(user_staking_account.reward_debt)
             .saturating_add(user_staking_account.pending_rewards as u128);
+    
         let claimable: u64 = claimable_u128.min(u128::from(u64::MAX)) as u64;
-        require!(claimable > 0, StakingError::InsufficientStakedBalance); // nothing to claim
-
+    
+        // Verify there are rewards to claim
+        require!(claimable > 0, StakingError::InsufficientStakedBalance);
+    
         // Ensure RewardPool has sufficient funds
         require!(
             reward_pool.total_funds >= claimable,
             TournamentError::InsufficientFunds
         );
-
-        // Transfer from reward escrow to user token account
-        let decimals = ctx.accounts.mint.decimals;
-        let reward_admin = reward_pool.admin;
-        let reward_bump = reward_pool.bump;
-        let reward_pool_seeds = &[b"reward_pool", reward_admin.as_ref(), &[reward_bump]];
-        let signer_seeds: &[&[&[u8]]] = &[reward_pool_seeds];
-        let transfer_ctx = CpiContext::new_with_signer(
-            ctx.accounts.token_program.to_account_info(),
-            TransferChecked {
-                from: ctx.accounts.reward_escrow_account.to_account_info(),
-                to: ctx.accounts.user_token_account.to_account_info(),
-                mint: ctx.accounts.mint.to_account_info(),
-                authority: reward_pool.to_account_info(),
-            },
-            signer_seeds,
-        );
-        token_2022::transfer_checked(transfer_ctx, claimable, decimals)?;
-
+    
+        // ==============================
+        // TOKEN TYPE CONDITIONAL LOGIC
+        // ==============================
+        match staking_pool.token_type {
+            TokenType::SOL => {
+                // SOL REWARDS: Transfer lamports from reward pool PDA to user
+                
+                let reward_pool_info = reward_pool.to_account_info();
+                let mut reward_pool_lamports = reward_pool_info.try_borrow_mut_lamports()?;
+    
+                // Verify sufficient balance in reward pool
+                require!(
+                    **reward_pool_lamports >= claimable,
+                    TournamentError::InsufficientFunds
+                );
+    
+                // Transfer SOL from reward pool PDA to user's wallet
+                **reward_pool_lamports -= claimable;
+                **user.to_account_info().try_borrow_mut_lamports()? += claimable;
+    
+                msg!(
+                    "✅ User {} claimed {} lamports SOL rewards",
+                    user.key(),
+                    claimable
+                );
+            }
+            TokenType::SPL => {
+                // SPL TOKEN REWARDS: Transfer tokens from reward escrow to user token account
+                
+                let mint = &ctx.accounts.mint;
+                let decimals = mint.decimals;
+    
+                // Use PDA signer for the transfer
+                let reward_admin = reward_pool.admin;
+                let reward_bump = reward_pool.bump;
+                let signer_seeds: &[&[&[u8]]] = &[&[
+                    b"reward_pool",
+                    reward_admin.as_ref(),
+                    &[reward_bump],
+                ]];
+    
+                let transfer_ctx = CpiContext::new_with_signer(
+                    ctx.accounts.token_program.to_account_info(),
+                    TransferChecked {
+                        from: ctx.accounts.reward_escrow_account.to_account_info(),
+                        to: ctx.accounts.user_token_account.to_account_info(),
+                        mint: mint.to_account_info(),
+                        authority: reward_pool.to_account_info(),
+                    },
+                    signer_seeds,
+                );
+    
+                token_2022::transfer_checked(transfer_ctx, claimable, decimals)?;
+    
+                msg!(
+                    "✅ User {} claimed {} SPL token rewards",
+                    user.key(),
+                    claimable
+                );
+            }
+        }
+    
         // Update accounting
-        reward_pool.total_funds = reward_pool.total_funds.saturating_sub(claimable);
+        reward_pool.total_funds = reward_pool
+            .total_funds
+            .saturating_sub(claimable);
+    
         user_staking_account.pending_rewards = 0;
         user_staking_account.reward_debt = user_staking_account
             .weight
             .saturating_mul(staking_pool.acc_reward_per_weight)
             .checked_div(ACC_PRECISION)
             .unwrap_or(0);
-
-        msg!("✅ Rewards claimed: {}", claimable);
+    
+        msg!(
+            "✅ Reward claim complete. Remaining pool funds: {}",
+            reward_pool.total_funds
+        );
+    
         Ok(())
     }
-
     /// Accrue pending rewards for existing stakers without requiring additional staking
     /// This function allows users to update their pending rewards when new rewards are distributed
     pub fn accrue_rewards(ctx: Context<AccrueRewards>) -> Result<()> {
@@ -1164,44 +1219,57 @@ pub mod multiversed_dapp {
     pub struct DistributeTournamentPrizes<'info> {
         #[account(mut, constraint = admin.key() == prize_pool.admin @ TournamentError::Unauthorized)]
         pub admin: Signer<'info>,
-
+    
         #[account(
             constraint = tournament_pool.key() == prize_pool.tournament_pool @ TournamentError::Unauthorized
         )]
         pub tournament_pool: Account<'info, TournamentPool>,
-
+    
         #[account(
             mut,
             seeds = [b"prize_pool", tournament_pool.key().as_ref()],
             bump = prize_pool.bump
         )]
         pub prize_pool: Account<'info, PrizePool>,
-
-        #[account(
-            mut,
-            token::mint = mint,
-            token::authority = prize_pool
-        )]
-        pub prize_escrow_account: InterfaceAccount<'info, TokenAccount>,
-
-        // Winner token accounts - matching the service parameter names exactly
-        #[account(mut, constraint = first_place_token_account.mint == mint.key())]
-        pub first_place_token_account: InterfaceAccount<'info, TokenAccount>,
-
-        #[account(mut, constraint = second_place_token_account.mint == mint.key())]
-        pub second_place_token_account: InterfaceAccount<'info, TokenAccount>,
-
-        #[account(mut, constraint = third_place_token_account.mint == mint.key())]
-        pub third_place_token_account: InterfaceAccount<'info, TokenAccount>,
-
-        #[account(mut, constraint = mint.key() == prize_pool.mint)]
-        pub mint: InterfaceAccount<'info, Mint>,
-
+    
+        // For SOL prizes: Winner wallet accounts receive lamports directly
+        // For SPL prizes: These are ignored, token accounts used instead
+        /// CHECK: Winner account that receives SOL prizes directly
+        #[account(mut)]
+        pub first_place_winner: UncheckedAccount<'info>,
+    
+        /// CHECK: Winner account that receives SOL prizes directly
+        #[account(mut)]
+        pub second_place_winner: UncheckedAccount<'info>,
+    
+        /// CHECK: Winner account that receives SOL prizes directly
+        #[account(mut)]
+        pub third_place_winner: UncheckedAccount<'info>,
+    
+        // Optional: Only required for SPL token prizes
+        /// CHECK: This account is only used for SPL token prizes
+        #[account(mut)]
+        pub prize_escrow_account: UncheckedAccount<'info>,
+    
+        /// CHECK: This account is only used for SPL token prizes
+        #[account(mut)]
+        pub first_place_token_account: UncheckedAccount<'info>,
+    
+        /// CHECK: This account is only used for SPL token prizes
+        #[account(mut)]
+        pub second_place_token_account: UncheckedAccount<'info>,
+    
+        /// CHECK: This account is only used for SPL token prizes
+        #[account(mut)]
+        pub third_place_token_account: UncheckedAccount<'info>,
+    
+        /// CHECK: This account is only used for SPL token prizes
+        #[account(mut)]
+        pub mint: UncheckedAccount<'info>,
+    
         pub token_program: Program<'info, Token2022>,
         pub system_program: Program<'info, System>,
     }
-
-
 
     //Register for tournament context
     #[derive(Accounts)]
