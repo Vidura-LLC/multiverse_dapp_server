@@ -735,7 +735,7 @@ pub mod multiversed_dapp {
     
         Ok(())
     }
-    // New instruction to initialize a prize pool for a specific tournament
+    // instruction to initialize a prize pool for a specific tournament
     pub fn initialize_prize_pool(
         ctx: Context<InitializePrizePool>,
         tournament_id: String,
@@ -743,36 +743,38 @@ pub mod multiversed_dapp {
         let prize_pool = &mut ctx.accounts.prize_pool;
         let admin = &ctx.accounts.admin;
         let tournament_pool = &ctx.accounts.tournament_pool;
-
+    
         // Convert tournament_id to fixed-size bytes
-        let mut tournament_id_bytes = [0u8; 32]; // Increased from 10 to 32
+        let mut tournament_id_bytes = [0u8; 32];
         let id_bytes = tournament_id.as_bytes();
         let len = id_bytes.len().min(32);
         tournament_id_bytes[..len].copy_from_slice(&id_bytes[..len]);
-
+    
         // Verify that the tournament_id matches the one in the tournament pool
         let tournament_pool_id = &tournament_pool.tournament_id;
         require!(
             &tournament_id_bytes[..] == tournament_pool_id.as_ref(),
             TournamentError::Unauthorized
         );
-
-        // Initialize prize pool
+    
+        // Initialize prize pool with same token_type as tournament
         prize_pool.admin = admin.key();
         prize_pool.tournament_pool = tournament_pool.key();
         prize_pool.mint = ctx.accounts.mint.key();
         prize_pool.tournament_id = tournament_id_bytes;
         prize_pool.total_funds = 0;
         prize_pool.distributed = false;
+        prize_pool.token_type = tournament_pool.token_type; // INHERIT from tournament
         prize_pool.bump = ctx.bumps.prize_pool;
-
+    
         msg!(
-            "✅ Prize pool initialized for tournament: {}",
-            tournament_id
+            "✅ Prize pool initialized for tournament '{}', token_type: {:?}",
+            tournament_id,
+            prize_pool.token_type
         );
+    
         Ok(())
     }
-
     // OPTIMIZED FUNCTION: Fixed stack overflow issues
     pub fn distribute_tournament_revenue(
         ctx: Context<DistributeTournamentRevenue>,
