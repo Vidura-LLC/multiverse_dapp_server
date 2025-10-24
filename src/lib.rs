@@ -1583,43 +1583,44 @@ pub mod multiversed_dapp {
     pub struct ClaimRewards<'info> {
         #[account(mut)]
         pub user: Signer<'info>,
-
+    
         #[account(
             mut,
             seeds = [b"staking_pool", staking_pool.admin.as_ref()],
             bump = staking_pool.bump
         )]
         pub staking_pool: Account<'info, StakingPool>,
-
+    
         #[account(
             mut,
-            seeds = [b"user_stake", user.key().as_ref()],
-            bump
+            seeds = [b"user_staking", staking_pool.key().as_ref(), user.key().as_ref()],
+            bump,
+            constraint = user_staking_account.owner == user.key() @ StakingError::Unauthorized
         )]
         pub user_staking_account: Account<'info, UserStakingAccount>,
-
+    
         #[account(
             mut,
             seeds = [b"reward_pool", reward_pool.admin.as_ref()],
             bump = reward_pool.bump
         )]
         pub reward_pool: Account<'info, RewardPool>,
-
+    
+        // Optional: Only required for SPL token rewards
+        /// CHECK: This account is only used for SPL token rewards
         #[account(mut)]
-        pub user_token_account: InterfaceAccount<'info, TokenAccount>,
-
-        #[account(
-            mut,
-            token::mint = mint,
-            token::authority = reward_pool
-        )]
-        pub reward_escrow_account: InterfaceAccount<'info, TokenAccount>,
-
-        #[account(mut, constraint = mint.key() == staking_pool.mint)]
-        pub mint: InterfaceAccount<'info, Mint>,
+        pub user_token_account: UncheckedAccount<'info>,
+    
+        /// CHECK: This account is only used for SPL token rewards
+        #[account(mut)]
+        pub reward_escrow_account: UncheckedAccount<'info>,
+    
+        /// CHECK: This account is only used for SPL token rewards
+        pub mint: UncheckedAccount<'info>,
+    
         pub token_program: Program<'info, Token2022>,
+        pub system_program: Program<'info, System>,
     }
-
     // Accounts for accruing rewards
     #[derive(Accounts)]
     pub struct AccrueRewards<'info> {
