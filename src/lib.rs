@@ -688,20 +688,29 @@ pub mod multiversed_dapp {
     }
     
     // Modified instruction to initialize just the global revenue pool
-    pub fn initialize_revenue_pool(ctx: Context<InitializeRevenuePool>) -> Result<()> {
+    pub fn initialize_revenue_pool(
+        ctx: Context<InitializeRevenuePool>,
+        token_type: TokenType,
+    ) -> Result<()> {
         let revenue_pool = &mut ctx.accounts.revenue_pool;
         let admin = &ctx.accounts.admin;
-
-        // Initialize revenue pool
+    
         revenue_pool.admin = admin.key();
         revenue_pool.mint = ctx.accounts.mint.key();
         revenue_pool.total_funds = 0;
         revenue_pool.last_distribution = Clock::get()?.unix_timestamp;
+        revenue_pool.token_type = token_type;
         revenue_pool.bump = ctx.bumps.revenue_pool;
-
-        msg!("✅ Revenue pool initialized for admin: {}", admin.key());
+    
+        msg!(
+            "✅ Revenue pool initialized for admin: {}, token_type: {:?}",
+            admin.key(),
+            token_type
+        );
+    
         Ok(())
     }
+
 
     // Initialize a global RewardPool (used to hold the 5% staking rewards)
     pub fn initialize_reward_pool(ctx: Context<InitializeRewardPool>) -> Result<()> {
@@ -1325,32 +1334,37 @@ pub mod multiversed_dapp {
         pub token_program: Program<'info, Token2022>,
         pub system_program: Program<'info, System>,
     }
+
+    // Initialize Revenue Pool Context
     #[derive(Accounts)]
-    pub struct InitializeRevenuePool<'info> {
+    pub struct InitializeRevenuePool <'info> {
+
         #[account(
             init,
             payer = admin,
-            space = 8 + 32 + 32 + 8 + 8 + 1,
+            space = RevenuePool::LEN,
             seeds = [b"revenue_pool", admin.key().as_ref()],
             bump
         )]
         pub revenue_pool: Account<'info, RevenuePool>,
 
         #[account(
-            init,
+            init_if_needed,
             payer = admin,
             token::mint = mint,
-            token::authority = revenue_pool,
-            seeds = [b"revenue_escrow", revenue_pool.key().as_ref()],
+            token::authority: revenue_pool,
+            seeds = [b"revenue_escrow", revenue_pool.key_as_ref()],
             bump
         )]
         pub revenue_escrow_account: InterfaceAccount<'info, TokenAccount>,
 
-        pub mint: InterfaceAccount<'info, Mint>,
+        pub mint: UncheckedAccount<'info>,
+
         #[account(mut)]
         pub admin: Signer<'info>,
-        pub system_program: Program<'info, System>,
-        pub token_program: Program<'info, Token2022>,
+
+        pub token_program: Program<'infom, Token2022>,
+        pub system_program: Program<'info, System>
     }
 
     #[derive(Accounts)]
