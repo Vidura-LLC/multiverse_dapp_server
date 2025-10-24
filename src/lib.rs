@@ -1409,18 +1409,19 @@ pub mod multiversed_dapp {
         pub token_program: Program<'info, Token2022>,
     }
 
+    //Prize Pool Context
     #[derive(Accounts)]
     #[instruction(tournament_id: String)]
     pub struct InitializePrizePool<'info> {
         #[account(
             init,
             payer = admin,
-            space = 8 + 32 + 32 + 32 + 32 + 8 + 1 + 1, // Updated space calculation
+            space = PrizePool::LEN,
             seeds = [b"prize_pool", tournament_pool.key().as_ref()],
             bump
         )]
         pub prize_pool: Account<'info, PrizePool>,
-
+    
         #[account(
             mut,
             seeds = [b"tournament_pool", tournament_pool.admin.as_ref(), tournament_id.as_bytes()],
@@ -1428,7 +1429,7 @@ pub mod multiversed_dapp {
             constraint = tournament_pool.admin == admin.key() @ TournamentError::Unauthorized
         )]
         pub tournament_pool: Account<'info, TournamentPool>,
-
+    
         #[account(
             init_if_needed,
             payer = admin,
@@ -1438,10 +1439,13 @@ pub mod multiversed_dapp {
             bump
         )]
         pub prize_escrow_account: InterfaceAccount<'info, TokenAccount>,
-
-        pub mint: InterfaceAccount<'info, Mint>,
+    
+        /// CHECK: Can be SPL mint or SystemProgram for SOL
+        pub mint: UncheckedAccount<'info>,
+    
         #[account(mut)]
         pub admin: Signer<'info>,
+    
         pub system_program: Program<'info, System>,
         pub token_program: Program<'info, Token2022>,
     }
