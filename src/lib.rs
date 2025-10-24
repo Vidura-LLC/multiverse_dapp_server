@@ -47,35 +47,35 @@ fn lock_multiplier_bps(lock_duration: i64) -> u64 {
 pub mod multiversed_dapp {
     use super::*;
 
-/// Initializes staking pool and escrow (for both SOL and SPL staking)
-pub fn initialize_accounts(
-    ctx: Context<InitializeAccounts>,
-    token_type: TokenType,
-) -> Result<()> {
-    let staking_pool = &mut ctx.accounts.staking_pool;
+    /// Initializes staking pool and escrow (for both SOL and SPL staking)
+    pub fn initialize_accounts(
+        ctx: Context<InitializeAccounts>,
+        token_type: TokenType,
+    ) -> Result<()> {
+        let staking_pool = &mut ctx.accounts.staking_pool;
 
-    // Check if already initialized
-    if staking_pool.total_staked > 0 {
-        return Err(StakingError::AlreadyInitialized.into());
+        // Check if already initialized
+        if staking_pool.total_staked > 0 {
+            return Err(StakingError::AlreadyInitialized.into());
+        }
+
+        staking_pool.admin = ctx.accounts.admin.key();
+        staking_pool.mint = ctx.accounts.mint.key();
+        staking_pool.total_staked = 0;
+        staking_pool.total_weight = 0;
+        staking_pool.acc_reward_per_weight = 0;
+        staking_pool.epoch_index = 0;
+        staking_pool.token_type = token_type;
+        staking_pool.bump = ctx.bumps.staking_pool;
+
+        msg!(
+            "✅ Staking pool initialized with admin: {}, token_type: {:?}",
+            staking_pool.admin,
+            token_type
+        );
+
+        Ok(())
     }
-
-    staking_pool.admin = ctx.accounts.admin.key();
-    staking_pool.mint = ctx.accounts.mint.key();
-    staking_pool.total_staked = 0;
-    staking_pool.total_weight = 0;
-    staking_pool.acc_reward_per_weight = 0;
-    staking_pool.epoch_index = 0;
-    staking_pool.token_type = token_type;
-    staking_pool.bump = ctx.bumps.staking_pool;
-
-    msg!(
-        "✅ Staking pool initialized with admin: {}, token_type: {:?}",
-        staking_pool.admin,
-        token_type
-    );
-
-    Ok(())
-}
     // Prize Distribution Logic
     pub fn distribute_tournament_prizes(
         ctx: Context<DistributeTournamentPrizes>,
@@ -1480,18 +1480,20 @@ pub fn initialize_accounts(
         pub token_program: Program<'info, Token2022>,
         pub system_program: Program<'info, System>,
     }
+
+
+    //Initialize accounts for staking pool 
     #[derive(Accounts)]
     pub struct InitializeAccounts<'info> {
         #[account(
             init_if_needed,
             payer = admin,
-            // admin + mint + total_staked(u64) + total_weight(u128) + acc_reward_per_weight(u128) + epoch_index(u64) + bump
-            space = 8 + 32 + 32 + 8 + 16 + 16 + 8 + 1,
+            space = StakingPool::LEN,
             seeds = [b"staking_pool", admin.key().as_ref()],
             bump
         )]
         pub staking_pool: Account<'info, StakingPool>,
-
+    
         #[account(
             init_if_needed,
             payer = admin,
@@ -1501,14 +1503,19 @@ pub fn initialize_accounts(
             bump
         )]
         pub pool_escrow_account: InterfaceAccount<'info, TokenAccount>,
-
-        pub mint: InterfaceAccount<'info, Mint>,
+    
+        /// CHECK: Can be SPL mint or SystemProgram for SOL
+        pub mint: UncheckedAccount<'info>,
+    
         #[account(mut)]
         pub admin: Signer<'info>,
+    
         pub system_program: Program<'info, System>,
         pub token_program: Program<'info, Token2022>,
     }
 
+
+    //Stake tokens (SOL or SPL)
     #[derive(Accounts)]
     pub struct Stake<'info> {
         #[account(mut)]
