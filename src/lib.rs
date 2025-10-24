@@ -516,10 +516,11 @@ pub mod multiversed_dapp {
         entry_fee: u64,
         max_participants: u16,
         end_time: i64,
+        token_type: TokenType,
     ) -> Result<()> {
         let tournament_pool = &mut ctx.accounts.tournament_pool;
         let admin = &ctx.accounts.admin;
-
+    
         // Validate tournament parameters
         require!(entry_fee > 0, TournamentError::InvalidEntryFee);
         require!(
@@ -530,14 +531,14 @@ pub mod multiversed_dapp {
             end_time > Clock::get()?.unix_timestamp,
             TournamentError::InvalidEndTime
         );
-
+    
         // Convert tournament_id to a fixed-size byte array
-        let mut tournament_id_bytes = [0u8; 32]; // Increased from 10 to 32
+        let mut tournament_id_bytes = [0u8; 32];
         let id_bytes = tournament_id.as_bytes();
-        let len = id_bytes.len().min(32); // Increased limit
+        let len = id_bytes.len().min(32);
         tournament_id_bytes[..len].copy_from_slice(&id_bytes[..len]);
-
-        // Assign values to PDA
+    
+        // Assign values to tournament pool
         tournament_pool.admin = admin.key();
         tournament_pool.mint = ctx.accounts.mint.key();
         tournament_pool.tournament_id = tournament_id_bytes;
@@ -547,16 +548,17 @@ pub mod multiversed_dapp {
         tournament_pool.max_participants = max_participants;
         tournament_pool.end_time = end_time;
         tournament_pool.is_active = true;
+        tournament_pool.token_type = token_type;
         tournament_pool.bump = ctx.bumps.tournament_pool;
-
+    
         msg!(
-            "Tournament '{}' created by admin: {} with entry fee: {} and max participants: {}",
+            "✅ Tournament '{}' created: entry_fee: {}, max_participants: {}, token_type: {:?}",
             tournament_id,
-            admin.key(),
             entry_fee,
-            max_participants
+            max_participants,
+            token_type
         );
-
+    
         Ok(())
     }
 
@@ -1192,32 +1194,35 @@ pub mod multiversed_dapp {
 
     // (Removed admin batch accrual; users should call accrue_rewards themselves.)
 
-    // Rest of the account structs and implementations remain the same...
+    // Create tournament pool
     #[derive(Accounts)]
-    #[instruction(tournament_id: String, entry_fee: u64, max_participants: u16, end_time: i64)]
+    #[instruction(tournament_id: String, entry_fee: u64, max_participants: u16, end_time: i64, token_type: TokenType)]
     pub struct CreateTournamentPool<'info> {
         #[account(
             init,
             payer = admin,
-            space = 8 + 32 + 32 + 32 + 8 + 8 + 2 + 2 + 8 + 1 + 1, // Updated space calculation
+            space = TournamentPool::LEN,
             seeds = [b"tournament_pool", admin.key().as_ref(), tournament_id.as_bytes()],
             bump
         )]
         pub tournament_pool: Account<'info, TournamentPool>,
-
+    
         #[account(
-            init,
+            init_if_needed,
             payer = admin,
             token::mint = mint,
             token::authority = admin,
-            seeds = [b"escrow", tournament_pool.key().as_ref()],
+            seeds = [b"tournament_escrow", tournament_pool.key().as_ref()],
             bump
         )]
-        pub pool_escrow_account: InterfaceAccount<'info, TokenAccount>,
-
-        pub mint: InterfaceAccount<'info, Mint>,
+        pub tournament_escrow_account: InterfaceAccount<'info, TokenAccount>,
+    
+        /// CHECK: Can be SPL mint or SystemProgram for SOL
+        pub mint: UncheckedAccount<'info>,
+    
         #[account(mut)]
         pub admin: Signer<'info>,
+    
         pub system_program: Program<'info, System>,
         pub token_program: Program<'info, Token2022>,
     }
