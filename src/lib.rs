@@ -47,26 +47,35 @@ fn lock_multiplier_bps(lock_duration: i64) -> u64 {
 pub mod multiversed_dapp {
     use super::*;
 
-    /// Initializes all necessary accounts before staking
-    pub fn initialize_accounts(ctx: Context<InitializeAccounts>) -> Result<()> {
-        let staking_pool = &mut ctx.accounts.staking_pool;
+/// Initializes staking pool and escrow (for both SOL and SPL staking)
+pub fn initialize_accounts(
+    ctx: Context<InitializeAccounts>,
+    token_type: TokenType,
+) -> Result<()> {
+    let staking_pool = &mut ctx.accounts.staking_pool;
 
-        if staking_pool.total_staked > 0 {
-            return Err(StakingError::AlreadyInitialized.into());
-        }
-
-        staking_pool.admin = ctx.accounts.admin.key();
-        staking_pool.mint = ctx.accounts.mint.key();
-        staking_pool.total_staked = 0;
-        staking_pool.bump = ctx.bumps.staking_pool;
-
-        msg!(
-            "✅ Staking pool initialized with admin: {}",
-            staking_pool.admin
-        );
-        Ok(())
+    // Check if already initialized
+    if staking_pool.total_staked > 0 {
+        return Err(StakingError::AlreadyInitialized.into());
     }
 
+    staking_pool.admin = ctx.accounts.admin.key();
+    staking_pool.mint = ctx.accounts.mint.key();
+    staking_pool.total_staked = 0;
+    staking_pool.total_weight = 0;
+    staking_pool.acc_reward_per_weight = 0;
+    staking_pool.epoch_index = 0;
+    staking_pool.token_type = token_type;
+    staking_pool.bump = ctx.bumps.staking_pool;
+
+    msg!(
+        "✅ Staking pool initialized with admin: {}, token_type: {:?}",
+        staking_pool.admin,
+        token_type
+    );
+
+    Ok(())
+}
     // Prize Distribution Logic
     pub fn distribute_tournament_prizes(
         ctx: Context<DistributeTournamentPrizes>,
