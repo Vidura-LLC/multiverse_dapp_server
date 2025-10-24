@@ -1375,19 +1375,20 @@ pub mod multiversed_dapp {
         pub system_program: Program<'info, System>
     }
 
+    //Reward Pool Context
     #[derive(Accounts)]
     pub struct InitializeRewardPool<'info> {
         #[account(
             init,
             payer = admin,
-            space = 8 + 32 + 32 + 8 + 8 + 1,
+            space = RewardPool::LEN,
             seeds = [b"reward_pool", admin.key().as_ref()],
             bump
         )]
         pub reward_pool: Account<'info, RewardPool>,
-
+    
         #[account(
-            init,
+            init_if_needed,
             payer = admin,
             token::mint = mint,
             token::authority = reward_pool,
@@ -1395,10 +1396,13 @@ pub mod multiversed_dapp {
             bump
         )]
         pub reward_escrow_account: InterfaceAccount<'info, TokenAccount>,
-
-        pub mint: InterfaceAccount<'info, Mint>,
+    
+        /// CHECK: Can be SPL mint or SystemProgram for SOL
+        pub mint: UncheckedAccount<'info>,
+    
         #[account(mut)]
         pub admin: Signer<'info>,
+    
         pub system_program: Program<'info, System>,
         pub token_program: Program<'info, Token2022>,
     }
