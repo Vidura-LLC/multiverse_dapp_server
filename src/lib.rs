@@ -713,20 +713,28 @@ pub mod multiversed_dapp {
 
 
     // Initialize a global RewardPool (used to hold the 5% staking rewards)
-    pub fn initialize_reward_pool(ctx: Context<InitializeRewardPool>) -> Result<()> {
+    pub fn initialize_reward_pool(
+        ctx: Context<InitializeRewardPool>,
+        token_type: TokenType,
+    ) -> Result<()> {
         let reward_pool = &mut ctx.accounts.reward_pool;
         let admin = &ctx.accounts.admin;
-
+    
         reward_pool.admin = admin.key();
         reward_pool.mint = ctx.accounts.mint.key();
         reward_pool.total_funds = 0;
         reward_pool.last_distribution = Clock::get()?.unix_timestamp;
+        reward_pool.token_type = token_type;
         reward_pool.bump = ctx.bumps.reward_pool;
-
-        msg!("✅ Reward pool initialized for admin: {}", admin.key());
+    
+        msg!(
+            "✅ Reward pool initialized for admin: {}, token_type: {:?}",
+            admin.key(),
+            token_type
+        );
+    
         Ok(())
     }
-
     // New instruction to initialize a prize pool for a specific tournament
     pub fn initialize_prize_pool(
         ctx: Context<InitializePrizePool>,
