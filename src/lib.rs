@@ -2,6 +2,8 @@ use anchor_lang::prelude::InterfaceAccount;
 use anchor_lang::prelude::*;
 use anchor_spl::token_2022::{self, Burn, Token2022, TransferChecked};
 use anchor_spl::token_interface::{Mint, TokenAccount};
+// 🔧 FIX: Added import for Pubkey::from_str() to work (line 906 error)
+use std::str::FromStr;
 
 declare_id!("A5sbJW4hgVtaYU8TvfJc8bxeWsvFgapc88qX1VruTfq4");
 
@@ -33,13 +35,25 @@ const MULTIPLIER_3M_BPS: u64 = 12_000; // 1.2x
 const MULTIPLIER_6M_BPS: u64 = 15_000; // 1.5xA
 const MULTIPLIER_12M_BPS: u64 = 20_000; // 2.0x
 
+// 🔧 FIX: Moved time constants here from line 1726 and fixed match to compare values
+// instead of using pattern matching (unreachable pattern warnings)
+const ONE_MONTH: i64 = 30 * 24 * 60 * 60;
+const THREE_MONTHS: i64 = 3 * ONE_MONTH;
+const SIX_MONTHS: i64 = 6 * ONE_MONTH;
+const TWELVE_MONTHS: i64 = 12 * ONE_MONTH;
+
 fn lock_multiplier_bps(lock_duration: i64) -> u64 {
-    match lock_duration {
-        ONE_MONTH => MULTIPLIER_1M_BPS,
-        THREE_MONTHS => MULTIPLIER_3M_BPS,
-        SIX_MONTHS => MULTIPLIER_6M_BPS,
-        TWELVE_MONTHS => MULTIPLIER_12M_BPS,
-        _ => MULTIPLIER_1M_BPS,
+    // 🔧 FIX: Changed from pattern matching to if-else to properly compare i64 values
+    if lock_duration == ONE_MONTH {
+        MULTIPLIER_1M_BPS
+    } else if lock_duration == THREE_MONTHS {
+        MULTIPLIER_3M_BPS
+    } else if lock_duration == SIX_MONTHS {
+        MULTIPLIER_6M_BPS
+    } else if lock_duration == TWELVE_MONTHS {
+        MULTIPLIER_12M_BPS
+    } else {
+        MULTIPLIER_1M_BPS
     }
 }
 
@@ -193,8 +207,8 @@ pub mod multiversed_dapp {
                 let mint = &ctx.accounts.mint;
                 let decimals = mint.decimals;
 
+                // 🔧 FIX: Removed unused admin variable (warning line 199)
                 // Use PDA signer for transfers
-                let admin = prize_pool.admin;
                 let tournament_pool = prize_pool.tournament_pool;
                 let bump = prize_pool.bump;
                 let signer_seeds: &[&[&[u8]]] =
@@ -611,10 +625,12 @@ pub mod multiversed_dapp {
                     TournamentError::InsufficientFunds
                 );
 
+                // 🔧 FIX: Changed from ctx.accounts.tournament_pool to tournament_pool.to_account_info()
+                // to avoid borrow checker error (line 619 error)
                 // Transfer SOL from user to tournament pool PDA
                 let transfer_instruction = anchor_lang::system_program::Transfer {
                     from: ctx.accounts.user.to_account_info(),
-                    to: ctx.accounts.tournament_pool.to_account_info(),
+                    to: tournament_pool.to_account_info(),
                 };
 
                 anchor_lang::system_program::transfer(
@@ -773,7 +789,7 @@ pub mod multiversed_dapp {
     // OPTIMIZED FUNCTION: Fixed stack overflow issues
     pub fn distribute_tournament_revenue(
         ctx: Context<DistributeTournamentRevenue>,
-        tournament_id: String,
+        _tournament_id: String, // 🔧 FIX: Prefixed with _ since it's in #[instruction] but not used (warning line 778)
         prize_percentage: u8,
         revenue_percentage: u8,
         staking_percentage: u8,
@@ -787,6 +803,13 @@ pub mod multiversed_dapp {
             .ok_or(TournamentError::MathOverflow)?;
 
         require!(total_percentage == 100, TournamentError::InvalidPercentages);
+
+        // 🔧 FIX: Extract values needed for PDA signer BEFORE taking mutable borrow
+        // to avoid borrow checker error (line 938 error)
+        let admin_key = ctx.accounts.tournament_pool.admin;
+        let tournament_id_bytes = ctx.accounts.tournament_pool.tournament_id;
+        let tournament_pool_bump = ctx.accounts.tournament_pool.bump;
+        let token_type = ctx.accounts.tournament_pool.token_type;
 
         let tournament_pool = &mut ctx.accounts.tournament_pool;
         let prize_pool = &mut ctx.accounts.prize_pool;
@@ -830,7 +853,7 @@ pub mod multiversed_dapp {
         // ==============================
         // TOKEN TYPE CONDITIONAL LOGIC
         // ==============================
-        match tournament_pool.token_type {
+        match token_type {
             TokenType::SOL => {
                 // SOL DISTRIBUTION: Transfer lamports from tournament pool PDA
 
@@ -902,7 +925,8 @@ pub mod multiversed_dapp {
                 if burn_amount > 0 {
                     // OPTION 1: Transfer to a known burn address (recommended)
                     // The Solana burn address: 1nc1nerator11111111111111111111111111111111
-                    let burn_address =
+                    // 🔧 FIX: Prefixed with _ since this is kept for future implementation (warning line 907)
+                    let _burn_address =
                         Pubkey::from_str("1nc1nerator11111111111111111111111111111111")
                             .map_err(|_| TournamentError::MathOverflow)?;
 
@@ -930,19 +954,30 @@ pub mod multiversed_dapp {
 
                 let mint = &ctx.accounts.mint;
                 let decimals = mint.decimals;
-                let admin = ctx.accounts.admin.key();
+
+                // 🔧 FIX: Using pre-extracted values to avoid borrow checker error (line 938 error)
+                // ⚡ SOL/SPL: Setup PDA signer seeds for tournament_pool
+                let signer_seeds: &[&[&[u8]]] = &[&[
+                    b"tournament_pool",
+                    admin_key.as_ref(),
+                    tournament_id_bytes.as_ref(),
+                    &[tournament_pool_bump],
+                ]];
 
                 // 1. Transfer to Prize Pool Escrow
                 if prize_amount > 0 {
+                    // 🔧 FIX: Changed from CpiContext::new to CpiContext::new_with_signer
+                    // Changed authority from admin.to_account_info() to tournament_pool.to_account_info()
                     token_2022::transfer_checked(
-                        CpiContext::new(
+                        CpiContext::new_with_signer(
                             ctx.accounts.token_program.to_account_info(),
                             TransferChecked {
                                 from: ctx.accounts.tournament_escrow_account.to_account_info(),
                                 to: ctx.accounts.prize_escrow_account.to_account_info(),
                                 mint: mint.to_account_info(),
-                                authority: admin.to_account_info(),
+                                authority: tournament_pool.to_account_info(),
                             },
+                            signer_seeds,
                         ),
                         prize_amount,
                         decimals,
@@ -956,15 +991,18 @@ pub mod multiversed_dapp {
 
                 // 2. Transfer to Revenue Pool Escrow
                 if revenue_amount > 0 {
+                    // 🔧 FIX: Changed from CpiContext::new to CpiContext::new_with_signer
+                    // Changed authority from admin.to_account_info() to tournament_pool.to_account_info()
                     token_2022::transfer_checked(
-                        CpiContext::new(
+                        CpiContext::new_with_signer(
                             ctx.accounts.token_program.to_account_info(),
                             TransferChecked {
                                 from: ctx.accounts.tournament_escrow_account.to_account_info(),
                                 to: ctx.accounts.revenue_escrow_account.to_account_info(),
                                 mint: mint.to_account_info(),
-                                authority: admin.to_account_info(),
+                                authority: tournament_pool.to_account_info(),
                             },
+                            signer_seeds,
                         ),
                         revenue_amount,
                         decimals,
@@ -978,15 +1016,18 @@ pub mod multiversed_dapp {
 
                 // 3. Transfer to Reward Pool (for stakers)
                 if staking_amount > 0 {
+                    // 🔧 FIX: Changed from CpiContext::new to CpiContext::new_with_signer
+                    // Changed authority from admin.to_account_info() to tournament_pool.to_account_info()
                     token_2022::transfer_checked(
-                        CpiContext::new(
+                        CpiContext::new_with_signer(
                             ctx.accounts.token_program.to_account_info(),
                             TransferChecked {
                                 from: ctx.accounts.tournament_escrow_account.to_account_info(),
                                 to: ctx.accounts.reward_escrow_account.to_account_info(),
                                 mint: mint.to_account_info(),
-                                authority: admin.to_account_info(),
+                                authority: tournament_pool.to_account_info(),
                             },
+                            signer_seeds,
                         ),
                         staking_amount,
                         decimals,
@@ -1019,14 +1060,17 @@ pub mod multiversed_dapp {
 
                 // 4. Burn SPL Tokens
                 if burn_amount > 0 {
+                    // 🔧 FIX: Changed from CpiContext::new to CpiContext::new_with_signer
+                    // Changed authority from admin.to_account_info() to tournament_pool.to_account_info()
                     token_2022::burn(
-                        CpiContext::new(
+                        CpiContext::new_with_signer(
                             ctx.accounts.token_program.to_account_info(),
                             Burn {
                                 mint: mint.to_account_info(),
                                 from: ctx.accounts.tournament_escrow_account.to_account_info(),
-                                authority: admin.to_account_info(),
+                                authority: tournament_pool.to_account_info(),
                             },
+                            signer_seeds,
                         ),
                         burn_amount,
                     )?;
@@ -1287,8 +1331,9 @@ pub mod multiversed_dapp {
         #[account(mut)]
         pub third_place_token_account: UncheckedAccount<'info>,
 
-        /// CHECK: This account is only used for SPL token prizes
-        #[account(mut)]
+        // 🔧 FIX: Changed from UncheckedAccount to InterfaceAccount<'info, Mint>
+        // ⚡ SOL/SPL: For SPL tokens, we need to access mint.decimals (line 194 error)
+        // For SOL tournaments, this account is ignored
         pub mint: InterfaceAccount<'info, Mint>,
 
         pub token_program: Program<'info, Token2022>,
@@ -1318,8 +1363,9 @@ pub mod multiversed_dapp {
         )]
         pub registration_account: Account<'info, RegistrationRecord>,
 
-        // Optional: Only required for SPL token tournaments
-        /// CHECK: This account is only used for SPL token tournaments
+        // 🔧 FIX: Changed from UncheckedAccount to InterfaceAccount<'info, TokenAccount>
+        // ⚡ SOL/SPL: For SPL tokens, we need to access user_token_account.amount (line 640 error)
+        // For SOL tournaments, this account is ignored
         #[account(mut)]
         pub user_token_account: InterfaceAccount<'info, TokenAccount>,
 
@@ -1328,8 +1374,9 @@ pub mod multiversed_dapp {
         #[account(mut)]
         pub pool_escrow_account: UncheckedAccount<'info>,
 
-        // Optional: Only required for SPL token tournaments
-        /// CHECK: This account is only used for SPL token tournaments
+        // 🔧 FIX: Changed from UncheckedAccount to InterfaceAccount<'info, Mint>
+        // ⚡ SOL/SPL: For SPL tokens, we need to access mint.decimals (line 654 error)
+        // For SOL tournaments, this account is ignored
         pub mint: InterfaceAccount<'info, Mint>,
 
         pub token_program: Program<'info, Token2022>,
@@ -1353,7 +1400,8 @@ pub mod multiversed_dapp {
             payer = admin,
             token::mint = mint,
             token::authority= revenue_pool,
-            seeds = [b"revenue_escrow", revenue_pool.key_as_ref()],
+            // 🔧 FIX: Changed .key_as_ref() to .key().as_ref() (line 1358 error)
+            seeds = [b"revenue_escrow", revenue_pool.key().as_ref()],
             bump
         )]
         pub revenue_escrow_account: InterfaceAccount<'info, TokenAccount>,
@@ -1500,8 +1548,9 @@ pub mod multiversed_dapp {
         #[account(mut)]
         pub reward_escrow_account: UncheckedAccount<'info>,
 
-        /// CHECK: This account is only used for SPL token distribution
-        #[account(mut)]
+        // 🔧 FIX: Changed from UncheckedAccount to InterfaceAccount<'info, Mint>
+        // ⚡ SOL/SPL: For SPL tokens, we need to access mint.decimals (line 932 error)
+        // For SOL tournaments, this account is ignored
         pub mint: InterfaceAccount<'info, Mint>,
 
         pub token_program: Program<'info, Token2022>,
@@ -1610,8 +1659,9 @@ pub mod multiversed_dapp {
         #[account(mut)]
         pub pool_escrow_account: UncheckedAccount<'info>,
 
-        // Optional: Only required for SPL token unstaking
-        /// CHECK: This account is only used for SPL token unstaking
+        // 🔧 FIX: Changed from UncheckedAccount to InterfaceAccount<'info, Mint>
+        // ⚡ SOL/SPL: For SPL tokens, we need to access mint.decimals (line 460 error)
+        // For SOL staking, this account is ignored
         pub mint: InterfaceAccount<'info, Mint>,
 
         pub token_program: Program<'info, Token2022>,
@@ -1654,8 +1704,10 @@ pub mod multiversed_dapp {
         #[account(mut)]
         pub reward_escrow_account: UncheckedAccount<'info>,
 
-        /// CHECK: This account is only used for SPL token rewards
-        pub mint: UncheckedAccount<'info>,
+        // 🔧 FIX: Changed from UncheckedAccount to InterfaceAccount<'info, Mint>
+        // ⚡ SOL/SPL: For SPL tokens, we need to access mint.decimals (line 1112 error)
+        // For SOL rewards, this account is ignored
+        pub mint: InterfaceAccount<'info, Mint>,
 
         pub token_program: Program<'info, Token2022>,
         pub system_program: Program<'info, System>,
@@ -1683,11 +1735,6 @@ pub mod multiversed_dapp {
     }
 
     // (Removed BatchAccrueRewards accounts; accrual is user-driven.)
-
-    const ONE_MONTH: i64 = 30 * 24 * 60 * 60;
-    const THREE_MONTHS: i64 = 3 * ONE_MONTH;
-    const SIX_MONTHS: i64 = 6 * ONE_MONTH;
-    const TWELVE_MONTHS: i64 = 12 * ONE_MONTH;
 
     #[account]
     pub struct StakingPool {
