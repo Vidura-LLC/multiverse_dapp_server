@@ -1321,7 +1321,7 @@ pub mod multiversed_dapp {
         #[account(
             init,
             payer = user,
-            space = 8 + 32 + 32 + 1 + 8 + 1,
+            space = RegistrationRecord::LEN,
             seeds = [b"registration", tournament_pool.key().as_ref(), user.key().as_ref()],
             bump
         )]
@@ -1569,7 +1569,7 @@ pub mod multiversed_dapp {
             init_if_needed,
             payer = user,
             // owner + staked_amount(u64) + stake_timestamp(i64) + lock_duration(i64) + weight(u128) + reward_debt(u128) + pending_rewards(u64)
-            space = 8 + 32 + 8 + 8 + 8 + 16 + 16 + 8,
+            space = UserStakingAccount::LEN,,
             seeds = [b"user_stake", user.key().as_ref()],
             bump
         )]
@@ -1729,6 +1729,9 @@ pub mod multiversed_dapp {
         pub reward_debt: u128,
         pub pending_rewards: u64,
     }
+    impl UserStakingAccount {
+        pub const LEN: usize = 8 + 32 + 8 + 8 + 8 + 16 + 16 + 8;
+    }
 
     #[account]
     pub struct TournamentPool {
@@ -1755,6 +1758,9 @@ pub mod multiversed_dapp {
         pub is_initialized: bool,
         pub registration_time: i64,
         pub bump: u8,
+    }
+    impl RegistrationRecord {
+        pub const LEN: usize = 8 + 32 + 32 + 1 + 8 + 1;
     }
 
     #[account]
@@ -1796,6 +1802,9 @@ pub mod multiversed_dapp {
         pub last_distribution: i64,
         pub token_type: TokenType,
         pub bump: u8,
+    }
+    impl RewardPool {
+        pub const LEN: usize = 8 + 32 + 32 + 8 + 8 + 1 + 1;
     }
 
     #[error_code]
