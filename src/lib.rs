@@ -1289,7 +1289,7 @@ pub mod multiversed_dapp {
 
         /// CHECK: This account is only used for SPL token prizes
         #[account(mut)]
-        pub mint: UncheckedAccount<'info>,
+        pub mint: InterfaceAccount<'info, Mint>,
 
         pub token_program: Program<'info, Token2022>,
         pub system_program: Program<'info, System>,
@@ -1321,7 +1321,7 @@ pub mod multiversed_dapp {
         // Optional: Only required for SPL token tournaments
         /// CHECK: This account is only used for SPL token tournaments
         #[account(mut)]
-        pub user_token_account: UncheckedAccount<'info>,
+        pub user_token_account: InterfaceAccount<'info, TokenAccount>,
 
         // Optional: Only required for SPL token tournaments
         /// CHECK: This account is only used for SPL token tournaments
@@ -1330,7 +1330,7 @@ pub mod multiversed_dapp {
 
         // Optional: Only required for SPL token tournaments
         /// CHECK: This account is only used for SPL token tournaments
-        pub mint: UncheckedAccount<'info>,
+        pub mint: InterfaceAccount<'info, Mint>,
 
         pub token_program: Program<'info, Token2022>,
         pub system_program: Program<'info, System>,
@@ -1502,7 +1502,7 @@ pub mod multiversed_dapp {
 
         /// CHECK: This account is only used for SPL token distribution
         #[account(mut)]
-        pub mint: UncheckedAccount<'info>,
+        pub mint: InterfaceAccount<'info, Mint>,
 
         pub token_program: Program<'info, Token2022>,
         pub system_program: Program<'info, System>,
@@ -1612,7 +1612,7 @@ pub mod multiversed_dapp {
 
         // Optional: Only required for SPL token unstaking
         /// CHECK: This account is only used for SPL token unstaking
-        pub mint: UncheckedAccount<'info>,
+        pub mint: InterfaceAccount<'info, Mint>,
 
         pub token_program: Program<'info, Token2022>,
         pub system_program: Program<'info, System>,
