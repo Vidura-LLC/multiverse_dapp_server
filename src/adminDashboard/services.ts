@@ -133,26 +133,29 @@ export interface RevenuePoolAccount {
   /**
    * Initialize the global revenue pool
    * @param mintPublicKey - The token mint address
+   * @param tokenType - The token type
+   * @param adminPublicKey - The admin public key
    * @returns Result object with transaction details and addresses
    */
-  export const initializeRevenuePoolService = async (mintPublicKey: PublicKey, adminPublicKey: PublicKey) => {
+  export const initializeRevenuePoolService = async (mintPublicKey: PublicKey, adminPublicKey: PublicKey, tokenType: TokenType = TokenType.SPL) => {
       try {
           const { program, connection } = getProgram();
   
           // Log initial parameters for clarity
           console.log("Initializing Revenue Pool:");
           console.log("Admin PublicKey:", adminPublicKey.toBase58());
+          console.log("Token Type:", tokenType === TokenType.SPL ? "SPL" : "SOL");
           console.log("Mint PublicKey:", mintPublicKey.toBase58());
   
           // Derive the PDA for the revenue pool
           const [revenuePoolPublicKey] = PublicKey.findProgramAddressSync(
-              [Buffer.from("revenue_pool"), adminPublicKey.toBuffer()],
+              [Buffer.from(SEEDS.REVENUE_POOL), adminPublicKey.toBuffer()],
               program.programId
           );
   
           // Derive the PDA for the revenue escrow account
           const [revenueEscrowPublicKey] = PublicKey.findProgramAddressSync(
-              [Buffer.from("revenue_escrow"), revenuePoolPublicKey.toBuffer()],
+              [Buffer.from(SEEDS.REVENUE_POOL_ESCROW), revenuePoolPublicKey.toBuffer()],
               program.programId
           );
   
@@ -163,9 +166,10 @@ export interface RevenuePoolAccount {
           const { blockhash } = await connection.getLatestBlockhash("finalized");
           console.log("Latest Blockhash:", blockhash);
   
+          const tokenTypeArg = tokenType === TokenType.SPL ? {spl: {}} : {sol: {}};
           // Create the transaction
           const transaction = await program.methods
-              .initializeRevenuePool()
+              .initializeRevenuePool(tokenTypeArg)
               .accounts({
                   revenuePool: revenuePoolPublicKey,
                   revenueEscrowAccount: revenueEscrowPublicKey,
@@ -184,6 +188,9 @@ export interface RevenuePoolAccount {
           return {
               success: true,
               message: "Transaction created successfully!",
+              revenuePoolPublicKey: revenuePoolPublicKey.toBase58(),
+              revenueEscrowAccountPublicKey: revenueEscrowPublicKey.toBase58(),
+              tokenType: tokenType === TokenType.SPL ? "SPL" : "SOL",
               transaction: transaction.serialize({ requireAllSignatures: false }).toString('base64'),
           };
       } catch (err) {
