@@ -135,7 +135,10 @@ pub mod multiversed_dapp {
     }
 
     /// Initialize global revenue pool (admin-only, one-time)
-    pub fn initialize_revenue_pool(ctx: Context<InitializeRevenuePool>) -> Result<()> {
+    pub fn initialize_revenue_pool(
+        ctx: Context<InitializeRevenuePool>,
+        token_type: TokenType,
+    ) -> Result<()> {
         let revenue_pool = &mut ctx.accounts.revenue_pool;
         let admin = &ctx.accounts.admin;
 
@@ -143,7 +146,7 @@ pub mod multiversed_dapp {
         revenue_pool.mint = ctx.accounts.mint.key();
         revenue_pool.total_funds = 0;
         revenue_pool.last_distribution = Clock::get()?.unix_timestamp;
-        revenue_pool.token_type = TokenType::SPL; // Default, can be updated
+        revenue_pool.token_type = token_type;
         revenue_pool.bump = ctx.bumps.revenue_pool;
 
         msg!("✅ Revenue pool initialized for admin: {}", admin.key());
@@ -151,7 +154,10 @@ pub mod multiversed_dapp {
     }
 
     /// Initialize global reward pool (admin-only, one-time)
-    pub fn initialize_reward_pool(ctx: Context<InitializeRewardPool>) -> Result<()> {
+    pub fn initialize_reward_pool(
+        ctx: Context<InitializeRewardPool>,
+        token_type: TokenType,
+    ) -> Result<()> {
         let reward_pool = &mut ctx.accounts.reward_pool;
         let admin = &ctx.accounts.admin;
 
@@ -159,7 +165,7 @@ pub mod multiversed_dapp {
         reward_pool.mint = ctx.accounts.mint.key();
         reward_pool.total_funds = 0;
         reward_pool.last_distribution = Clock::get()?.unix_timestamp;
-        reward_pool.token_type = TokenType::SPL; // Default, can be updated
+        reward_pool.token_type = token_type;
         reward_pool.bump = ctx.bumps.reward_pool;
 
         msg!("✅ Reward pool initialized for admin: {}", admin.key());
@@ -1341,6 +1347,7 @@ pub struct RegisterForTournament<'info> {
 }
 
 #[derive(Accounts)]
+#[instruction(token_type: TokenType)]
 pub struct InitializeRevenuePool<'info> {
     #[account(
         init,
