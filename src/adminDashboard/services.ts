@@ -293,26 +293,28 @@ export interface RevenuePoolAccount {
   // ✅ Initialize Reward Pool (admin-only)
 export const initializeRewardPoolService = async (
   mintPublicKey: PublicKey,
-  adminPublicKey: PublicKey
+  adminPublicKey: PublicKey,
+  tokenType: TokenType = TokenType.SPL
 ) => {
   try {
     const { program, connection } = getProgram();
 
     // Derive PDAs
     const [rewardPoolPublicKey] = PublicKey.findProgramAddressSync(
-      [Buffer.from("reward_pool"), adminPublicKey.toBuffer()],
+      [Buffer.from(SEEDS.REWARD_POOL), adminPublicKey.toBuffer()],
       program.programId
     );
 
     const [rewardEscrowPublicKey] = PublicKey.findProgramAddressSync(
-      [Buffer.from("reward_escrow"), rewardPoolPublicKey.toBuffer()],
+      [Buffer.from(SEEDS.REWARD_POOL_ESCROW), rewardPoolPublicKey.toBuffer()],
       program.programId
     );
 
+    const tokenTypeArg = tokenType === TokenType.SPL ? {spl: {}} : {sol: {}};
     // Build unsigned tx
     const { blockhash } = await connection.getLatestBlockhash("finalized");
     const transaction = await program.methods
-      .initializeRewardPool()
+      .initializeRewardPool(tokenTypeArg)
       .accounts({
         rewardPool: rewardPoolPublicKey,
         rewardEscrowAccount: rewardEscrowPublicKey,
@@ -332,6 +334,7 @@ export const initializeRewardPoolService = async (
       rewardPool: rewardPoolPublicKey.toBase58(),
       rewardEscrow: rewardEscrowPublicKey.toBase58(),
       transaction: transaction.serialize({ requireAllSignatures: false }).toString("base64"),
+      tokenType: tokenType === TokenType.SPL ? "SPL" : "SOL",
     };
   } catch (err: any) {
     console.error("❌ Error creating initializeRewardPool tx:", err);
