@@ -25,6 +25,13 @@ export const SEEDS = {
   TOURNAMENT_POOL: "tournament_pool",
 }
 
+export enum TokenType {
+  SPL = 0,
+  SOL = 1,
+}
+
+
+
 export interface StakingPoolAccount {
     admin: PublicKey;
     mint: PublicKey;
@@ -32,6 +39,7 @@ export interface StakingPoolAccount {
     totalWeight: anchor.BN;
     accRewardPerWeight: anchor.BN;
     epochIndex: anchor.BN;
+    tokenType: {spl?: {} | {sol?: {}}}
     bump: number;
 }
 
@@ -40,6 +48,7 @@ export interface RewardPoolAccount {
   mint: PublicKey;
   totalFunds: anchor.BN;
   lastDistribution: anchor.BN;
+  tokenType: {spl?: {} | {sol?: {}}}
   bump: number;
 }
 
@@ -48,6 +57,7 @@ export interface RevenuePoolAccount {
     mint: PublicKey;
     totalFunds: anchor.BN;
     lastDistribution: anchor.BN;
+    tokenType: {spl?: {} | {sol?: {}}}
     bump: number;
 }
       
