@@ -33,8 +33,8 @@ export interface UserStakingAccount {
 
   // Helper function to get the program
 export const getProgram = () => {
-  const idl = require("../staking/epoch-staking-reward_idl.json");
-  const walletKeypair = require("../staking/multiverse_dapp-keypair.json");
+  const idl = require("../staking/idl-solxspl.json");
+  const walletKeypair = require("../staking/SOLxSPL-Admin-wallet-keypair.json");
 
   const adminKeypair = Keypair.fromSecretKey(new Uint8Array(walletKeypair));
   const adminPublicKey = adminKeypair.publicKey;
@@ -43,7 +43,7 @@ export const getProgram = () => {
   const connection = new Connection("https://api.devnet.solana.com", "confirmed");
 
   const programId = new PublicKey(
-    "Dz4rTCCmWrK9Ky6kzVqNK1GPeqjAecrZzKoyXvtue4Pr"
+    "A5sbJW4hgVtaYU8TvfJc8bxeWsvFgapc88qX1VruTfq4"
   );
 
   const provider = new anchor.AnchorProvider(
