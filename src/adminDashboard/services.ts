@@ -15,7 +15,7 @@ import * as anchor from "@project-serum/anchor";
 
 export const SEEDS = {
   STAKING_POOL: "staking_pool",
-  STAKING_POOL_ESCROW: "escrow",
+  STAKING_POOL_ESCROW: "staking_escrow",
   REVENUE_POOL: "revenue_pool",
   REVENUE_POOL_ESCROW: "revenue_escrow",
   PRIZE_POOL: "prize_pool",
