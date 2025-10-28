@@ -1,7 +1,7 @@
 //src/adminDashboard/adminDashboardController.ts
 
 import { PublicKey } from '@solana/web3.js';
-import { checkPoolStatus, initializeRevenuePoolService, initializeStakingPoolService, initializeRewardPoolService, initializePrizePoolService } from "./services";
+import { checkPoolStatus, initializeRevenuePoolService, initializeStakingPoolService, initializeRewardPoolService, initializePrizePoolService, TokenType } from "./services";
 import { Request, Response } from 'express';
 import {
     getStakingPoolData,
@@ -57,15 +57,18 @@ export const checkPoolStatusController = async (req: Request, res: Response,) =>
 // Controller function for initializing the staking pool
 export const initializeStakingPoolController = async (req: Request, res: Response) => {
     try {
-        const { mintPublicKey, adminPublicKey } = req.body;  // Get mint address from request body
+        const { mintPublicKey, adminPublicKey, tokenType } = req.body;  // Get mint address and token type from request body
 
         // Validate the mint address
         if (!mintPublicKey || !adminPublicKey) {
-            return res.status(400).json({ error: 'Mint public key is required' });
+            return res.status(400).json({ error: 'Mint public key and admin public key are required' });
         }
 
+        // Convert tokenType string to enum if provided, otherwise use default
+        const tokenTypeEnum = tokenType === 'SOL' ? TokenType.SOL : TokenType.SPL;
+
         // Call the staking pool initialization service
-        const result = await initializeStakingPoolService(new PublicKey(mintPublicKey), new PublicKey(adminPublicKey));
+        const result = await initializeStakingPoolService(new PublicKey(mintPublicKey), new PublicKey(adminPublicKey), tokenTypeEnum);
 
         // Return the result
         if (result.success) {
@@ -86,7 +89,7 @@ export const initializeStakingPoolController = async (req: Request, res: Respons
  */
 export const initializeRevenuePoolController = async (req: Request, res: Response) => {
     try {
-        const { mintPublicKey, adminPublicKey } = req.body;
+        const { mintPublicKey, adminPublicKey, tokenType } = req.body;
 
         // Validate the mint address
         if (!mintPublicKey || !adminPublicKey) {
@@ -96,8 +99,11 @@ export const initializeRevenuePoolController = async (req: Request, res: Respons
             });
         }
 
+        // Convert tokenType string to enum if provided, otherwise use default
+        const tokenTypeEnum = tokenType === 'SOL' ? TokenType.SOL : TokenType.SPL;
+
         // Call the service function to initialize revenue pool
-        const result = await initializeRevenuePoolService(new PublicKey(mintPublicKey), new PublicKey(adminPublicKey));
+        const result = await initializeRevenuePoolService(new PublicKey(mintPublicKey), new PublicKey(adminPublicKey), tokenTypeEnum);
 
         // Return the result
         if (result.success) {
@@ -120,7 +126,7 @@ export const initializeRevenuePoolController = async (req: Request, res: Respons
  */
 export const initializePrizePoolController = async (req: Request, res: Response) => {
     try {
-      const { tournamentId, mintPublicKey, adminPublicKey } = req.body;
+      const { tournamentId, mintPublicKey, adminPublicKey, tokenType } = req.body;
   
       // Validate required fields
       if (!tournamentId) {
@@ -140,9 +146,12 @@ export const initializePrizePoolController = async (req: Request, res: Response)
       // Convert string public key to PublicKey object
       const mintPubkey = new PublicKey(mintPublicKey);
       const adminPubKey = new PublicKey(adminPublicKey);
+      
+      // Convert tokenType string to enum if provided, otherwise use default
+      const tokenTypeEnum = tokenType === 'SOL' ? TokenType.SOL : TokenType.SPL;
   
       // Call the service function to initialize prize pool for the tournament
-      const result = await initializePrizePoolService(tournamentId, mintPubkey, adminPubKey);
+      const result = await initializePrizePoolService(tournamentId, mintPubkey, adminPubKey, tokenTypeEnum);
   
       if (result.success) {
         const tournamentRef = ref(db, `tournaments/${tournamentId}`);
@@ -184,7 +193,7 @@ export const initializePrizePoolController = async (req: Request, res: Response)
  */
 export const initializeRewardPoolController = async (req: Request, res: Response) => {
     try {
-        const { mintPublicKey, adminPublicKey } = req.body;
+        const { mintPublicKey, adminPublicKey, tokenType } = req.body;
 
         // Validate the mint address
         if (!mintPublicKey || !adminPublicKey) {
@@ -194,8 +203,11 @@ export const initializeRewardPoolController = async (req: Request, res: Response
             });
         }
 
-        // Call the service function to initialize revenue pool
-        const result = await initializeRewardPoolService(new PublicKey(mintPublicKey), new PublicKey(adminPublicKey));
+        // Convert tokenType string to enum if provided, otherwise use default
+        const tokenTypeEnum = tokenType === 'SOL' ? TokenType.SOL : TokenType.SPL;
+
+        // Call the service function to initialize reward pool
+        const result = await initializeRewardPoolService(new PublicKey(mintPublicKey), new PublicKey(adminPublicKey), tokenTypeEnum);
 
         // Return the result
         if (result.success) {

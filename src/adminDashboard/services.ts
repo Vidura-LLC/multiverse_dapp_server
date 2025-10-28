@@ -343,90 +343,89 @@ export const initializeRewardPoolService = async (
 };
 
   
-  // ✅ Function to check pool status for staking, revenue, and prize pools
-  export const checkPoolStatus = async (adminPublicKey: PublicKey, tournamentId?: string) => {
-      try {
-          const { program } = getProgram();
-  
-          const result = {
-              success: true,
-              stakingPool: {
-                  status: false, // false = needs initialization, true = exists
-              },
-              revenuePool: {
-                  status: false, // false = needs initialization, true = exists
-              },
-              rewardPool: {
-                status: false, // false = needs initialization, true = exists
-            },
-              adminAddress: adminPublicKey.toString()
-          };
-  
-          // ✅ 1. Check Staking Pool
-          const [stakingPoolPublicKey] = PublicKey.findProgramAddressSync(
-              [Buffer.from("staking_pool"), adminPublicKey.toBuffer()],
-              program.programId
-          );
-  
-          const [stakingEscrowAccountPublicKey] = PublicKey.findProgramAddressSync(
-              [Buffer.from("escrow"), stakingPoolPublicKey.toBuffer()],
-              program.programId
-          );
-  
-          console.log("🔹 Checking Staking Pool PDA:", stakingPoolPublicKey.toString());
-  
-          const stakingPoolAccount = await program.account.stakingPool.fetchNullable(stakingPoolPublicKey) as StakingPoolAccount;
-  
-          result.stakingPool = {
-              status: stakingPoolAccount !== null,
-          };
-  
-          // ✅ 2. Check Revenue Pool
-          const [revenuePoolPublicKey] = PublicKey.findProgramAddressSync(
-              [Buffer.from("revenue_pool"), adminPublicKey.toBuffer()],
-              program.programId
-          );
-  
-          const [revenueEscrowAccountPublicKey] = PublicKey.findProgramAddressSync(
-              [Buffer.from("revenue_escrow"), revenuePoolPublicKey.toBuffer()],
-              program.programId
-          );
-  
-          console.log("🔹 Checking Revenue Pool PDA:", revenuePoolPublicKey.toString());
-  
-          const revenuePoolAccount = await program.account.revenuePool.fetchNullable(revenuePoolPublicKey) as RevenuePoolAccount;
-  
-          result.revenuePool = {
-              status: revenuePoolAccount !== null,
-          }
+ // ✅ Function to check pool status for staking, revenue, and prize pools
+ export const checkPoolStatus = async (adminPublicKey: PublicKey, tournamentId?: string) => {
+  try {
+      const { program } = getProgram();
 
- 
-          // ✅ 3. Check Reward Pool
-          const [rewardPoolPublicKey] = PublicKey.findProgramAddressSync(
-            [Buffer.from("reward_pool"), adminPublicKey.toBuffer()],
-            program.programId
-        );
+      const result = {
+          success: true,
+          stakingPool: {
+              status: false, // false = needs initialization, true = exists
+              tokenType: null as string | null,
+          },
+          revenuePool: {
+              status: false, // false = needs initialization, true = exists
+              tokenType: null as string | null,
+          },
+          rewardPool: {
+            status: false, // false = needs initialization, true = exists
+            tokenType: null as string | null,
+        },
+          adminAddress: adminPublicKey.toString()
+      };
 
-        const [rewardEscrowAccountPublicKey] = PublicKey.findProgramAddressSync(
-            [Buffer.from("reward_escrow"), rewardPoolPublicKey.toBuffer()],
-            program.programId
-        );
+      // ✅ 1. Check Staking Pool
+      const [stakingPoolPublicKey] = PublicKey.findProgramAddressSync(
+          [Buffer.from(SEEDS.STAKING_POOL), adminPublicKey.toBuffer()],
+          program.programId
+      );
+      console.log("🔹 Checking Staking Pool PDA:", stakingPoolPublicKey.toString());
 
-        console.log("🔹 Checking Reward Pool PDA:", rewardPoolPublicKey.toString());
+      const stakingPoolAccount = await program.account.stakingPool.fetchNullable(stakingPoolPublicKey) as StakingPoolAccount | null;
 
-        const rewardPoolAccount = await program.account.rewardPool.fetchNullable(rewardPoolPublicKey) as RewardPoolAccount;
+      result.stakingPool = {
+          status: stakingPoolAccount !== null,
+          tokenType: stakingPoolAccount ? 
+            (stakingPoolAccount.tokenType.hasOwnProperty('spl') ? 'SPL' : 'SOL') : 
+            null,
+      };
 
-        result.rewardPool = {
-            status: rewardPoolAccount !== null,
-        }
-  
-          return result;
-  
-      } catch (err) {
-          console.error("❌ Error checking pool status:", err);
-          return {
-              success: false,
-              message: `Error checking pool status: ${err.message || err}`
-          };
+      // ✅ 2. Check Revenue Pool
+      const [revenuePoolPublicKey] = PublicKey.findProgramAddressSync(
+          [Buffer.from(SEEDS.REVENUE_POOL), adminPublicKey.toBuffer()],
+          program.programId
+      );
+
+      console.log("🔹 Checking Revenue Pool PDA:", revenuePoolPublicKey.toString());
+
+      const revenuePoolAccount = await program.account.revenuePool.fetchNullable(revenuePoolPublicKey) as RevenuePoolAccount | null;
+
+      result.revenuePool = {
+          status: revenuePoolAccount !== null,
+          tokenType: revenuePoolAccount ? 
+            (revenuePoolAccount.tokenType.hasOwnProperty('spl') ? 'SPL' : 'SOL') : 
+            null,
       }
-  };
+
+
+      // ✅ 3. Check Reward Pool
+      const [rewardPoolPublicKey] = PublicKey.findProgramAddressSync(
+        [Buffer.from(SEEDS.REWARD_POOL), adminPublicKey.toBuffer()],
+        program.programId
+    );
+
+
+    console.log("🔹 Checking Reward Pool PDA:", rewardPoolPublicKey.toString());
+
+    const rewardPoolAccount = await program.account.rewardPool.fetchNullable(rewardPoolPublicKey) as RewardPoolAccount | null;
+
+    result.rewardPool = {
+        status: rewardPoolAccount !== null,
+        tokenType: rewardPoolAccount ? 
+          (rewardPoolAccount.tokenType.hasOwnProperty('spl') ? 'SPL' : 'SOL') : 
+          null,
+    }
+
+      return result;
+
+  } catch (err: any) {
+      console.error("❌ Error checking pool status:", err);
+      return {
+          success: false,
+          message: `Error checking pool status: ${err.message || err}`
+      };
+  }
+};
+
+
