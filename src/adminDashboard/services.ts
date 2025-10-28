@@ -63,22 +63,22 @@ export interface RevenuePoolAccount {
       
 
   // ✅ Function to initialize the staking pool and escrow account
-  export const initializeStakingPoolService = async (mintPublicKey: PublicKey, adminPublicKey: PublicKey) => {
+  export const initializeStakingPoolService = async (mintPublicKey: PublicKey, adminPublicKey: PublicKey, tokenType: TokenType = TokenType.SPL) => {
       try {
           const { program, connection } = getProgram();
   
           // ✅ Staking pool doesn't exist - create initialization transaction
           console.log("🔄 Creating staking pool initialization transaction...");
-          
+          console.log("Token Type:", tokenType === TokenType.SPL ? "SPL" : "SOL");
           console.log("Admin PublicKey:", adminPublicKey.toBase58());
   
           const [stakingPoolPublicKey] = PublicKey.findProgramAddressSync(
-              [Buffer.from("staking_pool"), adminPublicKey.toBuffer()],
+              [Buffer.from(SEEDS.STAKING_POOL), adminPublicKey.toBuffer()],
               program.programId
           );
   
           const [poolEscrowAccountPublicKey] = PublicKey.findProgramAddressSync(
-              [Buffer.from("escrow"), stakingPoolPublicKey.toBuffer()],
+              [Buffer.from(SEEDS.STAKING_POOL_ESCROW), stakingPoolPublicKey.toBuffer()],
               program.programId
           );
   
@@ -93,9 +93,11 @@ export interface RevenuePoolAccount {
           const { blockhash } = await connection.getLatestBlockhash("finalized");
           console.log("Latest Blockhash:", blockhash);
   
+          const tokenTypeArg = tokenType === TokenType.SPL ? {spl: {}} : {sol: {}};
+
           // Create the transaction
           const transaction = await program.methods
-              .initializeAccounts()
+              .initializeAccounts(tokenTypeArg)
               .accounts({
                   admin: adminPublicKey,
                   stakingPool: stakingPoolPublicKey,
@@ -116,6 +118,7 @@ export interface RevenuePoolAccount {
               message: "Transaction created successfully!",
               stakingPoolPublicKey: stakingPoolPublicKey.toBase58(),
               poolEscrowAccountPublicKey: poolEscrowAccountPublicKey.toBase58(),
+              tokenType: tokenType === TokenType.SPL ? "SPL" : "SOL",
               transaction: transaction.serialize({ requireAllSignatures: false }).toString("base64"),
           };
       } catch (err) {
