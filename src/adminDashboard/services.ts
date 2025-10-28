@@ -13,6 +13,19 @@ import {
   dotenv.config();
 import * as anchor from "@project-serum/anchor";
 
+export const SEEDS = {
+  STAKING_POOL: "staking_pool",
+  STAKING_POOL_ESCROW: "escrow",
+  REVENUE_POOL: "revenue_pool",
+  REVENUE_POOL_ESCROW: "revenue_escrow",
+  PRIZE_POOL: "prize_pool",
+  PRIZE_POOL_ESCROW: "prize_escrow",
+  REWARD_POOL: "reward_pool",
+  REWARD_POOL_ESCROW: "reward_escrow",
+  TOURNAMENT_POOL: "tournament_pool",
+  TOURNAMENT_POOL_ESCROW: "tournament_escrow",
+}
+
 export interface StakingPoolAccount {
     admin: PublicKey;
     mint: PublicKey;
