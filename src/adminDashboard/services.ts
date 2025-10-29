@@ -302,7 +302,7 @@ export const initializeRewardPoolService = async (
 
   
  // ✅ Function to check pool status for staking, revenue, and prize pools
- export const checkPoolStatus = async (adminPublicKey: PublicKey, tournamentId?: string) => {
+ export const checkPoolStatus = async (adminPublicKey: PublicKey, tokenType: TokenType) => {
   try {
       const { program } = getProgram();
 
@@ -324,7 +324,7 @@ export const initializeRewardPoolService = async (
       };
 
       // ✅ 1. Check Staking Pool
-      const stakingPoolPublicKey = getStakingPoolPDA(adminPublicKey, TokenType.SPL);
+      const stakingPoolPublicKey = getStakingPoolPDA(adminPublicKey, tokenType);
       console.log("🔹 Checking Staking Pool PDA:", stakingPoolPublicKey.toString());
 
       const stakingPoolAccount = await program.account.stakingPool.fetchNullable(stakingPoolPublicKey) as StakingPoolAccount | null;
@@ -337,7 +337,7 @@ export const initializeRewardPoolService = async (
       };
 
       // ✅ 2. Check Revenue Pool
-      const revenuePoolPublicKey = getRevenuePoolPDA(adminPublicKey, TokenType.SPL);
+      const revenuePoolPublicKey = getRevenuePoolPDA(adminPublicKey, tokenType);
 
       console.log("🔹 Checking Revenue Pool PDA:", revenuePoolPublicKey.toString());
 
@@ -352,7 +352,7 @@ export const initializeRewardPoolService = async (
 
 
       // ✅ 3. Check Reward Pool
-      const rewardPoolPublicKey = getRewardPoolPDA(adminPublicKey, TokenType.SPL);
+      const rewardPoolPublicKey = getRewardPoolPDA(adminPublicKey, tokenType);
 
 
     console.log("🔹 Checking Reward Pool PDA:", rewardPoolPublicKey.toString());
