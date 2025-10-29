@@ -11,7 +11,7 @@ import {
 import { getRevenuePoolStatsService, getTournamentStats, getStakingStats, getDashboardData } from './dashboardStatsService';
 import { get, ref, set } from 'firebase/database';
 import { db } from '../config/firebase';
-import { parseTokenType } from "../utils/getPDAs";
+import { TokenType } from "../utils/getPDAs";
 
 
 export const checkPoolStatusController = async (req: Request, res: Response,) => {
@@ -37,9 +37,12 @@ export const checkPoolStatusController = async (req: Request, res: Response,) =>
             });
         }
 
-        // Check staking pool status
-        const parsedTokenType = parseTokenType(tokenType);
-        const result = await checkPoolStatus(new PublicKey(adminPublicKey), parsedTokenType);
+        // Check staking pool status (expect 0 or 1)
+        const tt = Number(tokenType);
+        if (tt !== TokenType.SPL && tt !== TokenType.SOL) {
+            return res.status(400).json({ success: false, error: 'tokenType must be 0 (SPL) or 1 (SOL)' });
+        }
+        const result = await checkPoolStatus(new PublicKey(adminPublicKey), tt as TokenType);
 
         if (result.success) {
             return res.status(200).json({
@@ -67,9 +70,12 @@ export const initializeStakingPoolController = async (req: Request, res: Respons
         }
 
 
-        // Call the staking pool initialization service
-        const parsedTokenType = parseTokenType(tokenType);
-        const result = await initializeStakingPoolService(new PublicKey(mintPublicKey), new PublicKey(adminPublicKey), parsedTokenType);
+        // Call the staking pool initialization service (expect 0 or 1)
+        const tt = Number(tokenType);
+        if (tt !== TokenType.SPL && tt !== TokenType.SOL) {
+            return res.status(400).json({ error: 'tokenType must be 0 (SPL) or 1 (SOL)' });
+        }
+        const result = await initializeStakingPoolService(new PublicKey(mintPublicKey), tt as TokenType, new PublicKey(adminPublicKey));
 
         // Return the result
         if (result.success) {
@@ -101,8 +107,11 @@ export const initializeRevenuePoolController = async (req: Request, res: Respons
         }
 
         // Call the service function to initialize revenue pool
-        const parsedTokenType = parseTokenType(tokenType);
-        const result = await initializeRevenuePoolService(new PublicKey(mintPublicKey), new PublicKey(adminPublicKey), parsedTokenType);
+        const tt = Number(tokenType);
+        if (tt !== TokenType.SPL && tt !== TokenType.SOL) {
+            return res.status(400).json({ success: false, message: 'tokenType must be 0 (SPL) or 1 (SOL)' });
+        }
+        const result = await initializeRevenuePoolService(new PublicKey(mintPublicKey), new PublicKey(adminPublicKey), tt as TokenType);
 
         // Return the result
         if (result.success) {
@@ -200,8 +209,11 @@ export const initializeRewardPoolController = async (req: Request, res: Response
         }
 
         // Call the service function to initialize reward pool
-        const parsedTokenType = parseTokenType(tokenType);
-        const result = await initializeRewardPoolService(new PublicKey(mintPublicKey), new PublicKey(adminPublicKey), parsedTokenType);
+        const tt = Number(tokenType);
+        if (tt !== TokenType.SPL && tt !== TokenType.SOL) {
+            return res.status(400).json({ success: false, message: 'tokenType must be 0 (SPL) or 1 (SOL)' });
+        }
+        const result = await initializeRewardPoolService(new PublicKey(mintPublicKey), new PublicKey(adminPublicKey), tt as TokenType);
 
         // Return the result
         if (result.success) {
