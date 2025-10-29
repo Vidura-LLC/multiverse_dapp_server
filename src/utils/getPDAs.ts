@@ -58,14 +58,14 @@ export const getStakingEscrowPDA = (stakingPoolPublicKey: PublicKey) => {
 
 /**
  * Get Revenue Pool PDA
- * @param adminPublicKey - Admin who initialized the pool (optional, uses default admin)
+ * @param adminPublicKey - Admin who initialized the pool
+ * @param tokenType - Type of token (SPL or SOL)
  * @returns Revenue Pool PDA
  */
-export const getRevenuePoolPDA = (adminPublicKey?: PublicKey) => {
-  const { program, adminPublicKey: defaultAdmin } = getProgram();
-  const admin = adminPublicKey ?? defaultAdmin;
+export const getRevenuePoolPDA = (adminPublicKey: PublicKey, tokenType: TokenType) => {
+  const { program } = getProgram();
   return PublicKey.findProgramAddressSync(
-    [Buffer.from(SEEDS.REVENUE_POOL), admin.toBuffer()],
+    [Buffer.from(SEEDS.REVENUE_POOL), adminPublicKey.toBuffer(), Buffer.from([tokenType])],
     program.programId
   )[0];
 };
@@ -85,14 +85,14 @@ export const getRevenueEscrowPDA = (revenuePoolPublicKey: PublicKey) => {
 
 /**
  * Get Reward Pool PDA
- * @param adminPublicKey - Admin who initialized the pool (optional, uses default admin)
+ * @param adminPublicKey - Admin who initialized the pool
+ * @param tokenType - Type of token (SPL or SOL)
  * @returns Reward Pool PDA
  */
-export const getRewardPoolPDA = (adminPublicKey?: PublicKey) => {
-  const { program, adminPublicKey: defaultAdmin } = getProgram();
-  const admin = adminPublicKey ?? defaultAdmin;
+export const getRewardPoolPDA = (adminPublicKey: PublicKey, tokenType: TokenType) => {
+  const { program } = getProgram();
   return PublicKey.findProgramAddressSync(
-    [Buffer.from(SEEDS.REWARD_POOL), admin.toBuffer()],
+    [Buffer.from(SEEDS.REWARD_POOL), adminPublicKey.toBuffer(), Buffer.from([tokenType])],
     program.programId
   )[0];
 };
@@ -145,12 +145,13 @@ export const getTournamentEscrowPDA = (tournamentPoolPublicKey: PublicKey) => {
 /**
  * Get Prize Pool PDA
  * @param tournamentPoolPublicKey - The tournament pool PDA
+ * @param tokenType - Type of token (SPL or SOL)
  * @returns Prize Pool PDA
  */
-export const getPrizePoolPDA = (tournamentPoolPublicKey: PublicKey) => {
+export const getPrizePoolPDA = (tournamentPoolPublicKey: PublicKey, tokenType: TokenType) => {
   const { program } = getProgram();
   return PublicKey.findProgramAddressSync(
-    [Buffer.from(SEEDS.PRIZE_POOL), tournamentPoolPublicKey.toBuffer()],
+    [Buffer.from(SEEDS.PRIZE_POOL), tournamentPoolPublicKey.toBuffer(), Buffer.from([tokenType])],
     program.programId
   )[0];
 };
@@ -227,11 +228,11 @@ export const getAllPoolPDAs = (
   const stakingEscrow = getStakingEscrowPDA(stakingPool);
 
   // Revenue-related PDAs
-  const revenuePool = getRevenuePoolPDA(admin);
+  const revenuePool = getRevenuePoolPDA(admin, tokenType);
   const revenueEscrow = getRevenueEscrowPDA(revenuePool);
 
   // Reward-related PDAs
-  const rewardPool = getRewardPoolPDA(admin);
+  const rewardPool = getRewardPoolPDA(admin, tokenType);
   const rewardEscrow = getRewardEscrowPDA(rewardPool);
 
   // Tournament-related PDAs (if tournamentId provided)
@@ -244,7 +245,7 @@ export const getAllPoolPDAs = (
   if (opts?.tournamentId) {
     tournamentPool = getTournamentPoolPDA(admin, opts.tournamentId);
     tournamentEscrow = getTournamentEscrowPDA(tournamentPool);
-    prizePool = getPrizePoolPDA(tournamentPool);
+    prizePool = getPrizePoolPDA(tournamentPool, tokenType);
     prizeEscrow = getPrizeEscrowPDA(prizePool);
 
     // If user is also provided, get registration PDA
