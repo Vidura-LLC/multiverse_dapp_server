@@ -1107,12 +1107,13 @@ pub mod multiversed_dapp {
 // ==============================
 
 #[derive(Accounts)]
+#[instruction(token_type: TokenType)]
 pub struct InitializeAccounts<'info> {
     #[account(
         init_if_needed,
         payer = admin,
         space = StakingPool::LEN,
-        seeds = [SEED_STAKING_POOL, admin.key().as_ref()],
+        seeds = [SEED_STAKING_POOL, admin.key().as_ref(), &[token_type as u8]],
         bump
     )]
     pub staking_pool: Account<'info, StakingPool>,
@@ -1143,7 +1144,7 @@ pub struct Stake<'info> {
 
     #[account(
         mut,
-        seeds = [SEED_STAKING_POOL, staking_pool.admin.as_ref()],
+        seeds = [SEED_STAKING_POOL, staking_pool.admin.as_ref(), &[staking_pool.token_type as u8]],
         bump = staking_pool.bump
     )]
     pub staking_pool: Account<'info, StakingPool>,
@@ -1182,7 +1183,7 @@ pub struct Unstake<'info> {
 
     #[account(
         mut,
-        seeds = [SEED_STAKING_POOL, staking_pool.admin.as_ref()],
+        seeds = [SEED_STAKING_POOL, staking_pool.admin.as_ref(), &[staking_pool.token_type as u8]],
         bump = staking_pool.bump
     )]
     pub staking_pool: Account<'info, StakingPool>,
@@ -1220,7 +1221,7 @@ pub struct ClaimRewards<'info> {
 
     #[account(
         mut,
-        seeds = [SEED_STAKING_POOL, staking_pool.admin.as_ref()],
+        seeds = [SEED_STAKING_POOL, staking_pool.admin.as_ref(), &[staking_pool.token_type as u8]],
         bump = staking_pool.bump
     )]
     pub staking_pool: Account<'info, StakingPool>,
@@ -1259,7 +1260,7 @@ pub struct AccrueRewards<'info> {
     pub user: Signer<'info>,
 
     #[account(
-        seeds = [SEED_STAKING_POOL, staking_pool.admin.as_ref()],
+        seeds = [SEED_STAKING_POOL, staking_pool.admin.as_ref(), &[staking_pool.token_type as u8]],
         bump = staking_pool.bump
     )]
     pub staking_pool: Account<'info, StakingPool>,
@@ -1480,7 +1481,7 @@ pub struct DistributeTournamentRevenue<'info> {
 
     #[account(
         mut,
-        seeds = [SEED_STAKING_POOL, staking_pool.admin.as_ref()],
+        seeds = [SEED_STAKING_POOL, staking_pool.admin.as_ref(), &[staking_pool.token_type as u8]],
         bump = staking_pool.bump
     )]
     pub staking_pool: Account<'info, StakingPool>,
