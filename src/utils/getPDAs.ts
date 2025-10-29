@@ -22,6 +22,11 @@ export enum TokenType {
   SOL = 1,
 }
 
+export const parseTokenType = (value: unknown): TokenType => {
+  if (value === TokenType.SOL || value === 1 || value === "1" || value === "SOL") return TokenType.SOL;
+  return TokenType.SPL;
+};
+
 /**
  * Get Staking Pool PDA
  * @param adminPublicKey - Admin who initialized the pool
