@@ -1236,7 +1236,7 @@ pub struct ClaimRewards<'info> {
 
     #[account(
         mut,
-        seeds = [SEED_REWARD_POOL, reward_pool.admin.as_ref()],
+        seeds = [SEED_REWARD_POOL, reward_pool.admin.as_ref(), &[reward_pool.token_type as u8]],
         bump = reward_pool.bump
     )]
     pub reward_pool: Account<'info, RewardPool>,
@@ -1283,7 +1283,7 @@ pub struct CreateTournamentPool<'info> {
         init,
         payer = creator,
         space = TournamentPool::LEN,
-        seeds = [SEED_TOURNAMENT_POOL, creator.key().as_ref(), tournament_id.as_bytes()],
+        seeds = [SEED_TOURNAMENT_POOL, creator.key().as_ref(), tournament_id.as_bytes(), &[token_type as u8]],
         bump
     )]
     pub tournament_pool: Account<'info, TournamentPool>,
@@ -1315,7 +1315,7 @@ pub struct RegisterForTournament<'info> {
 
     #[account(
         mut,
-        seeds = [SEED_TOURNAMENT_POOL, tournament_pool.admin.as_ref(), tournament_id.as_bytes()],
+        seeds = [SEED_TOURNAMENT_POOL, tournament_pool.admin.as_ref(), tournament_id.as_bytes(), &[tournament_pool.token_type as u8]],
         bump = tournament_pool.bump
     )]
     pub tournament_pool: Account<'info, TournamentPool>,
@@ -1324,7 +1324,7 @@ pub struct RegisterForTournament<'info> {
         init,
         payer = user,
         space = RegistrationRecord::LEN,
-        seeds = [SEED_REGISTRATION, tournament_pool.key().as_ref(), user.key().as_ref()],
+        seeds = [SEED_REGISTRATION, tournament_pool.key().as_ref(), user.key().as_ref(), &[tournament_pool.token_type as u8]],
         bump
     )]
     pub registration_account: Account<'info, RegistrationRecord>,
@@ -1354,7 +1354,7 @@ pub struct InitializeRevenuePool<'info> {
         init,
         payer = admin,
         space = RevenuePool::LEN,
-        seeds = [SEED_REVENUE_POOL, admin.key().as_ref()],
+        seeds = [SEED_REVENUE_POOL, admin.key().as_ref(), &[token_type as u8]],
         bump
     )]
     pub revenue_pool: Account<'info, RevenuePool>,
@@ -1384,7 +1384,7 @@ pub struct InitializeRewardPool<'info> {
         init,
         payer = admin,
         space = RewardPool::LEN,
-        seeds = [SEED_REWARD_POOL, admin.key().as_ref()],
+        seeds = [SEED_REWARD_POOL, admin.key().as_ref(), &[token_type as u8]],
         bump
     )]
     pub reward_pool: Account<'info, RewardPool>,
@@ -1415,14 +1415,14 @@ pub struct InitializePrizePool<'info> {
         init_if_needed,
         payer = creator,
         space = PrizePool::LEN,
-        seeds = [SEED_PRIZE_POOL, tournament_pool.key().as_ref()],
+        seeds = [SEED_PRIZE_POOL, tournament_pool.key().as_ref(), &[token_type as u8]],
         bump
     )]
     pub prize_pool: Account<'info, PrizePool>,
 
     #[account(
         mut,
-        seeds = [SEED_TOURNAMENT_POOL, tournament_pool.admin.as_ref(), tournament_id.as_bytes()],
+        seeds = [SEED_TOURNAMENT_POOL, tournament_pool.admin.as_ref(), tournament_id.as_bytes(), &[tournament_pool.token_type as u8]],
         bump = tournament_pool.bump,
         constraint = tournament_pool.admin == creator.key() @ TournamentError::Unauthorized
     )]
@@ -1458,7 +1458,7 @@ pub struct DistributeTournamentRevenue<'info> {
 
     #[account(
         mut,
-        seeds = [SEED_TOURNAMENT_POOL, creator.key().as_ref(), tournament_id.as_bytes()],
+        seeds = [SEED_TOURNAMENT_POOL, creator.key().as_ref(), tournament_id.as_bytes(), &[tournament_pool.token_type as u8]],
         bump = tournament_pool.bump
     )]
     pub tournament_pool: Account<'info, TournamentPool>,
@@ -1467,14 +1467,14 @@ pub struct DistributeTournamentRevenue<'info> {
         init_if_needed,
         payer = creator,
         space = PrizePool::LEN,
-        seeds = [SEED_PRIZE_POOL, tournament_pool.key().as_ref()],
+        seeds = [SEED_PRIZE_POOL, tournament_pool.key().as_ref(), &[staking_pool.token_type as u8]],
         bump
     )]
     pub prize_pool: Account<'info, PrizePool>,
 
     #[account(
         mut,
-        seeds = [SEED_REVENUE_POOL, revenue_pool.admin.as_ref()],
+        seeds = [SEED_REVENUE_POOL, revenue_pool.admin.as_ref(), &[staking_pool.token_type as u8]],
         bump = revenue_pool.bump
     )]
     pub revenue_pool: Account<'info, RevenuePool>,
@@ -1488,7 +1488,7 @@ pub struct DistributeTournamentRevenue<'info> {
 
     #[account(
         mut,
-        seeds = [SEED_REWARD_POOL, reward_pool.admin.as_ref()],
+        seeds = [SEED_REWARD_POOL, reward_pool.admin.as_ref(), &[staking_pool.token_type as u8]],
         bump = reward_pool.bump
     )]
     pub reward_pool: Account<'info, RewardPool>,
@@ -1535,7 +1535,7 @@ pub struct DistributeTournamentPrizes<'info> {
 
     #[account(
         mut,
-        seeds = [SEED_PRIZE_POOL, tournament_pool.key().as_ref()],
+        seeds = [SEED_PRIZE_POOL, tournament_pool.key().as_ref(), &[prize_pool.token_type as u8]],
         bump = prize_pool.bump
     )]
     pub prize_pool: Account<'info, PrizePool>,
