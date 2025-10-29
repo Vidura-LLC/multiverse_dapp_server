@@ -229,7 +229,7 @@ export const claimRewardsService = async (
 
     const userStakingAccountPublicKey = getUserStakingPDA(stakingPoolPublicKey, userPublicKey);
 
-    const rewardPoolPublicKey = getRewardPoolPDA(adminPublicKey);
+    const rewardPoolPublicKey = getRewardPoolPDA(adminPublicKey, tokenType);
 
     const rewardEscrowPublicKey = getRewardEscrowPDA(rewardPoolPublicKey);
 
