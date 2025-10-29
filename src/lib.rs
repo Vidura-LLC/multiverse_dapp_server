@@ -2,6 +2,9 @@ use anchor_lang::prelude::InterfaceAccount;
 use anchor_lang::prelude::*;
 use anchor_spl::token_2022::{self, Burn, Token2022, TransferChecked};
 use anchor_spl::token_interface::{Mint, TokenAccount};
+use solana_program::program::invoke;
+use solana_program::program::invoke_signed; // ✅ ADD THIS
+use solana_program::system_instruction; // ✅ ADD THIS
 
 declare_id!("A5sbJW4hgVtaYU8TvfJc8bxeWsvFgapc88qX1VruTfq4");
 
@@ -116,14 +119,93 @@ pub mod multiversed_dapp {
             StakingError::AlreadyInitialized
         );
 
+        // Initialize staking pool
         staking_pool.admin = ctx.accounts.admin.key();
-        staking_pool.mint = ctx.accounts.mint.key();
         staking_pool.total_staked = 0;
         staking_pool.total_weight = 0;
         staking_pool.acc_reward_per_weight = 0;
         staking_pool.epoch_index = 0;
         staking_pool.token_type = token_type;
         staking_pool.bump = ctx.bumps.staking_pool;
+
+        match token_type {
+            TokenType::SOL => {
+                // For SOL staking:
+                // - No escrow needed - SOL stored directly in staking_pool account
+                // - No mint validation needed - we just use a dummy value
+                // - Store the staking pool's own pubkey as "mint" for consistency
+                staking_pool.mint = staking_pool.key();
+
+                msg!("✅ SOL staking pool initialized (no escrow needed)");
+                msg!("   Pool stores SOL directly in its account");
+            }
+            TokenType::SPL => {
+                // For SPL staking, validate and initialize escrow
+
+                // ✅ Validate mint is actually a mint account
+                staking_pool.mint = ctx.accounts.mint.key();
+
+                // Verify token program
+                require!(
+                    ctx.accounts.token_program.key() == anchor_spl::token_2022::ID,
+                    StakingError::InvalidTokenProgram
+                );
+
+                // Derive the escrow PDA
+                let staking_pool_key = staking_pool.key(); // ✅ Store once
+                let escrow_seeds = &[SEED_ESCROW, staking_pool_key.as_ref()]; // ✅ Use variable
+                let (escrow_pda, escrow_bump) =
+                    Pubkey::find_program_address(escrow_seeds, ctx.program_id);
+
+                // Verify the provided escrow account matches the PDA
+                require!(
+                    ctx.accounts.pool_escrow_account.key() == escrow_pda,
+                    StakingError::InvalidEscrowAccount
+                );
+
+                // Calculate rent for token account
+                let rent = Rent::get()?;
+                let space = 165; // Token account size for Token-2022
+                let lamports = rent.minimum_balance(space);
+
+                // Create the escrow account
+                invoke_signed(
+                    &system_instruction::create_account(
+                        ctx.accounts.admin.key,
+                        &escrow_pda,
+                        lamports,
+                        space as u64,
+                        &anchor_spl::token_2022::ID,
+                    ),
+                    &[
+                        ctx.accounts.admin.to_account_info(),
+                        ctx.accounts.pool_escrow_account.to_account_info(),
+                        ctx.accounts.system_program.to_account_info(),
+                    ],
+                    &[&[SEED_ESCROW, staking_pool_key.as_ref(), &[escrow_bump]]], // ✅ Use variable
+                )?;
+
+                // Initialize as token account
+                let init_account_ix = spl_token_2022::instruction::initialize_account3(
+                    &anchor_spl::token_2022::ID,
+                    &escrow_pda,
+                    &ctx.accounts.mint.key(),
+                    &staking_pool.key(), // This one is fine - used immediately
+                )?;
+
+                invoke(
+                    &init_account_ix,
+                    &[
+                        ctx.accounts.pool_escrow_account.to_account_info(),
+                        ctx.accounts.mint.to_account_info(),
+                    ],
+                )?;
+
+                msg!("✅ SPL staking pool and escrow initialized");
+                msg!("   Mint: {}", ctx.accounts.mint.key());
+                msg!("   Escrow: {}", escrow_pda);
+            }
+        }
 
         msg!(
             "✅ Staking pool initialized by admin: {}, token_type: {:?}",
@@ -133,7 +215,6 @@ pub mod multiversed_dapp {
 
         Ok(())
     }
-
     /// Initialize global revenue pool (admin-only, one-time)
     pub fn initialize_revenue_pool(
         ctx: Context<InitializeRevenuePool>,
@@ -1118,23 +1199,20 @@ pub struct InitializeAccounts<'info> {
     )]
     pub staking_pool: Account<'info, StakingPool>,
 
-    #[account(
-        init_if_needed,
-        payer = admin,
-        token::mint = mint,
-        token::authority = staking_pool,
-        seeds = [SEED_ESCROW, staking_pool.key().as_ref()],
-        bump
-    )]
-    pub pool_escrow_account: InterfaceAccount<'info, TokenAccount>,
+    /// CHECK: For SPL, this must be a token account. For SOL, can be any account (we pass SystemProgram)
+    #[account(mut)]
+    pub pool_escrow_account: UncheckedAccount<'info>,
 
-    pub mint: InterfaceAccount<'info, Mint>,
+    /// CHECK: For SPL, must be valid mint. For SOL, we pass SystemProgram.programId as dummy
+    pub mint: UncheckedAccount<'info>,
 
     #[account(mut)]
     pub admin: Signer<'info>,
 
     pub system_program: Program<'info, System>,
-    pub token_program: Program<'info, Token2022>,
+
+    /// CHECK: Token program - only validated when token_type is SPL
+    pub token_program: UncheckedAccount<'info>,
 }
 
 #[derive(Accounts)]
@@ -1763,4 +1841,10 @@ pub enum StakingError {
 
     #[msg("Invalid Lock Duration, Must be 1, 3, 6 or 12 months")]
     InvalidLockDuration,
+
+    #[msg("Invalid token program provided")]
+    InvalidTokenProgram,
+
+    #[msg("Invalid escrow account provided")]
+    InvalidEscrowAccount,
 }
