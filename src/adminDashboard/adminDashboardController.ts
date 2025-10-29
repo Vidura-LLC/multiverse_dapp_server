@@ -1,8 +1,8 @@
 //src/adminDashboard/adminDashboardController.ts
 
 import { PublicKey } from '@solana/web3.js';
-import { checkPoolStatus, initializeRevenuePoolService, initializeStakingPoolService, initializeRewardPoolService, initializePrizePoolService, TokenType } from "./services";
-import { Request, Response } from 'express';
+    import { checkPoolStatus, initializeRevenuePoolService, initializeStakingPoolService, initializeRewardPoolService, initializePrizePoolService } from "./services";
+    import { Request, Response } from 'express';
 import {
     getStakingPoolData,
     getActiveStakers,
@@ -11,18 +11,19 @@ import {
 import { getRevenuePoolStatsService, getTournamentStats, getStakingStats, getDashboardData } from './dashboardStatsService';
 import { get, ref, set } from 'firebase/database';
 import { db } from '../config/firebase';
-
+import { parseTokenType } from "../utils/getPDAs";
 
 
 export const checkPoolStatusController = async (req: Request, res: Response,) => {
     try {
         const { adminPublicKey } = req.params;
+        const { tokenType } = req.query;
 
         // Validate the admin public key
-        if (!adminPublicKey) {
+        if (!adminPublicKey || !tokenType) {
             return res.status(400).json({
                 success: false,
-                error: 'Admin public key is required'
+                error: 'Admin public key and token type are required'
             });
         }
 
@@ -37,7 +38,8 @@ export const checkPoolStatusController = async (req: Request, res: Response,) =>
         }
 
         // Check staking pool status
-        const result = await checkPoolStatus(new PublicKey(adminPublicKey));
+        const parsedTokenType = parseTokenType(tokenType);
+        const result = await checkPoolStatus(new PublicKey(adminPublicKey), parsedTokenType);
 
         if (result.success) {
             return res.status(200).json({
@@ -60,15 +62,14 @@ export const initializeStakingPoolController = async (req: Request, res: Respons
         const { mintPublicKey, adminPublicKey, tokenType } = req.body;  // Get mint address and token type from request body
 
         // Validate the mint address
-        if (!mintPublicKey || !adminPublicKey) {
-            return res.status(400).json({ error: 'Mint public key and admin public key are required' });
+        if (!mintPublicKey || !adminPublicKey || !tokenType) {
+            return res.status(400).json({ error: 'Mint public key, admin public key and token type are required' });
         }
 
-        // Convert tokenType string to enum if provided, otherwise use default
-        const tokenTypeEnum = tokenType === 'SOL' ? TokenType.SOL : TokenType.SPL;
 
         // Call the staking pool initialization service
-        const result = await initializeStakingPoolService(new PublicKey(mintPublicKey), new PublicKey(adminPublicKey), tokenTypeEnum);
+        const parsedTokenType = parseTokenType(tokenType);
+        const result = await initializeStakingPoolService(new PublicKey(mintPublicKey), new PublicKey(adminPublicKey), parsedTokenType);
 
         // Return the result
         if (result.success) {
@@ -92,18 +93,16 @@ export const initializeRevenuePoolController = async (req: Request, res: Respons
         const { mintPublicKey, adminPublicKey, tokenType } = req.body;
 
         // Validate the mint address
-        if (!mintPublicKey || !adminPublicKey) {
+        if (!mintPublicKey || !adminPublicKey || !tokenType) {
             return res.status(400).json({
                 success: false,
-                message: 'Mint and Admin public key is required'
+                message: 'Mint, Admin public key and token type are required'
             });
         }
 
-        // Convert tokenType string to enum if provided, otherwise use default
-        const tokenTypeEnum = tokenType === 'SOL' ? TokenType.SOL : TokenType.SPL;
-
         // Call the service function to initialize revenue pool
-        const result = await initializeRevenuePoolService(new PublicKey(mintPublicKey), new PublicKey(adminPublicKey), tokenTypeEnum);
+        const parsedTokenType = parseTokenType(tokenType);
+        const result = await initializeRevenuePoolService(new PublicKey(mintPublicKey), new PublicKey(adminPublicKey), parsedTokenType);
 
         // Return the result
         if (result.success) {
@@ -136,10 +135,10 @@ export const initializePrizePoolController = async (req: Request, res: Response)
         });
       }
   
-      if (!mintPublicKey || !adminPublicKey) {
+      if (!mintPublicKey || !adminPublicKey || !tokenType) {
         return res.status(400).json({ 
           success: false, 
-          message: 'Mint public key and Admin Public Key is required' 
+          message: 'Mint, Admin public key and token type are required' 
         });
       }
   
@@ -147,11 +146,9 @@ export const initializePrizePoolController = async (req: Request, res: Response)
       const mintPubkey = new PublicKey(mintPublicKey);
       const adminPubKey = new PublicKey(adminPublicKey);
       
-      // Convert tokenType string to enum if provided, otherwise use default
-      const tokenTypeEnum = tokenType === 'SOL' ? TokenType.SOL : TokenType.SPL;
-  
       // Call the service function to initialize prize pool for the tournament
-      const result = await initializePrizePoolService(tournamentId, mintPubkey, adminPubKey, tokenTypeEnum);
+      const parsedTokenType = parseTokenType(tokenType);
+      const result = await initializePrizePoolService(tournamentId, mintPubkey, adminPubKey, parsedTokenType);
   
       if (result.success) {
         const tournamentRef = ref(db, `tournaments/${tournamentId}`);
@@ -196,18 +193,16 @@ export const initializeRewardPoolController = async (req: Request, res: Response
         const { mintPublicKey, adminPublicKey, tokenType } = req.body;
 
         // Validate the mint address
-        if (!mintPublicKey || !adminPublicKey) {
+        if (!mintPublicKey || !adminPublicKey || !tokenType) {
             return res.status(400).json({
                 success: false,
-                message: 'Mint and Admin public key is required'
+                message: 'Mint, Admin public key and token type are required'
             });
         }
 
-        // Convert tokenType string to enum if provided, otherwise use default
-        const tokenTypeEnum = tokenType === 'SOL' ? TokenType.SOL : TokenType.SPL;
-
         // Call the service function to initialize reward pool
-        const result = await initializeRewardPoolService(new PublicKey(mintPublicKey), new PublicKey(adminPublicKey), tokenTypeEnum);
+        const parsedTokenType = parseTokenType(tokenType);
+        const result = await initializeRewardPoolService(new PublicKey(mintPublicKey), new PublicKey(adminPublicKey), parsedTokenType);
 
         // Return the result
         if (result.success) {
