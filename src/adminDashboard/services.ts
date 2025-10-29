@@ -23,6 +23,7 @@ export const SEEDS = {
   REWARD_POOL: "reward_pool",
   REWARD_POOL_ESCROW: "reward_escrow",
   TOURNAMENT_POOL: "tournament_pool",
+  USER_STAKING: "user_staking",
 }
 
 export enum TokenType {
