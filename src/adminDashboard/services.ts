@@ -46,65 +46,66 @@ export interface RevenuePoolAccount {
       
 
   // ✅ Function to initialize the staking pool and escrow account
-  export const initializeStakingPoolService = async (mintPublicKey: PublicKey, adminPublicKey: PublicKey, tokenType: TokenType = TokenType.SPL) => {
-      try {
-          const { program, connection } = getProgram();
+  export const initializeStakingPoolService = async (
+    mintPublicKey: PublicKey,
+    tokenType: TokenType = TokenType.SPL,
+    adminPublicKey?: PublicKey
+  ) => {
+    try {
+      const { program, connection } = getProgram();
   
-          // ✅ Staking pool doesn't exist - create initialization transaction
-          console.log("🔄 Creating staking pool initialization transaction...");
-          console.log("Token Type:", tokenType === TokenType.SPL ? "SPL" : "SOL");
-          console.log("Admin PublicKey:", adminPublicKey.toBase58());
+      console.log("\n🔄 Creating staking pool initialization transaction...");
+      console.log("Token Type:", tokenType === TokenType.SPL ? "SPL" : "SOL");
+      console.log("Admin PublicKey:", adminPublicKey.toBase58());
   
-          const stakingPoolPublicKey = getStakingPoolPDA(adminPublicKey, tokenType);
+      // Get staking pool PDA
+      const stakingPoolPublicKey = getStakingPoolPDA(adminPublicKey, tokenType);
+      console.log("🔹 Staking Pool PDA Address:", stakingPoolPublicKey.toBase58());
   
-          const poolEscrowAccountPublicKey = getStakingEscrowPDA(stakingPoolPublicKey);
+      // Get escrow PDA
+      const poolEscrowAccountPublicKey = getStakingEscrowPDA(stakingPoolPublicKey);
+      console.log("🔹 Pool Escrow Account Address:", poolEscrowAccountPublicKey.toBase58());
   
-          console.log("🔹 Staking Pool PDA Address:", stakingPoolPublicKey.toString());
-          console.log("🔹 Pool Escrow Account Address:", poolEscrowAccountPublicKey.toString());
+      const { blockhash } = await connection.getLatestBlockhash("finalized");
+      console.log("Latest Blockhash:", blockhash);
   
+      // ✅ KEY FIX: For SOL, use SystemProgram as mint
+      const actualMint = tokenType === TokenType.SOL 
+        ? SystemProgram.programId  // Dummy mint for SOL
+        : mintPublicKey;
   
+      // Build the transaction
+      const tokenTypeArg = tokenType === TokenType.SPL ? {spl: {}} : {sol: {}};
+      const transaction = await program.methods
+        .initializeAccounts(tokenTypeArg)
+        .accounts({
+          stakingPool: stakingPoolPublicKey,
+          poolEscrowAccount: poolEscrowAccountPublicKey,
+          mint: actualMint,  // ✅ Use SystemProgram for SOL
+          admin: adminPublicKey,
+          systemProgram: SystemProgram.programId,
+          tokenProgram: TOKEN_2022_PROGRAM_ID,
+        })
+        .transaction();
   
+      transaction.recentBlockhash = blockhash;
+      transaction.feePayer = adminPublicKey;
   
-          
-          // Get the latest blockhash
-          const { blockhash } = await connection.getLatestBlockhash("finalized");
-          console.log("Latest Blockhash:", blockhash);
-  
-          const tokenTypeArg = tokenType === TokenType.SPL ? {spl: {}} : {sol: {}};
-
-          // Create the transaction
-          const transaction = await program.methods
-              .initializeAccounts(tokenTypeArg)
-              .accounts({
-                  admin: adminPublicKey,
-                  stakingPool: stakingPoolPublicKey,
-                  mint: mintPublicKey,
-                  poolEscrowAccount: poolEscrowAccountPublicKey,
-                  systemProgram: SystemProgram.programId,
-                  tokenProgram: TOKEN_2022_PROGRAM_ID,
-              })
-              .transaction();
-  
-          // Set recent blockhash and fee payer
-          transaction.recentBlockhash = blockhash;
-          transaction.feePayer = adminPublicKey;
-  
-          // Serialize transaction and send it to the frontend
-          return {
-              success: true,
-              message: "Transaction created successfully!",
-              stakingPoolPublicKey: stakingPoolPublicKey.toBase58(),
-              poolEscrowAccountPublicKey: poolEscrowAccountPublicKey.toBase58(),
-              tokenType: tokenType === TokenType.SPL ? "SPL" : "SOL",
-              transaction: transaction.serialize({ requireAllSignatures: false }).toString("base64"),
-          };
-      } catch (err) {
-          console.error("❌ Error initializing staking pool:", err);
-          return {
-              success: false,
-              message: `Error initializing staking pool: ${err.message || err}`
-          };
-      }
+      return {
+        success: true,
+        message: "Transaction created successfully!",
+        stakingPoolPublicKey: stakingPoolPublicKey.toBase58(),
+        poolEscrowAccountPublicKey: poolEscrowAccountPublicKey.toBase58(),
+        tokenType: tokenType === TokenType.SPL ? "SPL" : "SOL",
+        transaction: transaction.serialize({ requireAllSignatures: false }).toString('base64'),
+      };
+    } catch (err: any) {
+      console.error("❌ Error creating staking pool initialization transaction:", err);
+      return {
+        success: false,
+        message: `Error creating transaction: ${err.message || err}`,
+      };
+    }
   };
   
   /**
