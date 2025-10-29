@@ -22,10 +22,7 @@ export enum TokenType {
   SOL = 1,
 }
 
-export const parseTokenType = (value: unknown): TokenType => {
-  if (value === TokenType.SOL || value === 1 || value === "1" || value === "SOL") return TokenType.SOL;
-  return TokenType.SPL;
-};
+// TokenType is strictly numeric (0=SPL, 1=SOL). Clients must send 0 or 1.
 
 /**
  * Get Staking Pool PDA
