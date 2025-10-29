@@ -154,10 +154,10 @@ export const getTournamentEscrowPDA = (tournamentPoolPublicKey: PublicKey) => {
  * @param tokenType - Type of token (SPL or SOL)
  * @returns Prize Pool PDA
  */
-export const getPrizePoolPDA = (tournamentPoolPublicKey: PublicKey, tokenType: TokenType) => {
+export const getPrizePoolPDA = (tournamentPoolPublicKey: PublicKey) => {
   const { program } = getProgram();
   return PublicKey.findProgramAddressSync(
-    [Buffer.from(SEEDS.PRIZE_POOL), tournamentPoolPublicKey.toBuffer(), Buffer.from([tokenType])],
+    [Buffer.from(SEEDS.PRIZE_POOL), tournamentPoolPublicKey.toBuffer()],
     program.programId
   )[0];
 };
@@ -196,14 +196,13 @@ export const getUserStakingPDA = (
  * Get Registration Record PDA
  * @param tournamentPoolPublicKey - The tournament pool PDA
  * @param userPublicKey - The user's public key
- * @param tokenType - Type of token (SPL or SOL)
  * @returns Registration Record PDA
  */
 export const getRegistrationPDA = (
-tournamentPoolPublicKey: PublicKey, userPublicKey: PublicKey, tokenType: TokenType) => {
+tournamentPoolPublicKey: PublicKey, userPublicKey: PublicKey) => {
   const { program } = getProgram();
   return PublicKey.findProgramAddressSync(
-    [Buffer.from(SEEDS.REGISTRATION), tournamentPoolPublicKey.toBuffer(), userPublicKey.toBuffer(), Buffer.from([tokenType])],
+    [Buffer.from(SEEDS.REGISTRATION), tournamentPoolPublicKey.toBuffer(), userPublicKey.toBuffer()],
     program.programId
   )[0];
 };
@@ -250,12 +249,12 @@ export const getAllPoolPDAs = (
   if (opts?.tournamentId) {
     tournamentPool = getTournamentPoolPDA(admin, opts.tournamentId, tokenType);
     tournamentEscrow = getTournamentEscrowPDA(tournamentPool);
-    prizePool = getPrizePoolPDA(tournamentPool, tokenType);
+    prizePool = getPrizePoolPDA(tournamentPool);
     prizeEscrow = getPrizeEscrowPDA(prizePool);
 
     // If user is also provided, get registration PDA
     if (opts?.userPublicKey) {
-      registration = getRegistrationPDA(tournamentPool, opts.userPublicKey, tokenType);
+      registration = getRegistrationPDA(tournamentPool, opts.userPublicKey);
     }
   }
 
