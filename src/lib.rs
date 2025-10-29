@@ -1324,7 +1324,7 @@ pub struct RegisterForTournament<'info> {
         init,
         payer = user,
         space = RegistrationRecord::LEN,
-        seeds = [SEED_REGISTRATION, tournament_pool.key().as_ref(), user.key().as_ref(), &[tournament_pool.token_type as u8]],
+        seeds = [SEED_REGISTRATION, tournament_pool.key().as_ref(), user.key().as_ref()],
         bump
     )]
     pub registration_account: Account<'info, RegistrationRecord>,
@@ -1416,7 +1416,7 @@ pub struct InitializePrizePool<'info> {
         init_if_needed,
         payer = creator,
         space = PrizePool::LEN,
-        seeds = [SEED_PRIZE_POOL, tournament_pool.key().as_ref(), &[tournament_pool.token_type as u8]],
+        seeds = [SEED_PRIZE_POOL, tournament_pool.key().as_ref()],
         bump
     )]
     pub prize_pool: Account<'info, PrizePool>,
