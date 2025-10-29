@@ -204,7 +204,7 @@ export interface RevenuePoolAccount {
           console.log("Admin pubkey:", adminPublicKey.toString());
       
           // Derive the PDA for the prize pool (now derived from tournament pool)
-          const prizePoolPublicKey = getPrizePoolPDA(tournamentPoolPublicKey, tokenType);
+          const prizePoolPublicKey = getPrizePoolPDA(tournamentPoolPublicKey);
       
           // Derive the PDA for the prize escrow account
           const prizeEscrowPublicKey = getPrizeEscrowPDA(prizePoolPublicKey);

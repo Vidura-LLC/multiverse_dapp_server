@@ -125,7 +125,7 @@ export const initializeRevenuePoolController = async (req: Request, res: Respons
  */
 export const initializePrizePoolController = async (req: Request, res: Response) => {
     try {
-      const { tournamentId, mintPublicKey, adminPublicKey, tokenType } = req.body;
+      const { tournamentId, mintPublicKey, adminPublicKey } = req.body;
   
       // Validate required fields
       if (!tournamentId) {
@@ -135,10 +135,10 @@ export const initializePrizePoolController = async (req: Request, res: Response)
         });
       }
   
-      if (!mintPublicKey || !adminPublicKey || !tokenType) {
+      if (!mintPublicKey || !adminPublicKey) {
         return res.status(400).json({ 
           success: false, 
-          message: 'Mint, Admin public key and token type are required' 
+          message: 'Mint and Admin public key are required' 
         });
       }
   
@@ -147,8 +147,7 @@ export const initializePrizePoolController = async (req: Request, res: Response)
       const adminPubKey = new PublicKey(adminPublicKey);
       
       // Call the service function to initialize prize pool for the tournament
-      const parsedTokenType = parseTokenType(tokenType);
-      const result = await initializePrizePoolService(tournamentId, mintPubkey, adminPubKey, parsedTokenType);
+      const result = await initializePrizePoolService(tournamentId, mintPubkey, adminPubKey);
   
       if (result.success) {
         const tournamentRef = ref(db, `tournaments/${tournamentId}`);
