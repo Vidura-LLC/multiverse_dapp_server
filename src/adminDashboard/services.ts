@@ -12,25 +12,7 @@ import {
   import { getProgram } from "../staking/services";
   dotenv.config();
 import * as anchor from "@project-serum/anchor";
-
-export const SEEDS = {
-  STAKING_POOL: "staking_pool",
-  STAKING_POOL_ESCROW: "escrow",
-  REVENUE_POOL: "revenue_pool",
-  REVENUE_POOL_ESCROW: "revenue_escrow",
-  PRIZE_POOL: "prize_pool",
-  PRIZE_POOL_ESCROW: "prize_escrow",
-  REWARD_POOL: "reward_pool",
-  REWARD_POOL_ESCROW: "reward_escrow",
-  TOURNAMENT_POOL: "tournament_pool",
-  USER_STAKING: "user_staking",
-}
-
-export enum TokenType {
-  SPL = 0,
-  SOL = 1,
-}
-
+import { getStakingPoolPDA, getStakingEscrowPDA, getRevenuePoolPDA, getRevenueEscrowPDA, getRewardPoolPDA, getRewardEscrowPDA, getTournamentPoolPDA, getPrizePoolPDA, getPrizeEscrowPDA, TokenType } from "../utils/getPDAs";
 
 
 export interface StakingPoolAccount {
@@ -73,15 +55,9 @@ export interface RevenuePoolAccount {
           console.log("Token Type:", tokenType === TokenType.SPL ? "SPL" : "SOL");
           console.log("Admin PublicKey:", adminPublicKey.toBase58());
   
-          const [stakingPoolPublicKey] = PublicKey.findProgramAddressSync(
-              [Buffer.from(SEEDS.STAKING_POOL), adminPublicKey.toBuffer()],
-              program.programId
-          );
+          const stakingPoolPublicKey = getStakingPoolPDA(adminPublicKey, tokenType);
   
-          const [poolEscrowAccountPublicKey] = PublicKey.findProgramAddressSync(
-              [Buffer.from(SEEDS.STAKING_POOL_ESCROW), stakingPoolPublicKey.toBuffer()],
-              program.programId
-          );
+          const poolEscrowAccountPublicKey = getStakingEscrowPDA(stakingPoolPublicKey);
   
           console.log("🔹 Staking Pool PDA Address:", stakingPoolPublicKey.toString());
           console.log("🔹 Pool Escrow Account Address:", poolEscrowAccountPublicKey.toString());
@@ -149,16 +125,10 @@ export interface RevenuePoolAccount {
           console.log("Mint PublicKey:", mintPublicKey.toBase58());
   
           // Derive the PDA for the revenue pool
-          const [revenuePoolPublicKey] = PublicKey.findProgramAddressSync(
-              [Buffer.from(SEEDS.REVENUE_POOL), adminPublicKey.toBuffer()],
-              program.programId
-          );
+          const revenuePoolPublicKey = getRevenuePoolPDA(adminPublicKey);
   
           // Derive the PDA for the revenue escrow account
-          const [revenueEscrowPublicKey] = PublicKey.findProgramAddressSync(
-              [Buffer.from(SEEDS.REVENUE_POOL_ESCROW), revenuePoolPublicKey.toBuffer()],
-              program.programId
-          );
+          const revenueEscrowPublicKey = getRevenueEscrowPDA(revenuePoolPublicKey);
   
           console.log("🔹 Revenue Pool PDA Address:", revenuePoolPublicKey.toString());
           console.log("🔹 Revenue Escrow PDA Address:", revenueEscrowPublicKey.toString());
@@ -222,10 +192,7 @@ export interface RevenuePoolAccount {
       
           // First, derive the tournament pool PDA to ensure it exists
           const tournamentIdBytes = Buffer.from(tournamentId, "utf8");
-          const [tournamentPoolPublicKey] = PublicKey.findProgramAddressSync(
-            [Buffer.from(SEEDS.TOURNAMENT_POOL), adminPublicKey.toBuffer(), tournamentIdBytes],
-            program.programId
-          );
+          const tournamentPoolPublicKey = getTournamentPoolPDA(adminPublicKey, tournamentId);
           
           console.log("🔹 Tournament Pool PDA Address:", tournamentPoolPublicKey.toString());
           
@@ -235,16 +202,10 @@ export interface RevenuePoolAccount {
           console.log("Admin pubkey:", adminPublicKey.toString());
       
           // Derive the PDA for the prize pool (now derived from tournament pool)
-          const [prizePoolPublicKey] = PublicKey.findProgramAddressSync(
-            [Buffer.from(SEEDS.PRIZE_POOL), tournamentPoolPublicKey.toBuffer()],
-            program.programId
-          );
+          const prizePoolPublicKey = getPrizePoolPDA(tournamentPoolPublicKey);
       
           // Derive the PDA for the prize escrow account
-          const [prizeEscrowPublicKey] = PublicKey.findProgramAddressSync(
-            [Buffer.from(SEEDS.PRIZE_POOL_ESCROW), prizePoolPublicKey.toBuffer()],
-            program.programId
-          );
+          const prizeEscrowPublicKey = getPrizeEscrowPDA(prizePoolPublicKey);
       
           console.log("🔹 Prize Pool PDA Address:", prizePoolPublicKey.toString());
           console.log("🔹 Prize Escrow PDA Address:", prizeEscrowPublicKey.toString());
@@ -301,15 +262,9 @@ export const initializeRewardPoolService = async (
     const { program, connection } = getProgram();
 
     // Derive PDAs
-    const [rewardPoolPublicKey] = PublicKey.findProgramAddressSync(
-      [Buffer.from(SEEDS.REWARD_POOL), adminPublicKey.toBuffer()],
-      program.programId
-    );
+    const rewardPoolPublicKey = getRewardPoolPDA(adminPublicKey);
 
-    const [rewardEscrowPublicKey] = PublicKey.findProgramAddressSync(
-      [Buffer.from(SEEDS.REWARD_POOL_ESCROW), rewardPoolPublicKey.toBuffer()],
-      program.programId
-    );
+    const rewardEscrowPublicKey = getRewardEscrowPDA(rewardPoolPublicKey);
 
     const tokenTypeArg = tokenType === TokenType.SPL ? {spl: {}} : {sol: {}};
     // Build unsigned tx
@@ -367,10 +322,7 @@ export const initializeRewardPoolService = async (
       };
 
       // ✅ 1. Check Staking Pool
-      const [stakingPoolPublicKey] = PublicKey.findProgramAddressSync(
-          [Buffer.from(SEEDS.STAKING_POOL), adminPublicKey.toBuffer()],
-          program.programId
-      );
+      const stakingPoolPublicKey = getStakingPoolPDA(adminPublicKey, TokenType.SPL);
       console.log("🔹 Checking Staking Pool PDA:", stakingPoolPublicKey.toString());
 
       const stakingPoolAccount = await program.account.stakingPool.fetchNullable(stakingPoolPublicKey) as StakingPoolAccount | null;
@@ -383,10 +335,7 @@ export const initializeRewardPoolService = async (
       };
 
       // ✅ 2. Check Revenue Pool
-      const [revenuePoolPublicKey] = PublicKey.findProgramAddressSync(
-          [Buffer.from(SEEDS.REVENUE_POOL), adminPublicKey.toBuffer()],
-          program.programId
-      );
+      const revenuePoolPublicKey = getRevenuePoolPDA(adminPublicKey);
 
       console.log("🔹 Checking Revenue Pool PDA:", revenuePoolPublicKey.toString());
 
@@ -401,10 +350,7 @@ export const initializeRewardPoolService = async (
 
 
       // ✅ 3. Check Reward Pool
-      const [rewardPoolPublicKey] = PublicKey.findProgramAddressSync(
-        [Buffer.from(SEEDS.REWARD_POOL), adminPublicKey.toBuffer()],
-        program.programId
-    );
+      const rewardPoolPublicKey = getRewardPoolPDA(adminPublicKey);
 
 
     console.log("🔹 Checking Reward Pool PDA:", rewardPoolPublicKey.toString());
