@@ -16,9 +16,9 @@ import {
   TOKEN_2022_PROGRAM_ID,
 } from "@solana/spl-token";
 import dotenv from "dotenv";
-
-
+import { getStakingPoolPDA, getStakingEscrowPDA, getUserStakingPDA, getRewardPoolPDA, getRewardEscrowPDA, TokenType } from "../utils/getPDAs";
 dotenv.config();
+
 
 export interface UserStakingAccount {
   owner: PublicKey;
@@ -29,6 +29,7 @@ export interface UserStakingAccount {
   rewardDebt: anchor.BN;
   pendingRewards: anchor.BN;
 }
+
 
 
   // Helper function to get the program
@@ -69,7 +70,8 @@ export const stakeTokenService = async (
   userPublicKey: PublicKey,
   amount: number,
   lockDuration: number, // Lock duration in seconds
-  adminPublicKey: PublicKey // Admin public key from client
+  adminPublicKey: PublicKey, // Admin public key from client
+  tokenType: TokenType
 ) => {
   try {
     const { program, connection } = getProgram();
@@ -87,23 +89,14 @@ export const stakeTokenService = async (
       throw new Error('Invalid lock duration provided');
     }
 
-    const [stakingPoolPublicKey] = PublicKey.findProgramAddressSync(
-      [Buffer.from("staking_pool"), adminPublicKey.toBuffer()],
-      program.programId
-    );
+    const stakingPoolPublicKey = getStakingPoolPDA(adminPublicKey, tokenType);
 
-    const [userStakingAccountPublicKey] = PublicKey.findProgramAddressSync(
-      [Buffer.from("user_stake"), userPublicKey.toBuffer()],
-      program.programId
-    );
+    const userStakingAccountPublicKey = getUserStakingPDA(stakingPoolPublicKey, userPublicKey);
 
-    const [poolEscrowAccountPublicKey] = PublicKey.findProgramAddressSync(
-      [Buffer.from("escrow"), stakingPoolPublicKey.toBuffer()],
-      program.programId
-    );
+    const poolEscrowAccountPublicKey = getStakingEscrowPDA(stakingPoolPublicKey);
 
     // Check if the user already has a staking account
-    const userStakingAccountResponse = await getUserStakingAccount(userPublicKey);
+    const userStakingAccountResponse = await getUserStakingAccount(userPublicKey, adminPublicKey, tokenType);
     console.log("User Staking Account Response:", userStakingAccountResponse);
 
     let userTokenAccountPublicKey = await getAssociatedTokenAddressSync(mintPublicKey, userPublicKey, false, TOKEN_2022_PROGRAM_ID);
@@ -161,29 +154,21 @@ export const stakeTokenService = async (
 export const unstakeTokenService = async (
   mintPublicKey: PublicKey,
   userPublicKey: PublicKey,
-  adminPublicKey: PublicKey
+  adminPublicKey: PublicKey,
+  tokenType: TokenType
 ) => {
   try {
     const { program, connection } = getProgram(); // Assuming getProgram() initializes necessary context
 
     // Find the staking pool, user staking account, and escrow account
-    const [stakingPoolPublicKey] = PublicKey.findProgramAddressSync(
-      [Buffer.from('staking_pool'), adminPublicKey.toBuffer()],
-      program.programId
-    );
+    const stakingPoolPublicKey = getStakingPoolPDA(adminPublicKey, tokenType);
 
-    const [userStakingAccountPublicKey] = PublicKey.findProgramAddressSync(
-      [Buffer.from('user_stake'), userPublicKey.toBuffer()],
-      program.programId
-    );
+    const userStakingAccountPublicKey = getUserStakingPDA(stakingPoolPublicKey, userPublicKey);
 
-    const [poolEscrowAccountPublicKey] = PublicKey.findProgramAddressSync(
-      [Buffer.from('escrow'), stakingPoolPublicKey.toBuffer()],
-      program.programId
-    );
+    const poolEscrowAccountPublicKey = getStakingEscrowPDA(stakingPoolPublicKey);
 
     // Check if the user already has a staking account
-    const userStakingAccountResponse = await getUserStakingAccount(userPublicKey);
+    const userStakingAccountResponse = await getUserStakingAccount(userPublicKey, adminPublicKey, tokenType);
     console.log("User Staking Account Response:", userStakingAccountResponse);
 
     let userTokenAccountPublicKey = await getAssociatedTokenAddressSync(mintPublicKey, userPublicKey, false, TOKEN_2022_PROGRAM_ID);
@@ -234,30 +219,19 @@ export const unstakeTokenService = async (
 // Function to claim staking rewards
 export const claimRewardsService = async (
   userPublicKey: PublicKey,
-  adminPublicKey: PublicKey
+  adminPublicKey: PublicKey,
+  tokenType: TokenType
 ) => {
   try {
     const { program, connection } = getProgram();
 
-    const [stakingPoolPublicKey] = PublicKey.findProgramAddressSync(
-      [Buffer.from('staking_pool'), adminPublicKey.toBuffer()],
-      program.programId
-    );
+    const stakingPoolPublicKey = getStakingPoolPDA(adminPublicKey, tokenType);
 
-    const [userStakingAccountPublicKey] = PublicKey.findProgramAddressSync(
-      [Buffer.from('user_stake'), userPublicKey.toBuffer()],
-      program.programId
-    );
+    const userStakingAccountPublicKey = getUserStakingPDA(stakingPoolPublicKey, userPublicKey);
 
-    const [rewardPoolPublicKey] = PublicKey.findProgramAddressSync(
-      [Buffer.from('reward_pool'), adminPublicKey.toBuffer()],
-      program.programId
-    );
+    const rewardPoolPublicKey = getRewardPoolPDA(adminPublicKey);
 
-    const [rewardEscrowPublicKey] = PublicKey.findProgramAddressSync(
-      [Buffer.from('reward_escrow'), rewardPoolPublicKey.toBuffer()],
-      program.programId
-    );
+    const rewardEscrowPublicKey = getRewardEscrowPDA(rewardPoolPublicKey);
 
     // Fetch staking pool to obtain mint
     const stakingPoolAccount: any = await program.account.stakingPool.fetch(stakingPoolPublicKey);
@@ -307,15 +281,15 @@ export const claimRewardsService = async (
 
 
 
-export const getUserStakingAccount = async (userPublicKey: PublicKey) => {
+export const getUserStakingAccount = async (userPublicKey: PublicKey, adminPublicKey: PublicKey, tokenType: TokenType) => {
   try {
     const { program, connection } = getProgram();
 
+
+    const stakingPoolPublicKey = getStakingPoolPDA(adminPublicKey, tokenType);
+
     // Derive the public key for the user staking account
-    const [userStakingAccountPublicKey] = PublicKey.findProgramAddressSync(
-      [Buffer.from("user_stake"), userPublicKey.toBuffer()],
-      program.programId
-    );
+    const userStakingAccountPublicKey = getUserStakingPDA(stakingPoolPublicKey, userPublicKey);
 
     console.log(userStakingAccountPublicKey);
 
@@ -368,7 +342,8 @@ export const getUserStakingAccount = async (userPublicKey: PublicKey) => {
 // Function to accrue pending rewards for a specific staker
 export const accrueRewardsService = async (
   userPublicKey: PublicKey,
-  adminPublicKey: PublicKey
+  adminPublicKey: PublicKey,
+  tokenType: TokenType
 ) => {
   try {
     const { program, connection } = getProgram();
@@ -376,16 +351,10 @@ export const accrueRewardsService = async (
     console.log("Accruing rewards for user:", userPublicKey.toBase58());
 
     // Get the staking pool PDA
-    const [stakingPoolPublicKey] = PublicKey.findProgramAddressSync(
-      [Buffer.from("staking_pool"), adminPublicKey.toBuffer()],
-      program.programId
-    );
+    const stakingPoolPublicKey = getStakingPoolPDA(adminPublicKey, tokenType);
 
     // Get the user staking account PDA
-    const [userStakingPublicKey] = PublicKey.findProgramAddressSync(
-      [Buffer.from("user_stake"), userPublicKey.toBuffer()],
-      program.programId
-    );
+    const userStakingPublicKey = getUserStakingPDA(stakingPoolPublicKey, userPublicKey);
 
     // Build an unsigned transaction for the user to sign
     const { blockhash } = await connection.getLatestBlockhash('finalized');
