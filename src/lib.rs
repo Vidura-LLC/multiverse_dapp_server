@@ -1379,6 +1379,7 @@ pub struct InitializeRevenuePool<'info> {
 }
 
 #[derive(Accounts)]
+#[instruction(token_type: TokenType)]
 pub struct InitializeRewardPool<'info> {
     #[account(
         init,
@@ -1415,7 +1416,7 @@ pub struct InitializePrizePool<'info> {
         init_if_needed,
         payer = creator,
         space = PrizePool::LEN,
-        seeds = [SEED_PRIZE_POOL, tournament_pool.key().as_ref(), &[token_type as u8]],
+        seeds = [SEED_PRIZE_POOL, tournament_pool.key().as_ref(), &[tournament_pool.token_type as u8]],
         bump
     )]
     pub prize_pool: Account<'info, PrizePool>,
@@ -1467,7 +1468,7 @@ pub struct DistributeTournamentRevenue<'info> {
         init_if_needed,
         payer = creator,
         space = PrizePool::LEN,
-        seeds = [SEED_PRIZE_POOL, tournament_pool.key().as_ref(), &[staking_pool.token_type as u8]],
+        seeds = [SEED_PRIZE_POOL, tournament_pool.key().as_ref()],
         bump
     )]
     pub prize_pool: Account<'info, PrizePool>,
@@ -1535,7 +1536,7 @@ pub struct DistributeTournamentPrizes<'info> {
 
     #[account(
         mut,
-        seeds = [SEED_PRIZE_POOL, tournament_pool.key().as_ref(), &[prize_pool.token_type as u8]],
+        seeds = [SEED_PRIZE_POOL, tournament_pool.key().as_ref()],
         bump = prize_pool.bump
     )]
     pub prize_pool: Account<'info, PrizePool>,
