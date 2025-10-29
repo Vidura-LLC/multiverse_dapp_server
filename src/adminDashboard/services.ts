@@ -125,7 +125,7 @@ export interface RevenuePoolAccount {
           console.log("Mint PublicKey:", mintPublicKey.toBase58());
   
           // Derive the PDA for the revenue pool
-          const revenuePoolPublicKey = getRevenuePoolPDA(adminPublicKey);
+          const revenuePoolPublicKey = getRevenuePoolPDA(adminPublicKey, tokenType);
   
           // Derive the PDA for the revenue escrow account
           const revenueEscrowPublicKey = getRevenueEscrowPDA(revenuePoolPublicKey);
@@ -177,6 +177,8 @@ export interface RevenuePoolAccount {
    * Initialize a prize pool for a specific tournament
    * @param tournamentId - The tournament ID
    * @param mintPublicKey - The token mint address
+   * @param tokenType - The token type
+   * @param adminPublicKey - The admin public key
    * @returns Result object with transaction details and addresses
    */
     export const initializePrizePoolService = async (tournamentId: string, mintPublicKey: PublicKey, adminPublicKey: PublicKey, tokenType: TokenType = TokenType.SPL) => {
@@ -192,7 +194,7 @@ export interface RevenuePoolAccount {
       
           // First, derive the tournament pool PDA to ensure it exists
           const tournamentIdBytes = Buffer.from(tournamentId, "utf8");
-          const tournamentPoolPublicKey = getTournamentPoolPDA(adminPublicKey, tournamentId);
+          const tournamentPoolPublicKey = getTournamentPoolPDA(adminPublicKey, tournamentId, tokenType);
           
           console.log("🔹 Tournament Pool PDA Address:", tournamentPoolPublicKey.toString());
           
@@ -202,7 +204,7 @@ export interface RevenuePoolAccount {
           console.log("Admin pubkey:", adminPublicKey.toString());
       
           // Derive the PDA for the prize pool (now derived from tournament pool)
-          const prizePoolPublicKey = getPrizePoolPDA(tournamentPoolPublicKey);
+          const prizePoolPublicKey = getPrizePoolPDA(tournamentPoolPublicKey, tokenType);
       
           // Derive the PDA for the prize escrow account
           const prizeEscrowPublicKey = getPrizeEscrowPDA(prizePoolPublicKey);
@@ -262,7 +264,7 @@ export const initializeRewardPoolService = async (
     const { program, connection } = getProgram();
 
     // Derive PDAs
-    const rewardPoolPublicKey = getRewardPoolPDA(adminPublicKey);
+    const rewardPoolPublicKey = getRewardPoolPDA(adminPublicKey, tokenType);
 
     const rewardEscrowPublicKey = getRewardEscrowPDA(rewardPoolPublicKey);
 
@@ -335,7 +337,7 @@ export const initializeRewardPoolService = async (
       };
 
       // ✅ 2. Check Revenue Pool
-      const revenuePoolPublicKey = getRevenuePoolPDA(adminPublicKey);
+      const revenuePoolPublicKey = getRevenuePoolPDA(adminPublicKey, TokenType.SPL);
 
       console.log("🔹 Checking Revenue Pool PDA:", revenuePoolPublicKey.toString());
 
@@ -350,7 +352,7 @@ export const initializeRewardPoolService = async (
 
 
       // ✅ 3. Check Reward Pool
-      const rewardPoolPublicKey = getRewardPoolPDA(adminPublicKey);
+      const rewardPoolPublicKey = getRewardPoolPDA(adminPublicKey, TokenType.SPL);
 
 
     console.log("🔹 Checking Reward Pool PDA:", rewardPoolPublicKey.toString());
