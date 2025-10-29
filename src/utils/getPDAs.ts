@@ -112,19 +112,20 @@ export const getRewardEscrowPDA = (rewardPoolPublicKey: PublicKey) => {
 
 /**
  * Get Tournament Pool PDA
- * @param adminPublicKey - Admin/creator who initialized the tournament
+ * @param adminPublicKey - Admin who initialized the tournament
  * @param tournamentId - Unique tournament identifier
+ * @param tokenType - Type of token (SPL or SOL)
  * @returns Tournament Pool PDA
  */
 export const getTournamentPoolPDA = (
-  adminPublicKey: PublicKey | undefined,
-  tournamentId: string
+  adminPublicKey: PublicKey,
+  tournamentId: string,
+  tokenType: TokenType
 ) => {
-  const { program, adminPublicKey: defaultAdmin } = getProgram();
-  const admin = adminPublicKey ?? defaultAdmin;
+  const { program } = getProgram();
   const tournamentIdBytes = Buffer.from(tournamentId, "utf8");
   return PublicKey.findProgramAddressSync(
-    [Buffer.from(SEEDS.TOURNAMENT_POOL), admin.toBuffer(), tournamentIdBytes],
+    [Buffer.from(SEEDS.TOURNAMENT_POOL), adminPublicKey.toBuffer(), tournamentIdBytes, Buffer.from([tokenType])],
     program.programId
   )[0];
 };
@@ -190,15 +191,14 @@ export const getUserStakingPDA = (
  * Get Registration Record PDA
  * @param tournamentPoolPublicKey - The tournament pool PDA
  * @param userPublicKey - The user's public key
+ * @param tokenType - Type of token (SPL or SOL)
  * @returns Registration Record PDA
  */
 export const getRegistrationPDA = (
-  tournamentPoolPublicKey: PublicKey,
-  userPublicKey: PublicKey
-) => {
+tournamentPoolPublicKey: PublicKey, userPublicKey: PublicKey, tokenType: TokenType) => {
   const { program } = getProgram();
   return PublicKey.findProgramAddressSync(
-    [Buffer.from(SEEDS.REGISTRATION), tournamentPoolPublicKey.toBuffer(), userPublicKey.toBuffer()],
+    [Buffer.from(SEEDS.REGISTRATION), tournamentPoolPublicKey.toBuffer(), userPublicKey.toBuffer(), Buffer.from([tokenType])],
     program.programId
   )[0];
 };
@@ -243,14 +243,14 @@ export const getAllPoolPDAs = (
   let registration: PublicKey | undefined;
 
   if (opts?.tournamentId) {
-    tournamentPool = getTournamentPoolPDA(admin, opts.tournamentId);
+    tournamentPool = getTournamentPoolPDA(admin, opts.tournamentId, tokenType);
     tournamentEscrow = getTournamentEscrowPDA(tournamentPool);
     prizePool = getPrizePoolPDA(tournamentPool, tokenType);
     prizeEscrow = getPrizeEscrowPDA(prizePool);
 
     // If user is also provided, get registration PDA
     if (opts?.userPublicKey) {
-      registration = getRegistrationPDA(tournamentPool, opts.userPublicKey);
+      registration = getRegistrationPDA(tournamentPool, opts.userPublicKey, tokenType);
     }
   }
 
