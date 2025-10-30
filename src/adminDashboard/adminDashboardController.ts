@@ -99,7 +99,7 @@ export const initializeRevenuePoolController = async (req: Request, res: Respons
         const { mintPublicKey, adminPublicKey, tokenType } = req.body;
 
         // Validate the mint address
-        if (!mintPublicKey || !adminPublicKey || !tokenType) {
+        if (!mintPublicKey || !adminPublicKey || tokenType === undefined || tokenType === null) {
             return res.status(400).json({
                 success: false,
                 message: 'Mint, Admin public key and token type are required'
@@ -201,7 +201,7 @@ export const initializeRewardPoolController = async (req: Request, res: Response
         const { mintPublicKey, adminPublicKey, tokenType } = req.body;
 
         // Validate the mint address
-        if (!mintPublicKey || !adminPublicKey || !tokenType) {
+        if (!mintPublicKey || !adminPublicKey || tokenType === undefined || tokenType === null) {
             return res.status(400).json({
                 success: false,
                 message: 'Mint, Admin public key and token type are required'
@@ -479,9 +479,9 @@ export const getTournamentStatsController = async (req: Request, res: Response) 
 export const getRevenuePoolStatsController = async (req: Request, res: Response) => {
     try {
         const { adminPublicKey } = req.params;
-
+        const { tokenType } = req.query;
         // Call the service function
-        const result = await getRevenuePoolStatsService(new PublicKey(adminPublicKey));
+        const result = await getRevenuePoolStatsService(new PublicKey(adminPublicKey), Number(tokenType) as TokenType);
 
         if (result.success) {
             return res.status(200).json({
