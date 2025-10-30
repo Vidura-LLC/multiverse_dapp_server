@@ -321,14 +321,92 @@ pub mod multiversed_dapp {
         let reward_pool = &mut ctx.accounts.reward_pool;
         let admin = &ctx.accounts.admin;
 
+        require!(
+            reward_pool.total_funds == 0,
+            RewardError::AlreadyInitialized
+        );
+
+
         reward_pool.admin = admin.key();
-        reward_pool.mint = ctx.accounts.mint.key();
         reward_pool.total_funds = 0;
         reward_pool.last_distribution = Clock::get()?.unix_timestamp;
         reward_pool.token_type = token_type;
         reward_pool.bump = ctx.bumps.reward_pool;
 
-        msg!("✅ Reward pool initialized for admin: {}", admin.key());
+        match token_type {
+            TokenType::SOL => {
+                reward_pool.mint = reward_pool.key();
+                msg!("✅ SOL reward pool initialized (no escrow needed)");
+                msg!("   Pool stores SOL directly in its account");
+            }
+            TokenType::SPL => {
+                reward_pool.mint = ctx.accounts.mint.key();
+
+                require!(
+                    ctx.accounts.token_program.key() == anchor_spl::token_2022::ID,
+                    RewardError::InvalidTokenProgram
+                );
+                let reward_pool_key = reward_pool.key();
+                let escrow_seeds = &[SEED_REWARD_ESCROW, reward_pool_key.as_ref()];
+                let (escrow_pda, escrow_bump) = 
+                    Pubkey::find_program_address(escrow_seeds, ctx.program_id);
+
+                require!(
+                    ctx.accounts.reward_escrow_account.key() == escrow_pda,
+                    RewardError::InvalidEscrowAccount
+                );
+                let rent = Rent::get()?;
+                let space = 165;
+                let lamports = rent.minimum_balance(space);
+
+                // Create the escrow account
+                invoke_signed(
+                    &system_instruction::create_account(
+                        ctx.accounts.admin.key,
+                        &escrow_pda,
+                        lamports,
+                        space as u64,
+                        &anchor_spl::token_2022::ID,
+                    ),
+                    &[
+                        ctx.accounts.admin.to_account_info(),
+                        ctx.accounts.reward_escrow_account.to_account_info(),
+                        ctx.accounts.system_program.to_account_info(),
+                    ],
+                    &[&[SEED_REWARD_ESCROW, reward_pool_key.as_ref(), &[escrow_bump]]],
+                )?;
+                
+                // Initialize as token account
+                let init_account_ix = spl_token_2022::instruction::initialize_account3(
+                    &anchor_spl::token_2022::ID,
+                    &escrow_pda,
+                    &ctx.accounts.mint.key(),
+                    &reward_pool.key(),
+                )?;
+                
+                invoke(
+                    &init_account_ix,
+                    &[
+                        ctx.accounts.reward_escrow_account.to_account_info(),
+                        ctx.accounts.mint.to_account_info(),
+                    ]
+                )?;
+                
+                msg!(
+                    "✅ SPL reward pool and escrow initialized"
+                );
+                msg!("   Mint: {}", ctx.accounts.mint.key());
+                msg!("   Escrow: {}", escrow_pda);
+                msg!("   Token type: {:?}", token_type);
+                msg!("   Reward pool: {}", reward_pool.key());
+                msg!("   Reward escrow: {}", escrow_pda);
+        }
+
+        msg!(
+            "✅ Reward pool initialized by admin: {}, token_type: {:?}",
+            reward_pool.admin,
+            token_type
+        );
         Ok(())
     }
 
