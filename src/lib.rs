@@ -1610,7 +1610,7 @@ pub struct InitializeRevenuePool<'info> {
 #[instruction(token_type: TokenType)]
 pub struct InitializeRewardPool<'info> {
     #[account(
-        init,
+        init_if_needed,
         payer = admin,
         space = RewardPool::LEN,
         seeds = [SEED_REWARD_POOL, admin.key().as_ref(), &[token_type as u8]],
@@ -1618,14 +1618,14 @@ pub struct InitializeRewardPool<'info> {
     )]
     pub reward_pool: Account<'info, RewardPool>,
 
-
-    pub mint: InterfaceAccount<'info, Mint>,
+    #[account(mut)]
+    pub reward_escrow_account: UncheckedAccount<'info>,
 
     #[account(mut)]
     pub admin: Signer<'info>,
-
+    pub mint: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
-    pub token_program: Program<'info, Token2022>,
+    pub token_program: UncheckedAccount<'info>,
 }
 
 #[derive(Accounts)]
