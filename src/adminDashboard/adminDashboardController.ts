@@ -65,7 +65,7 @@ export const initializeStakingPoolController = async (req: Request, res: Respons
         const { mintPublicKey, adminPublicKey, tokenType } = req.body;  // Get mint address and token type from request body
 
         // Validate the mint address
-        if (!mintPublicKey || !adminPublicKey || !tokenType) {
+        if (!mintPublicKey || !adminPublicKey || tokenType === undefined || tokenType === null) {
             return res.status(400).json({ error: 'Mint public key, admin public key and token type are required' });
         }
 
