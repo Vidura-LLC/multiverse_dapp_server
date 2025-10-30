@@ -1508,7 +1508,7 @@ pub struct RegisterForTournament<'info> {
 #[instruction(token_type: TokenType)]
 pub struct InitializeRevenuePool<'info> {
     #[account(
-        init,
+        init_if_needed,
         payer = admin,
         space = RevenuePool::LEN,
         seeds = [SEED_REVENUE_POOL, admin.key().as_ref(), &[token_type as u8]],
@@ -1516,23 +1516,16 @@ pub struct InitializeRevenuePool<'info> {
     )]
     pub revenue_pool: Account<'info, RevenuePool>,
 
-    #[account(
-        init,
-        payer = admin,
-        token::mint = mint,
-        token::authority = revenue_pool,
-        seeds = [SEED_REVENUE_ESCROW, revenue_pool.key().as_ref()],
-        bump
-    )]
-    pub revenue_escrow_account: InterfaceAccount<'info, TokenAccount>,
+    #[account(mut)]
+    pub revenue_escrow_account: UncheckedAccount<'info>,
 
-    pub mint: InterfaceAccount<'info, Mint>,
+    pub mint: UncheckedAccount<'info>,
 
     #[account(mut)]
     pub admin: Signer<'info>,
 
     pub system_program: Program<'info, System>,
-    pub token_program: Program<'info, Token2022>,
+    pub token_program: UncheckedAccount<'info>,
 }
 
 #[derive(Accounts)]
@@ -1547,15 +1540,6 @@ pub struct InitializeRewardPool<'info> {
     )]
     pub reward_pool: Account<'info, RewardPool>,
 
-    #[account(
-        init,
-        payer = admin,
-        token::mint = mint,
-        token::authority = reward_pool,
-        seeds = [SEED_REWARD_ESCROW, reward_pool.key().as_ref()],
-        bump
-    )]
-    pub reward_escrow_account: InterfaceAccount<'info, TokenAccount>,
 
     pub mint: InterfaceAccount<'info, Mint>,
 
