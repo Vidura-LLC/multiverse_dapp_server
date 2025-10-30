@@ -243,6 +243,7 @@ export const getStakingStatsController = async (req: Request, res: Response) => 
     try {
 
         const { adminPublicKey } = req.params;
+        const { tokenType } = req.query;
         console.log('📊 Fetching staking statistics...');
         // Validate the admin address
         if (!adminPublicKey) {
@@ -252,7 +253,7 @@ export const getStakingStatsController = async (req: Request, res: Response) => 
             });
         }
 
-        const result = await getStakingStats(new PublicKey(adminPublicKey));
+        const result = await getStakingStats(new PublicKey(adminPublicKey), Number(tokenType) as TokenType);
 
         if (result.success) {
             return res.status(200).json({
@@ -282,9 +283,10 @@ export const getStakingPoolController = async (req: Request, res: Response) => {
     try {
 
         const { adminPublicKey } = req.params;
+        const { tokenType } = req.query;
         console.log('🏦 Fetching staking pool data...');
 
-        const result = await getStakingPoolData(new PublicKey(adminPublicKey));
+        const result = await getStakingPoolData(new PublicKey(adminPublicKey), Number(tokenType) as TokenType);
 
         if (result.success) {
             return res.status(200).json({
@@ -516,6 +518,7 @@ export const getDashboardStatsController = async (req: Request, res: Response) =
         console.log('📊 Fetching all dashboard statistics...');
 
         const { adminPublicKey } = req.params;
+        const { tokenType } = req.query;
         // Validate the admin public key
         if (!adminPublicKey) {
             return res.status(400).json({
@@ -524,7 +527,7 @@ export const getDashboardStatsController = async (req: Request, res: Response) =
             });
         }
         // Call the service to get all stats
-        const result = await getDashboardData(new PublicKey(adminPublicKey));
+        const result = await getDashboardData(new PublicKey(adminPublicKey), Number(tokenType) as TokenType);
 
         if (result) {
             return res.status(200).json({

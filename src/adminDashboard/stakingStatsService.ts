@@ -11,6 +11,7 @@ dotenv.config();
 import * as anchor from "@project-serum/anchor";
 import { UserStakingAccount } from "../staking/services";
 import { StakingPoolAccount } from "./services";
+import { SEEDS, TokenType, getStakingPoolPDA } from "../utils/getPDAs";
 
 /**
  * Helper function to format token amounts properly
@@ -36,19 +37,19 @@ export const formatTokenAmount = (amount: number, decimals: number = 9): number 
 /**
  * Get the staking pool data from the blockchain
  */
-export const getStakingPoolData = async (adminPublicKey: PublicKey) => {
+export const getStakingPoolData = async (adminPublicKey: PublicKey, tokenType: TokenType) => {
     try {
         const { program, connection } = getProgram();
 
         // Derive the staking pool PDA
         const [stakingPoolPublicKey] = PublicKey.findProgramAddressSync(
-            [Buffer.from("staking_pool"), adminPublicKey.toBuffer()],
+            [Buffer.from(SEEDS.STAKING_POOL), adminPublicKey.toBuffer(), Buffer.from([tokenType])],
             program.programId
         );
 
         // Derive the staking pool escrow account (consistent seed)
         const [stakingEscrowPublicKey] = PublicKey.findProgramAddressSync(
-            [Buffer.from("escrow"), stakingPoolPublicKey.toBuffer()],
+            [Buffer.from(SEEDS.STAKING_POOL_ESCROW), stakingPoolPublicKey.toBuffer()],
             program.programId
         );
         console.log("🔹 Fetching Staking Pool PDA:", stakingPoolPublicKey.toString());
@@ -77,8 +78,10 @@ export const getStakingPoolData = async (adminPublicKey: PublicKey) => {
                 totalWeight: stakingPoolData.totalWeight.toString(),
                 accRewardPerWeight: stakingPoolData.accRewardPerWeight.toString(),
                 epochIndex: stakingPoolData.epochIndex.toString(),
+                tokenType: stakingPoolData.tokenType.hasOwnProperty('spl') ? TokenType.SPL : TokenType.SOL,
                 stakingPoolAddress: stakingPoolPublicKey.toString(),
                 stakingEscrowPublicKey: stakingEscrowPublicKey.toString(),
+                bump: stakingPoolData.bump.toString(),
             }
         };
     } catch (err) {

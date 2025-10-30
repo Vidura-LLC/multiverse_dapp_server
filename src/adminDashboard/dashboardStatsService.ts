@@ -9,6 +9,7 @@ import { getUserStakingAccount } from "../staking/services";
 import { Tournament } from "../gamehub/gamehubController";
 import { calculateAPY, formatTokenAmount, getActiveStakers, getStakingPoolData } from "./stakingStatsService";
 import { getProgram } from "../staking/services";
+import { TokenType } from "../utils/getPDAs";
 
 export interface RewardPoolAccount {
     admin: PublicKey;
@@ -281,13 +282,13 @@ export const getRewardPoolStatsService = async (adminPublicKey: PublicKey) => {
 /**
 * Get comprehensive staking statistics
 */
-export const getStakingStats = async (adminPublicKey: PublicKey) => {
+export const getStakingStats = async (adminPublicKey: PublicKey, tokenType: TokenType) => {
     try {
         console.log("📊 Fetching comprehensive staking statistics...");
 
         // Fetch all data in parallel
         const [poolResult, stakersResult, apyResult] = await Promise.all([
-            getStakingPoolData(adminPublicKey),
+            getStakingPoolData(adminPublicKey, tokenType),
             getActiveStakers(),
             calculateAPY()
         ]);
@@ -334,7 +335,8 @@ export const getStakingStats = async (adminPublicKey: PublicKey) => {
             stakingPoolEscrowAddress: poolResult.data.stakingEscrowPublicKey,
             totalWeight: poolResult.data.totalWeight,
             accRewardPerWeight: poolResult.data.accRewardPerWeight,
-            epochIndex: poolResult.data.epochIndex
+            epochIndex: poolResult.data.epochIndex,
+            tokenType: poolResult.data.tokenType
         };
     } catch (err) {
         console.error("❌ Error fetching staking statistics:", err);
@@ -353,7 +355,7 @@ export const getStakingStats = async (adminPublicKey: PublicKey) => {
  * Get comprehensive dashboard data including tournament, revenue, and staking stats
  */
 
-export const getDashboardData = async (adminPublicKey: PublicKey): Promise<any> => {
+export const getDashboardData = async (adminPublicKey: PublicKey, tokenType: TokenType): Promise<any> => {
     try {
         console.log("📊 Fetching comprehensive dashboard data...");
 
@@ -367,7 +369,7 @@ export const getDashboardData = async (adminPublicKey: PublicKey): Promise<any> 
         const rewardPoolStats = await getRewardPoolStatsService(adminPublicKey);
 
         // Fetch staking stats
-        const stakingStats = await getStakingStats(adminPublicKey);
+        const stakingStats = await getStakingStats(adminPublicKey, tokenType);
 
         return {
             tournament: tournamentStats,
