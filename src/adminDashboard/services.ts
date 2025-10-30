@@ -137,6 +137,10 @@ export interface RevenuePoolAccount {
           // Get the latest blockhash
           const { blockhash } = await connection.getLatestBlockhash("finalized");
           console.log("Latest Blockhash:", blockhash);
+          
+          const actualMint = tokenType === TokenType.SOL 
+            ? SystemProgram.programId  // Dummy mint for SOL
+            : mintPublicKey;
   
           const tokenTypeArg = tokenType === TokenType.SPL ? {spl: {}} : {sol: {}};
           // Create the transaction
@@ -145,7 +149,7 @@ export interface RevenuePoolAccount {
               .accounts({
                   revenuePool: revenuePoolPublicKey,
                   revenueEscrowAccount: revenueEscrowPublicKey,
-                  mint: mintPublicKey,
+                  mint: actualMint,
                   admin: adminPublicKey,
                   systemProgram: anchor.web3.SystemProgram.programId,
                   tokenProgram: TOKEN_2022_PROGRAM_ID,
@@ -268,6 +272,9 @@ export const initializeRewardPoolService = async (
     const rewardPoolPublicKey = getRewardPoolPDA(adminPublicKey, tokenType);
 
     const rewardEscrowPublicKey = getRewardEscrowPDA(rewardPoolPublicKey);
+    const actualMint = tokenType === TokenType.SOL 
+      ? SystemProgram.programId  // Dummy mint for SOL
+      : mintPublicKey;
 
     const tokenTypeArg = tokenType === TokenType.SPL ? {spl: {}} : {sol: {}};
     // Build unsigned tx
@@ -277,7 +284,7 @@ export const initializeRewardPoolService = async (
       .accounts({
         rewardPool: rewardPoolPublicKey,
         rewardEscrowAccount: rewardEscrowPublicKey,
-        mint: mintPublicKey,
+        mint: actualMint,
         admin: adminPublicKey,
         systemProgram: SystemProgram.programId,
         tokenProgram: TOKEN_2022_PROGRAM_ID,
