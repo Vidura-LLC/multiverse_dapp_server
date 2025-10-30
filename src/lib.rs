@@ -223,6 +223,11 @@ pub mod multiversed_dapp {
         let revenue_pool = &mut ctx.accounts.revenue_pool;
         let admin = &ctx.accounts.admin;
 
+        require!(
+            revenue_pool.total_funds == 0,
+            RevenueError::AlreadyInitialized
+        );
+
         revenue_pool.admin = admin.key();
         revenue_pool.mint = ctx.accounts.mint.key();
         revenue_pool.total_funds = 0;
@@ -230,7 +235,81 @@ pub mod multiversed_dapp {
         revenue_pool.token_type = token_type;
         revenue_pool.bump = ctx.bumps.revenue_pool;
 
-        msg!("✅ Revenue pool initialized for admin: {}", admin.key());
+        match token_type {
+            TokenType::SOL => {
+
+                revenue_pool.mint = revenue_pool.key();
+                msg!("✅ SOL revenue pool initialized (no escrow needed)");
+                msg!("   Pool stores SOL directly in its account");
+            }
+            TokenType::SPL => {
+                revenue_pool.mint = ctx.accounts.mint.key();
+
+                require!(
+                    ctx.accounts.token_program.key() == anchor_spl::token_2022::ID,
+                    RevenueError::InvalidTokenProgram
+                );
+                let revenue_pool_key = revenue_pool.key();
+                let escrow_seeds = &[SEED_REVENUE_ESCROW, revenue_pool_key.as_ref()];
+                let (escrow_pda, escrow_bump) = 
+                    Pubkey::find_program_address(escrow_seeds, ctx.program_id);
+
+                    require!(
+                        ctx.accounts.revenue_escrow_account.key() == escrow_pda,
+                        RevenueError::InvalidEscrowAccount
+                    );
+                    let rent = Rent::get()?;
+                    let space = 165;
+                    let lamports = rent.minimum_balance(space);
+
+                    // Create the escrow account
+                    invoke_signed(
+                        &system_instruction::create_account(
+                            ctx.accounts.admin.key,
+                            &escrow_pda,
+                            lamports,
+                            space as u64,
+                            &anchor_spl::token_2022::ID,
+                        ),
+                        &[
+                            ctx.accounts.admin.to_account_info(),
+                            ctx.accounts.revenue_escrow_account.to_account_info(),
+                            ctx.accounts.system_program.to_account_info(),
+                        ],
+                        &[&[SEED_REVENUE_ESCROW, revenue_pool_key.as_ref(), &[escrow_bump]]],
+                    )?;
+
+                    // Initialize as token account
+                    let init_account_ix = spl_token_2022::instruction::initialize_account3(
+                        &anchor_spl::token_2022::ID,
+                        &escrow_pda,
+                        &ctx.accounts.mint.key(),
+                        &revenue_pool.key(),
+                    )?;
+                    
+                    invoke(
+                        &init_account_ix,
+                        &[
+                            ctx.accounts.revenue_escrow_account.to_account_info(),
+                            ctx.accounts.mint.to_account_info(),
+                        ]
+                    )?;
+
+                    msg!(
+                        "✅ SPL revenue pool and escrow initialized"
+                    );
+                    msg!("   Mint: {}", ctx.accounts.mint.key());
+                    msg!("   Escrow: {}", escrow_pda);
+                    msg!("   Token type: {:?}", token_type);
+                    msg!("   Revenue pool: {}", revenue_pool.key());
+                    msg!("   Revenue escrow: {}", escrow_pda);
+            }
+        }
+        msg!(
+            "✅ Revenue pool initialized by admin: {}, token_type: {:?}",
+            revenue_pool.admin,
+            token_type
+        );
         Ok(())
     }
 
