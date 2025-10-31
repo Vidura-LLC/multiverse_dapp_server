@@ -3,7 +3,6 @@
 import { Request, Response } from 'express';
 import { unstakeTokenService, getUserStakingAccount, stakeTokenService, getProgram, claimRewardsService, accrueRewardsService } from './services';
 import { PublicKey } from '@solana/web3.js';
-import { StakingPoolAccount } from "../adminDashboard/services";
 import {TokenType } from "../utils/getPDAs";
 
 
@@ -159,12 +158,16 @@ export const fetchUserStakingAccountController = async (req: Request, res: Respo
     const { userPublicKey } = req.params;
     const { tokenType, adminPublicKey } = req.query;
 
-    if (!userPublicKey || !tokenType || !adminPublicKey) {
+    if (!userPublicKey || tokenType === undefined || tokenType === null || !adminPublicKey) {
       return res.status(400).json({ success: false, message: "User public key is required" });
+    }
+    const tt = Number(tokenType);
+    if (tt !== TokenType.SPL && tt !== TokenType.SOL) {
+      return res.status(400).json({ success: false, message: 'tokenType must be 0 (SPL) or 1 (SOL)' });
     }
 
     const userPubkey = new PublicKey(userPublicKey);
-    const result = await getUserStakingAccount(userPubkey, new PublicKey(adminPublicKey), tokenType as unknown as TokenType);
+    const result = await getUserStakingAccount(userPubkey, new PublicKey(adminPublicKey), tt as TokenType);
 
     if (result.success) {
       return res.status(200).json(result);
