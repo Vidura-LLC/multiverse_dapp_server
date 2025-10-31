@@ -83,6 +83,7 @@ export const stakeTokenService = async (
     console.log("Mint PublicKey:", mintPublicKey.toBase58());
     console.log("Amount to stake:", amount);
     console.log("Lock Duration (in seconds):", lockDuration);
+    console.log("Token Type:", tokenType === TokenType.SPL ? "SPL" : "SOL");
 
     // Validate lockDuration
     if (!lockDuration || typeof lockDuration !== 'number') {
@@ -99,16 +100,33 @@ export const stakeTokenService = async (
     const userStakingAccountResponse = await getUserStakingAccount(userPublicKey, adminPublicKey, tokenType);
     console.log("User Staking Account Response:", userStakingAccountResponse);
 
-    let userTokenAccountPublicKey = await getAssociatedTokenAddressSync(mintPublicKey, userPublicKey, false, TOKEN_2022_PROGRAM_ID);
-    console.log("User Token Account PublicKey:", userTokenAccountPublicKey.toBase58());
+    // ✅ KEY FIX: For SOL, use SystemProgram as mint and dummy accounts
+    const actualMint = tokenType === TokenType.SOL 
+      ? SystemProgram.programId  // Dummy mint for SOL
+      : mintPublicKey;
 
-    if (!userTokenAccountPublicKey) {
-      console.log("User Token Account PublicKey does not exist. Creating ATA...");
-      const createATAResponse = await createAssociatedTokenAccount(mintPublicKey, userPublicKey);
-      console.log("Create ATA Response:", createATAResponse);
-      userTokenAccountPublicKey = createATAResponse.associatedTokenAddress;
+    let userTokenAccountPublicKey: PublicKey;
+    
+    if (tokenType === TokenType.SPL) {
+      // For SPL, get/create ATA
+      userTokenAccountPublicKey = await getAssociatedTokenAddressSync(
+        mintPublicKey, 
+        userPublicKey, 
+        false, 
+        TOKEN_2022_PROGRAM_ID
+      );
+      console.log("User Token Account PublicKey:", userTokenAccountPublicKey.toBase58());
+
+      if (!userTokenAccountPublicKey) {
+        console.log("User Token Account PublicKey does not exist. Creating ATA...");
+        const createATAResponse = await createAssociatedTokenAccount(mintPublicKey, userPublicKey);
+        console.log("Create ATA Response:", createATAResponse);
+        userTokenAccountPublicKey = createATAResponse.associatedTokenAddress;
+      }
+    } else {
+      // For SOL, use SystemProgram as dummy (not actually used on-chain)
+      userTokenAccountPublicKey = SystemProgram.programId;
     }
-
 
     const { blockhash } = await connection.getLatestBlockhash("finalized");
     console.log("Latest Blockhash:", blockhash);
@@ -122,7 +140,7 @@ export const stakeTokenService = async (
         userStakingAccount: userStakingAccountPublicKey,
         userTokenAccount: userTokenAccountPublicKey,
         poolEscrowAccount: poolEscrowAccountPublicKey,
-        mint: mintPublicKey,
+        mint: actualMint,
         tokenProgram: TOKEN_2022_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
       })
@@ -147,10 +165,7 @@ export const stakeTokenService = async (
 };
 
 
-
-
-
-
+// Function to unstake tokens from the staking pool
 export const unstakeTokenService = async (
   mintPublicKey: PublicKey,
   userPublicKey: PublicKey,
@@ -158,7 +173,12 @@ export const unstakeTokenService = async (
   tokenType: TokenType
 ) => {
   try {
-    const { program, connection } = getProgram(); // Assuming getProgram() initializes necessary context
+    const { program, connection } = getProgram();
+
+    console.log("Unstaking Details:");
+    console.log("User PublicKey:", userPublicKey.toBase58());
+    console.log("Admin PublicKey:", adminPublicKey.toBase58());
+    console.log("Token Type:", tokenType === TokenType.SPL ? "SPL" : "SOL");
 
     // Find the staking pool, user staking account, and escrow account
     const stakingPoolPublicKey = getStakingPoolPDA(adminPublicKey, tokenType);
@@ -171,16 +191,33 @@ export const unstakeTokenService = async (
     const userStakingAccountResponse = await getUserStakingAccount(userPublicKey, adminPublicKey, tokenType);
     console.log("User Staking Account Response:", userStakingAccountResponse);
 
-    let userTokenAccountPublicKey = await getAssociatedTokenAddressSync(mintPublicKey, userPublicKey, false, TOKEN_2022_PROGRAM_ID);
-    console.log("User Token Account PublicKey:", userTokenAccountPublicKey.toBase58());
+    // ✅ KEY FIX: For SOL, use SystemProgram as mint and dummy accounts
+    const actualMint = tokenType === TokenType.SOL 
+      ? SystemProgram.programId  // Dummy mint for SOL
+      : mintPublicKey;
 
-    if (!userTokenAccountPublicKey) {
-      console.log("User Token Account PublicKey does not exist. Creating ATA...");
-      const createATAResponse = await createAssociatedTokenAccount(mintPublicKey, userPublicKey);
-      console.log("Create ATA Response:", createATAResponse);
-      userTokenAccountPublicKey = createATAResponse.associatedTokenAddress;
+    let userTokenAccountPublicKey: PublicKey;
+    
+    if (tokenType === TokenType.SPL) {
+      // For SPL, get/create ATA
+      userTokenAccountPublicKey = await getAssociatedTokenAddressSync(
+        mintPublicKey, 
+        userPublicKey, 
+        false, 
+        TOKEN_2022_PROGRAM_ID
+      );
+      console.log("User Token Account PublicKey:", userTokenAccountPublicKey.toBase58());
+
+      if (!userTokenAccountPublicKey) {
+        console.log("User Token Account PublicKey does not exist. Creating ATA...");
+        const createATAResponse = await createAssociatedTokenAccount(mintPublicKey, userPublicKey);
+        console.log("Create ATA Response:", createATAResponse);
+        userTokenAccountPublicKey = createATAResponse.associatedTokenAddress;
+      }
+    } else {
+      // For SOL, use SystemProgram as dummy (not actually used on-chain)
+      userTokenAccountPublicKey = SystemProgram.programId;
     }
-
 
     // Get the latest blockhash
     const { blockhash } = await connection.getLatestBlockhash('finalized');
@@ -194,11 +231,10 @@ export const unstakeTokenService = async (
         userStakingAccount: userStakingAccountPublicKey,
         userTokenAccount: userTokenAccountPublicKey,
         poolEscrowAccount: poolEscrowAccountPublicKey,
-        mint: mintPublicKey,
+        mint: actualMint,  // ✅ Use SystemProgram for SOL
         tokenProgram: TOKEN_2022_PROGRAM_ID,
-        systemProgram: SystemProgram.programId,
       })
-      .transaction(); // Create transaction, don't sign
+      .transaction();
 
     transaction.recentBlockhash = blockhash;
     transaction.feePayer = userPublicKey;
@@ -207,11 +243,15 @@ export const unstakeTokenService = async (
     return {
       success: true,
       message: "Transaction created successfully!",
+      tokenType: tokenType === TokenType.SPL ? "SPL" : "SOL",
       transaction: transaction.serialize({ requireAllSignatures: false }).toString('base64'),
     };
   } catch (err) {
     console.error("❌ Error creating unstake transaction:", err);
-    return { success: false, message: "Error creating unstake transaction" };
+    return { 
+      success: false, 
+      message: `Error creating unstake transaction: ${err.message || err}` 
+    };
   }
 };
 
