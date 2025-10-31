@@ -237,7 +237,6 @@ pub mod multiversed_dapp {
 
         match token_type {
             TokenType::SOL => {
-
                 revenue_pool.mint = revenue_pool.key();
                 msg!("✅ SOL revenue pool initialized (no escrow needed)");
                 msg!("   Pool stores SOL directly in its account");
@@ -251,58 +250,60 @@ pub mod multiversed_dapp {
                 );
                 let revenue_pool_key = revenue_pool.key();
                 let escrow_seeds = &[SEED_REVENUE_ESCROW, revenue_pool_key.as_ref()];
-                let (escrow_pda, escrow_bump) = 
+                let (escrow_pda, escrow_bump) =
                     Pubkey::find_program_address(escrow_seeds, ctx.program_id);
 
-                    require!(
-                        ctx.accounts.revenue_escrow_account.key() == escrow_pda,
-                        RevenueError::InvalidEscrowAccount
-                    );
-                    let rent = Rent::get()?;
-                    let space = 165;
-                    let lamports = rent.minimum_balance(space);
+                require!(
+                    ctx.accounts.revenue_escrow_account.key() == escrow_pda,
+                    RevenueError::InvalidEscrowAccount
+                );
+                let rent = Rent::get()?;
+                let space = 165;
+                let lamports = rent.minimum_balance(space);
 
-                    // Create the escrow account
-                    invoke_signed(
-                        &system_instruction::create_account(
-                            ctx.accounts.admin.key,
-                            &escrow_pda,
-                            lamports,
-                            space as u64,
-                            &anchor_spl::token_2022::ID,
-                        ),
-                        &[
-                            ctx.accounts.admin.to_account_info(),
-                            ctx.accounts.revenue_escrow_account.to_account_info(),
-                            ctx.accounts.system_program.to_account_info(),
-                        ],
-                        &[&[SEED_REVENUE_ESCROW, revenue_pool_key.as_ref(), &[escrow_bump]]],
-                    )?;
-
-                    // Initialize as token account
-                    let init_account_ix = spl_token_2022::instruction::initialize_account3(
-                        &anchor_spl::token_2022::ID,
+                // Create the escrow account
+                invoke_signed(
+                    &system_instruction::create_account(
+                        ctx.accounts.admin.key,
                         &escrow_pda,
-                        &ctx.accounts.mint.key(),
-                        &revenue_pool.key(),
-                    )?;
-                    
-                    invoke(
-                        &init_account_ix,
-                        &[
-                            ctx.accounts.revenue_escrow_account.to_account_info(),
-                            ctx.accounts.mint.to_account_info(),
-                        ]
-                    )?;
+                        lamports,
+                        space as u64,
+                        &anchor_spl::token_2022::ID,
+                    ),
+                    &[
+                        ctx.accounts.admin.to_account_info(),
+                        ctx.accounts.revenue_escrow_account.to_account_info(),
+                        ctx.accounts.system_program.to_account_info(),
+                    ],
+                    &[&[
+                        SEED_REVENUE_ESCROW,
+                        revenue_pool_key.as_ref(),
+                        &[escrow_bump],
+                    ]],
+                )?;
 
-                    msg!(
-                        "✅ SPL revenue pool and escrow initialized"
-                    );
-                    msg!("   Mint: {}", ctx.accounts.mint.key());
-                    msg!("   Escrow: {}", escrow_pda);
-                    msg!("   Token type: {:?}", token_type);
-                    msg!("   Revenue pool: {}", revenue_pool.key());
-                    msg!("   Revenue escrow: {}", escrow_pda);
+                // Initialize as token account
+                let init_account_ix = spl_token_2022::instruction::initialize_account3(
+                    &anchor_spl::token_2022::ID,
+                    &escrow_pda,
+                    &ctx.accounts.mint.key(),
+                    &revenue_pool.key(),
+                )?;
+
+                invoke(
+                    &init_account_ix,
+                    &[
+                        ctx.accounts.revenue_escrow_account.to_account_info(),
+                        ctx.accounts.mint.to_account_info(),
+                    ],
+                )?;
+
+                msg!("✅ SPL revenue pool and escrow initialized");
+                msg!("   Mint: {}", ctx.accounts.mint.key());
+                msg!("   Escrow: {}", escrow_pda);
+                msg!("   Token type: {:?}", token_type);
+                msg!("   Revenue pool: {}", revenue_pool.key());
+                msg!("   Revenue escrow: {}", escrow_pda);
             }
         }
         msg!(
@@ -326,7 +327,6 @@ pub mod multiversed_dapp {
             RewardError::AlreadyInitialized
         );
 
-
         reward_pool.admin = admin.key();
         reward_pool.total_funds = 0;
         reward_pool.last_distribution = Clock::get()?.unix_timestamp;
@@ -346,15 +346,17 @@ pub mod multiversed_dapp {
                     ctx.accounts.token_program.key() == anchor_spl::token_2022::ID,
                     RewardError::InvalidTokenProgram
                 );
+
                 let reward_pool_key = reward_pool.key();
                 let escrow_seeds = &[SEED_REWARD_ESCROW, reward_pool_key.as_ref()];
-                let (escrow_pda, escrow_bump) = 
+                let (escrow_pda, escrow_bump) =
                     Pubkey::find_program_address(escrow_seeds, ctx.program_id);
 
                 require!(
                     ctx.accounts.reward_escrow_account.key() == escrow_pda,
                     RewardError::InvalidEscrowAccount
                 );
+
                 let rent = Rent::get()?;
                 let space = 165;
                 let lamports = rent.minimum_balance(space);
@@ -375,7 +377,7 @@ pub mod multiversed_dapp {
                     ],
                     &[&[SEED_REWARD_ESCROW, reward_pool_key.as_ref(), &[escrow_bump]]],
                 )?;
-                
+
                 // Initialize as token account
                 let init_account_ix = spl_token_2022::instruction::initialize_account3(
                     &anchor_spl::token_2022::ID,
@@ -383,30 +385,27 @@ pub mod multiversed_dapp {
                     &ctx.accounts.mint.key(),
                     &reward_pool.key(),
                 )?;
-                
+
                 invoke(
                     &init_account_ix,
                     &[
                         ctx.accounts.reward_escrow_account.to_account_info(),
                         ctx.accounts.mint.to_account_info(),
-                    ]
+                    ],
                 )?;
-                
-                msg!(
-                    "✅ SPL reward pool and escrow initialized"
-                );
+
+                msg!("✅ SPL reward pool and escrow initialized");
                 msg!("   Mint: {}", ctx.accounts.mint.key());
                 msg!("   Escrow: {}", escrow_pda);
-                msg!("   Token type: {:?}", token_type);
-                msg!("   Reward pool: {}", reward_pool.key());
-                msg!("   Reward escrow: {}", escrow_pda);
-        }
+            } // ✅ ADD THIS: Closes the SPL arm of the match
+        } // ✅ This closes the match statement
 
         msg!(
             "✅ Reward pool initialized by admin: {}, token_type: {:?}",
             reward_pool.admin,
             token_type
         );
+
         Ok(())
     }
 
@@ -1397,17 +1396,16 @@ pub struct Stake<'info> {
     #[account(mut)]
     pub user_token_account: UncheckedAccount<'info>,
 
-    #[account(
-        mut,
-        token::mint = staking_pool.mint,
-        token::authority = staking_pool
-    )]
-    pub pool_escrow_account: InterfaceAccount<'info, TokenAccount>,
+    /// CHECK: Only used for SPL tokens - escrow account
+    #[account(mut)]
+    pub pool_escrow_account: UncheckedAccount<'info>,
 
-    #[account(mut, constraint = mint.key() == staking_pool.mint)]
-    pub mint: InterfaceAccount<'info, Mint>,
+    /// CHECK: Only used for SPL tokens - mint account
+    pub mint: UncheckedAccount<'info>,
 
-    pub token_program: Program<'info, Token2022>,
+    /// CHECK: Token program - only used for SPL
+    pub token_program: UncheckedAccount<'info>,
+
     pub system_program: Program<'info, System>,
 }
 
@@ -1436,17 +1434,15 @@ pub struct Unstake<'info> {
     #[account(mut)]
     pub user_token_account: UncheckedAccount<'info>,
 
-    #[account(
-        mut,
-        token::mint = staking_pool.mint,
-        token::authority = staking_pool
-    )]
-    pub pool_escrow_account: InterfaceAccount<'info, TokenAccount>,
+    /// CHECK: Only used for SPL tokens - escrow account
+    #[account(mut)]
+    pub pool_escrow_account: UncheckedAccount<'info>,
 
-    #[account(mut, constraint = mint.key() == staking_pool.mint)]
-    pub mint: InterfaceAccount<'info, Mint>,
+    /// CHECK: Only used for SPL tokens - mint account
+    pub mint: UncheckedAccount<'info>,
 
-    pub token_program: Program<'info, Token2022>,
+    /// CHECK: Token program - only used for SPL
+    pub token_program: UncheckedAccount<'info>,
 }
 
 #[derive(Accounts)]
@@ -1982,6 +1978,41 @@ pub enum StakingError {
 
     #[msg("Invalid Lock Duration, Must be 1, 3, 6 or 12 months")]
     InvalidLockDuration,
+
+    #[msg("Invalid token program provided")]
+    InvalidTokenProgram,
+
+    #[msg("Invalid escrow account provided")]
+    InvalidEscrowAccount,
+}
+#[error_code]
+pub enum RevenueError {
+    #[msg("Revenue Pool already initialized")]
+    AlreadyInitialized,
+
+    #[msg("Unauthorized access")]
+    Unauthorized,
+
+    #[msg("Math overflow occurred")]
+    MathOverflow,
+
+    #[msg("Invalid token program provided")]
+    InvalidTokenProgram,
+
+    #[msg("Invalid escrow account provided")]
+    InvalidEscrowAccount,
+}
+
+#[error_code]
+pub enum RewardError {
+    #[msg("Reward Pool already initialized")]
+    AlreadyInitialized,
+
+    #[msg("Unauthorized access")]
+    Unauthorized,
+
+    #[msg("Math overflow occurred")]
+    MathOverflow,
 
     #[msg("Invalid token program provided")]
     InvalidTokenProgram,
