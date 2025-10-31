@@ -328,6 +328,11 @@ export const getUserStakingAccount = async (userPublicKey: PublicKey, adminPubli
 
     const stakingPoolPublicKey = getStakingPoolPDA(adminPublicKey, tokenType);
 
+    console.log("Token Type:", tokenType === TokenType.SPL ? "SPL" : "SOL");
+    console.log("Staking Pool PublicKey:", stakingPoolPublicKey.toBase58());
+    console.log("User PublicKey:", userPublicKey.toBase58());
+    console.log("Admin PublicKey:", adminPublicKey.toBase58());
+
     // Derive the public key for the user staking account
     const userStakingAccountPublicKey = getUserStakingPDA(stakingPoolPublicKey, userPublicKey);
 
