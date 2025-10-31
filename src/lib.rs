@@ -494,7 +494,10 @@ pub mod multiversed_dapp {
             }
             TokenType::SPL => {
                 // Transfer SPL tokens
-                let mint_decimals = ctx.accounts.mint.decimals;
+                let mint_data = ctx.accounts.mint.try_borrow_data()?;
+                let mint = Mint::try_deserialize(&mut &mint_data[..])?;
+                let mint_decimals = mint.decimals;
+
                 token_2022::transfer_checked(
                     CpiContext::new(
                         ctx.accounts.token_program.to_account_info(),
@@ -580,7 +583,10 @@ pub mod multiversed_dapp {
             }
             TokenType::SPL => {
                 // Transfer SPL tokens using PDA
-                let mint_decimals = ctx.accounts.mint.decimals;
+                let mint_data = ctx.accounts.mint.try_borrow_data()?;
+                let mint = Mint::try_deserialize(&mut &mint_data[..])?;
+                let mint_decimals = mint.decimals;
+
                 let staking_pool_admin = staking_pool.admin;
                 let staking_pool_bump = staking_pool.bump;
                 let staking_pool_seeds = &[
