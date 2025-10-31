@@ -4,7 +4,7 @@ import { Request, Response } from 'express';
 import { unstakeTokenService, getUserStakingAccount, stakeTokenService, getProgram, claimRewardsService, accrueRewardsService } from './services';
 import { PublicKey } from '@solana/web3.js';
 import { StakingPoolAccount } from "../adminDashboard/services";
-import { TokenType } from "../utils/getPDAs";
+import {TokenType } from "../utils/getPDAs";
 
 
 
@@ -15,7 +15,7 @@ export const stakeTokensController = async (req: Request, res: Response) => {
     const { mintPublicKey, userPublicKey, amount, lockDuration, adminPublicKey, tokenType } = req.body;
 
     // Validate required fields
-    if (!mintPublicKey || !userPublicKey || !amount || !lockDuration || !adminPublicKey || !tokenType) {
+    if (!mintPublicKey || !userPublicKey || !amount || !lockDuration || !adminPublicKey || tokenType === undefined || tokenType === null) {
       return res.status(400).json({
         success: false,
         message: "Missing required fields: mintPublicKey, userPublicKey, amount, lockDuration, adminPublicKey, and tokenType are required"
@@ -59,6 +59,11 @@ export const stakeTokensController = async (req: Request, res: Response) => {
       });
     }
 
+    const tt = Number(tokenType);
+    if (tt !== TokenType.SPL && tt !== TokenType.SOL) {
+      return res.status(400).json({ success: false, message: 'tokenType must be 0 (SPL) or 1 (SOL)' });
+    }
+
     // Call the service function to create an unsigned transaction
     const result = await stakeTokenService(
       new PublicKey(mintPublicKey),
@@ -66,7 +71,7 @@ export const stakeTokensController = async (req: Request, res: Response) => {
       amount,
       lockDuration,
       new PublicKey(adminPublicKey),
-      tokenType as unknown as TokenType
+      tt as TokenType
     );
 
     if (result.success) {
@@ -106,13 +111,13 @@ export const claimRewardsController = async (req: Request, res: Response) => {
 
 export const unstakeTokensController = async (req: Request, res: Response) => {
   try {
-    const { userPublicKey, adminPublicKey, tokenType } = req.body;
+    const { userPublicKey, adminPublicKey, tokenType, mintPublicKey } = req.body;
 
     // Validate required fields
-    if (!userPublicKey || !adminPublicKey || !tokenType) {
+    if (!userPublicKey || !adminPublicKey || tokenType === undefined || tokenType === null || !mintPublicKey) {
       return res.status(400).json({
         success: false,
-        message: "Missing required fields: userPublicKey, adminPublicKey, and tokenType are required"
+        message: "Missing required fields: userPublicKey, adminPublicKey, tokenType and mintPublicKey are required"
       });
     }
 
@@ -120,6 +125,7 @@ export const unstakeTokensController = async (req: Request, res: Response) => {
     try {
       new PublicKey(userPublicKey);
       new PublicKey(adminPublicKey);
+      new PublicKey(mintPublicKey);
     } catch (pubkeyError) {
       return res.status(400).json({
         success: false,
@@ -127,18 +133,12 @@ export const unstakeTokensController = async (req: Request, res: Response) => {
       });
     }
 
-    // Get the mint public key from the staking pool
-    const { program } = getProgram();
-    const [stakingPoolPublicKey] = PublicKey.findProgramAddressSync(
-      [Buffer.from("staking_pool"), new PublicKey(adminPublicKey).toBuffer()],
-      program.programId
-    );
+    const tt = Number(tokenType);
+    if (tt !== TokenType.SPL && tt !== TokenType.SOL) {
+      return res.status(400).json({ success: false, message: 'tokenType must be 0 (SPL) or 1 (SOL)' });
+    }
 
-    // Fetch the staking pool data to get the mint public key
-    const stakingPoolData = await program.account.stakingPool.fetch(stakingPoolPublicKey) as StakingPoolAccount;
-    const mintPublicKey = stakingPoolData.mint;
-
-    const result = await unstakeTokenService(mintPublicKey, new PublicKey(userPublicKey), new PublicKey(adminPublicKey), tokenType as unknown as TokenType);
+    const result = await unstakeTokenService(new PublicKey(mintPublicKey), new PublicKey(userPublicKey), new PublicKey(adminPublicKey), tt as TokenType);
 
     if (result.success) {
       return res.status(200).json(result);
