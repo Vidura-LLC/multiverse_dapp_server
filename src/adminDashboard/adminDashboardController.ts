@@ -246,14 +246,18 @@ export const getStakingStatsController = async (req: Request, res: Response) => 
         const { tokenType } = req.query;
         console.log('📊 Fetching staking statistics...');
         // Validate the admin address
-        if (!adminPublicKey) {
+        if (!adminPublicKey || !tokenType || tokenType === undefined || tokenType === null) {
             return res.status(400).json({
                 success: false,
-                message: 'Admin public key is required'
+                message: 'Admin public key and token type are required'
             });
         }
 
-        const result = await getStakingStats(new PublicKey(adminPublicKey), Number(tokenType) as TokenType);
+        const tt = Number(tokenType);
+        if (tt !== TokenType.SPL && tt !== TokenType.SOL) {
+            return res.status(400).json({ success: false, message: 'tokenType must be 0 (SPL) or 1 (SOL)' });
+        }
+        const result = await getStakingStats(new PublicKey(adminPublicKey), tt as TokenType);
 
         if (result.success) {
             return res.status(200).json({
