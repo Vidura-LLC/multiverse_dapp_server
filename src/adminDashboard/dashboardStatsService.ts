@@ -263,7 +263,7 @@ export const getStakingStats = async (adminPublicKey: PublicKey, tokenType: Toke
         // Fetch all data in parallel
         const [poolResult, stakersResult, apyResult] = await Promise.all([
             getStakingPoolData(adminPublicKey, tokenType),
-            getActiveStakers(),
+            getActiveStakers(adminPublicKey, tokenType),
             calculateAPY()
         ]);
 
