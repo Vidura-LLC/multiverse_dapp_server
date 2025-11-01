@@ -319,8 +319,24 @@ export const getStakingPoolController = async (req: Request, res: Response) => {
 export const getActiveStakersController = async (req: Request, res: Response) => {
     try {
         console.log('👥 Fetching active stakers...');
-
-        const result = await getActiveStakers();
+        
+        const { adminPublicKey, tokenType } = req.query;
+        
+        // If both params provided, filter by tokenType
+        let result;
+        if (adminPublicKey && tokenType !== undefined) {
+            const tt = Number(tokenType);
+            if (tt !== TokenType.SPL && tt !== TokenType.SOL) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'tokenType must be 0 (SPL) or 1 (SOL)'
+                });
+            }
+            result = await getActiveStakers(new PublicKey(adminPublicKey as string), tt as TokenType);
+        } else {
+            // Backward compatibility: get all stakers if params not provided
+            result = await getActiveStakers();
+        }
 
         if (result.success) {
             return res.status(200).json({
