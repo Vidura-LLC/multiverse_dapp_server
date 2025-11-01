@@ -131,9 +131,16 @@ export const stakeTokenService = async (
     const { blockhash } = await connection.getLatestBlockhash("finalized");
     console.log("Latest Blockhash:", blockhash);
 
+    // Convert amount from tokens (human-readable) to base units (lamports)
+    // Client sends amount as human-readable (e.g., 4 = 4 tokens)
+    // Blockchain needs amount in base units (e.g., 4 tokens = 4 * 10^9 = 4000000000 base units)
+    const tokenDecimals = 9;
+    const amountInBaseUnits = Math.floor(amount * Math.pow(10, tokenDecimals));
+    console.log(`Converting ${amount} tokens to ${amountInBaseUnits} base units (${amount} * 10^${tokenDecimals})`);
+
     // Create an unsigned transaction for staking
     const transaction = await program.methods
-      .stake(new anchor.BN(amount), new anchor.BN(lockDuration))
+      .stake(new anchor.BN(amountInBaseUnits), new anchor.BN(lockDuration))
       .accounts({
         user: userPublicKey,
         stakingPool: stakingPoolPublicKey,
@@ -187,9 +194,16 @@ export const unstakeTokenService = async (
 
     const poolEscrowAccountPublicKey = getStakingEscrowPDA(stakingPoolPublicKey);
 
-    // Check if the user already has a staking account
+    // Check if the user already has a staking account to log the amount being unstaked
     const userStakingAccountResponse = await getUserStakingAccount(userPublicKey, adminPublicKey, tokenType);
     console.log("User Staking Account Response:", userStakingAccountResponse);
+    
+    // Log the amount that will be unstaked (for reference)
+    if (userStakingAccountResponse.success && userStakingAccountResponse.data) {
+      const stakedAmount = userStakingAccountResponse.data.stakedAmount;
+      const stakedAmountRaw = userStakingAccountResponse.data.stakedAmountRaw || '0';
+      console.log(`Unstaking ${stakedAmount} tokens (${stakedAmountRaw} base units)`);
+    }
 
     // ✅ KEY FIX: For SOL, use SystemProgram as mint and dummy accounts
     const actualMint = tokenType === TokenType.SOL 
@@ -223,6 +237,7 @@ export const unstakeTokenService = async (
     const { blockhash } = await connection.getLatestBlockhash('finalized');
 
     // Create an unsigned transaction to unstake all tokens
+    // Note: unstake() unstakes ALL tokens - the amount is determined by what's stored on-chain
     const transaction = await program.methods
       .unstake() // No need to pass amount, as unstake now operates on the full staked amount
       .accounts({
@@ -350,26 +365,75 @@ export const getUserStakingAccount = async (userPublicKey: PublicKey, adminPubli
       userStakingAccountPublicKey
     ) as UserStakingAccount;
 
-    console.log(userStakingAccount);
+    console.log("Raw userStakingAccount:", userStakingAccount);
+    console.log("Raw stakedAmount (base units):", userStakingAccount.stakedAmount.toString());
+    console.log("Raw stakedAmount as number:", userStakingAccount.stakedAmount.toNumber());
 
+    // Helper function to convert BN to decimal with proper precision
+    // This avoids JavaScript floating point precision issues by using string manipulation
+    const convertBaseUnitsToReadable = (amountBN: anchor.BN, decimals: number): number => {
+      const amountStr = amountBN.toString();
+      
+      // Handle zero case
+      if (amountStr === '0') {
+        return 0;
+      }
+      
+      // Pad the string with leading zeros if needed to ensure we have enough digits
+      const paddedAmount = amountStr.padStart(decimals, '0');
+      
+      // Split into integer and decimal parts
+      let integerPart: string;
+      let decimalPart: string;
+      
+      if (paddedAmount.length <= decimals) {
+        // Amount is smaller than 1 full unit
+        integerPart = '0';
+        decimalPart = paddedAmount;
+      } else {
+        // Split at the decimal point
+        integerPart = paddedAmount.slice(0, -decimals) || '0';
+        decimalPart = paddedAmount.slice(-decimals);
+      }
+      
+      // Remove trailing zeros from decimal part for cleaner output
+      const trimmedDecimal = decimalPart.replace(/0+$/, '');
+      
+      // Construct the final number string
+      let numberString: string;
+      if (trimmedDecimal === '') {
+        numberString = integerPart;
+      } else {
+        numberString = integerPart + '.' + trimmedDecimal;
+      }
+      
+      // Convert to number - this preserves precision better than simple division
+      const result = Number(numberString);
+      console.log(`Converting ${amountStr} base units: ${numberString} -> ${result}`);
+      
+      return result;
+    };
 
-
-    // Convert stakedAmount from base units
-    const tokenDecimals = 9;  // Adjust token decimals as needed
-    const readableStakedAmount = userStakingAccount.stakedAmount.toNumber() / (10 ** tokenDecimals);
+    // Convert amounts from base units to human-readable tokens
+    const tokenDecimals = 9;  // SOL and most tokens use 9 decimals
+    const readableStakedAmount = convertBaseUnitsToReadable(userStakingAccount.stakedAmount, tokenDecimals);
+    const readableRewardDebt = convertBaseUnitsToReadable(userStakingAccount.rewardDebt, tokenDecimals);
+    const readablePendingRewards = convertBaseUnitsToReadable(userStakingAccount.pendingRewards, tokenDecimals);
 
     // Ensure that the fields are defined and use safe .toString() calls
     const rawData = {
       owner: userStakingAccount.owner.toBase58(),
       stakedAmount: readableStakedAmount,
+      stakedAmountRaw: userStakingAccount.stakedAmount.toString(), // Raw base units for debugging
       stakeTimestamp: userStakingAccount.stakeTimestamp.toString(),
       stakeDuration: userStakingAccount.lockDuration.toString(),
       weight: userStakingAccount.weight.toString(),
-      rewardDebt: userStakingAccount.rewardDebt.toNumber() / (10 ** tokenDecimals),
-      pendingRewards: userStakingAccount.pendingRewards.toNumber() / (10 ** tokenDecimals),
+      rewardDebt: readableRewardDebt,
+      pendingRewards: readablePendingRewards,
     };
 
-    console.log("Raw User Staking Account Data:", rawData);
+    console.log("Converted User Staking Account Data:", rawData);
+    console.log(`Staked Amount: ${readableStakedAmount} tokens (${userStakingAccount.stakedAmount.toString()} base units)`);
 
     return { success: true, data: rawData };
   } catch (err) {
