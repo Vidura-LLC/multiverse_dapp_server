@@ -11,7 +11,7 @@ dotenv.config();
 import * as anchor from "@project-serum/anchor";
 import { UserStakingAccount } from "../staking/services";
 import { StakingPoolAccount } from "./services";
-import { SEEDS, TokenType, getStakingPoolPDA } from "../utils/getPDAs";
+import { SEEDS, TokenType, getStakingPoolPDA, getUserStakingPDA } from "../utils/getPDAs";
 
 /**
  * Helper function to format token amounts properly
@@ -95,23 +95,84 @@ export const getStakingPoolData = async (adminPublicKey: PublicKey, tokenType: T
 
 /**
  * Get all active stakers by scanning user staking accounts
+ * Filters by tokenType to only return stakers for the specified pool
  */
-export const getActiveStakers = async () => {
-    try {
+export const getActiveStakers = async (adminPublicKey?: PublicKey, tokenType?: TokenType) => {
+    // For backward compatibility, if no params provided, get all stakers
+    if (!adminPublicKey || tokenType === undefined) {
         const { program } = getProgram();
-
-        // Get all program accounts of type UserStakingAccount
         const userStakingAccounts = await program.account.userStakingAccount.all();
-
-        console.log(`🔹 Found ${userStakingAccounts.length} user staking accounts`);
-
-        // Filter active stakers (those with staked amount > 0)
         const activeStakers = userStakingAccounts.filter(account => {
             const userData = account.account as UserStakingAccount;
             return userData.stakedAmount.gt(new anchor.BN(0));
         });
+        // Return all stakers if no filter provided (old behavior)
+        const stakersInfo = activeStakers.map(account => {
+            const userData = account.account as UserStakingAccount;
+            const tokenDecimals = 9;
+            const readableStakedAmount = userData.stakedAmount.toNumber() / (10 ** tokenDecimals);
+            return {
+                publicKey: account.publicKey.toString(),
+                owner: userData.owner.toString(),
+                stakedAmount: readableStakedAmount,
+                stakedAmountFormatted: formatTokenAmount(readableStakedAmount),
+                stakeTimestamp: userData.stakeTimestamp.toString(),
+                stakeDate: new Date(userData.stakeTimestamp.toNumber() * 1000).toISOString(),
+                lockDuration: userData.lockDuration.toString(),
+                lockDurationDays: Math.floor(userData.lockDuration.toNumber() / (24 * 60 * 60)),
+                weight: userData.weight.toString(),
+                rewardDebt: userData.rewardDebt.toString(),
+                pendingRewards: userData.pendingRewards.toString(),
+            };
+        });
+        return {
+            success: true,
+            data: {
+                activeStakersCount: activeStakers.length,
+                totalStakers: userStakingAccounts.length,
+                stakers: stakersInfo
+            }
+        };
+    }
+    
+    // New behavior: filter by tokenType
+    try {
+        const { program } = getProgram();
 
-        console.log(`🔹 Active stakers: ${activeStakers.length}`);
+        // Derive the staking pool PDA for the given tokenType
+        const stakingPoolPublicKey = getStakingPoolPDA(adminPublicKey, tokenType);
+        
+        console.log(`🔹 Filtering stakers for pool: ${stakingPoolPublicKey.toBase58()}`);
+        console.log(`🔹 Token Type: ${tokenType === TokenType.SPL ? 'SPL' : 'SOL'}`);
+
+        // Get all program accounts of type UserStakingAccount
+        const userStakingAccounts = await program.account.userStakingAccount.all();
+
+        console.log(`🔹 Found ${userStakingAccounts.length} total user staking accounts`);
+
+        // Filter to only accounts that belong to this specific staking pool
+        // We check if the account's PDA can be derived from our staking pool
+        const poolStakingAccounts = userStakingAccounts.filter(account => {
+            try {
+                const userData = account.account as UserStakingAccount;
+                // Derive what the PDA should be for this pool + owner
+                const expectedPDA = getUserStakingPDA(stakingPoolPublicKey, userData.owner);
+                // Check if this account matches our expected PDA
+                return account.publicKey.equals(expectedPDA);
+            } catch {
+                return false;
+            }
+        });
+
+        console.log(`🔹 Found ${poolStakingAccounts.length} staking accounts for this pool`);
+
+        // Filter active stakers (those with staked amount > 0)
+        const activeStakers = poolStakingAccounts.filter(account => {
+            const userData = account.account as UserStakingAccount;
+            return userData.stakedAmount.gt(new anchor.BN(0));
+        });
+
+        console.log(`🔹 Active stakers for ${tokenType === TokenType.SPL ? 'SPL' : 'SOL'}: ${activeStakers.length}`);
 
         // Calculate detailed staker information
         const stakersInfo = activeStakers.map(account => {
