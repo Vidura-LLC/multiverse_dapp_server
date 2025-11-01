@@ -5,6 +5,7 @@ use anchor_spl::token_interface::{Mint, TokenAccount};
 use solana_program::program::invoke;
 use solana_program::program::invoke_signed; // ✅ ADD THIS
 use solana_program::system_instruction; // ✅ ADD THIS
+use solana_program::system_program;
 
 declare_id!("A5sbJW4hgVtaYU8TvfJc8bxeWsvFgapc88qX1VruTfq4");
 
@@ -476,21 +477,21 @@ pub mod multiversed_dapp {
         // Transfer tokens based on token type
         match staking_pool.token_type {
             TokenType::SOL => {
-                // Transfer SOL from user to staking pool
-                let user_account = ctx.accounts.user.to_account_info();
-                let pool_account = staking_pool.to_account_info();
 
-                **user_account.try_borrow_mut_lamports()? = user_account
-                    .lamports()
-                    .checked_sub(amount)
-                    .ok_or(StakingError::MathOverflow)?;
-
-                **pool_account.try_borrow_mut_lamports()? = pool_account
-                    .lamports()
-                    .checked_add(amount)
-                    .ok_or(StakingError::MathOverflow)?;
+                system_program::transfer(
+                    CpiContext::new(
+                        ctx.accounts.system_program.to_account_info(),
+                        system_program::Transfer {
+                            from: ctx.accounts.user.to_account_info(),
+                            to: staking_pool.to_account_info(),
+                        },
+                    ),
+                    amount,
+                )?;
 
                 msg!("✅ {} lamports SOL staked", amount);
+                msg!("   From: {}", ctx.accounts.user.key());
+                msg!("   To: {}", staking_pool.key());
             }
             TokenType::SPL => {
                 // Transfer SPL tokens
@@ -566,20 +567,34 @@ pub mod multiversed_dapp {
         match staking_pool.token_type {
             TokenType::SOL => {
                 // Transfer SOL from staking pool to user
-                let pool_account = staking_pool.to_account_info();
-                let user_account = ctx.accounts.user.to_account_info();
+                let staking_pool_admin = staking_pool.admin;
+                let token_type_seed = [staking_pool.token_type as u8];
+                let staking_pool_bump = staking_pool.bump;
 
-                **pool_account.try_borrow_mut_lamports()? = pool_account
-                    .lamports()
-                    .checked_sub(amount_in_base_units)
-                    .ok_or(StakingError::MathOverflow)?;
+                let staking_pool_seeds = &[
+                    SEED_STAKING_POOL,
+                    staking_pool_admin.as_ref(),
+                    token_type_seed.as_ref(),
+                    &[staking_pool_bump],
+                ];
 
-                **user_account.try_borrow_mut_lamports()? = user_account
-                    .lamports()
-                    .checked_add(amount_in_base_units)
-                    .ok_or(StakingError::MathOverflow)?;
+                let signer_seeds: &[&[&[u8]]] = &[staking_pool_seeds];
+
+                system_program::transfer(
+                    CpiContext::new_with_signer(
+                        ctx.accounts.system_program.to_account_info(),
+                        system_program::Transfer {
+                            from: staking_pool.to_account_info(),
+                            to: ctx.accounts.user.to_account_info(),
+                        },
+                        signer_seeds,
+                    ),
+                    amount_in_base_units,
+                )?;
 
                 msg!("✅ {} lamports SOL unstaked", amount_in_base_units);
+                msg!("   From: {}", staking_pool.key());
+                msg!("   To: {}", ctx.accounts.user.key());
             }
             TokenType::SPL => {
                 // Transfer SPL tokens using PDA
@@ -1399,7 +1414,6 @@ pub struct Stake<'info> {
     pub user_staking_account: Account<'info, UserStakingAccount>,
 
     /// CHECK: Only used for SPL tokens
-    #[account(mut)]
     pub user_token_account: UncheckedAccount<'info>,
 
     /// CHECK: Only used for SPL tokens - escrow account
@@ -1437,7 +1451,6 @@ pub struct Unstake<'info> {
     pub user_staking_account: Account<'info, UserStakingAccount>,
 
     /// CHECK: Only used for SPL tokens
-    #[account(mut)]
     pub user_token_account: UncheckedAccount<'info>,
 
     /// CHECK: Only used for SPL tokens - escrow account
