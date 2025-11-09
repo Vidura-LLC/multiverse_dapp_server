@@ -365,7 +365,8 @@ export const getAdminPrizesDistributedController = async (req: Request, res: Res
  */
 export const getAdminDistributionTotalsController = async (req: Request, res: Response) => {
   try {
-    const { adminPubKey, tokenType } = req.params as { adminPubKey?: string, tokenType ?: string };
+    const { adminPubKey } = req.params as { adminPubKey?: string };
+    const { tokenType } = req.query;
 
     if (!adminPubKey || !tokenType || tokenType === undefined || tokenType === null) {
       return res.status(400).json({ success: false, message: 'adminPubKey and tokenType are required' });
@@ -377,7 +378,7 @@ export const getAdminDistributionTotalsController = async (req: Request, res: Re
     }
 
     // Fetch all tournaments
-    const tournamentsRef = ref(db, `tournaments/${tokenType}`);
+    const tournamentsRef = ref(db, `tournaments/${tt as TokenType}`);
     const tournamentsSnapshot = await get(tournamentsRef);
 
     if (!tournamentsSnapshot.exists()) {
