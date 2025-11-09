@@ -45,7 +45,7 @@ router.get('/admin/prizes-distributed/:adminPubKey',
 );
 
 // Route for admin distribution totals aggregation
-router.get('/admin/distribution-totals/:adminPubKey/:tokenType',
+router.get('/admin/distribution-totals/:adminPubKey',
   getAdminDistributionTotalsController as unknown as RequestHandler
 );
 
