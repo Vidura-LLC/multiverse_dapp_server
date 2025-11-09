@@ -6,6 +6,7 @@ import { getTournamentLeaderboard, updateParticipantScore, getTournamentsByGame 
 import { getTournamentLeaderboardAgainstAdmin, getAdminTournamentsLeaderboards } from "./adminLeaderboardService";
 import { PublicKey } from "@solana/web3.js";
 import schedule from 'node-schedule'
+import { TokenType } from "../utils/getPDAs";
 // Define Tournament interface
 export interface Tournament {
   id: string;
@@ -21,6 +22,7 @@ export interface Tournament {
   participantsCount: number;
   status: "Active" | "Upcoming" | "Ended" | "Draft" | "Distributed" | "Awarded";
   createdBy: string
+  tokenType: TokenType
 }
 
 
@@ -47,18 +49,22 @@ export async function getAllGames(req: Request, res: Response) {
 
 export async function createTournament(req: Request, res: Response) {
   try {
-    const { name, description, startTime, endTime, gameId } = req.body as Tournament;
+    const { name, description, startTime, endTime, gameId, tokenType } = req.body as Tournament;
     const { mint, adminPublicKey, entryFee } = req.body;
     const maxParticipants = 100;
 
-    if (!name || !gameId || !startTime || !endTime || !adminPublicKey || !entryFee || !mint) {
+    if (!name || !gameId || !startTime || !endTime || !adminPublicKey || !entryFee || !mint || !tokenType || tokenType === undefined || tokenType === null) {
       return res.status(400).json({ message: "Missing required fields" });
+    }
+    const tt = Number(tokenType);
+    if (tt !== TokenType.SPL && tt !== TokenType.SOL) {
+      return res.status(400).json({ message: "tokenType must be 0 (SPL) or 1 (SOL)" });
     }
 
     const endTimeInUnix = Math.floor(new Date(endTime).getTime() / 1000);
     const pubKey = new PublicKey(adminPublicKey);
 
-    const tournamentsRef = ref(db, "tournaments");
+    const tournamentsRef = ref(db, `tournaments/${tt as TokenType}`);
     const newTournamentRef = push(tournamentsRef);
     const tournamentId = newTournamentRef.key;
 
@@ -72,7 +78,8 @@ export async function createTournament(req: Request, res: Response) {
       entryFee,
       maxParticipants,
       endTimeInUnix,
-      mint
+      mint,
+      tt as TokenType
     );
 
     res.status(201).json({
@@ -94,12 +101,13 @@ export async function createTournament(req: Request, res: Response) {
       participants: {},
       participantsCount: 0,
       status: "Draft",
-      createdBy: adminPublicKey
+      createdBy: adminPublicKey,
+      tokenType: tt as TokenType
     };
 
     await set(newTournamentRef, tournament);
 
-    const tournamentRef = ref(db, `tournaments/${tournamentId}`);
+    const tournamentRef = ref(db, `tournaments/${tt as TokenType}/${tournamentId}`);
 
     schedule.scheduleJob(new Date(startTime), async () => {
       try {
@@ -168,12 +176,21 @@ export const getActiveTournament = async (req: Request, res: Response) => {
 export const getTournamentsByAdmin = async (req: Request, res: Response) => {
   try {
     const { adminPublicKey } = req.params;
+    const { tokenType } = req.query;
+    if (!adminPublicKey || !tokenType || tokenType === undefined || tokenType === null) {
+      return res.status(400).json({ message: "adminPublicKey and tokenType are required" });
+    }
+
+    const tt = Number(tokenType);
+    if (tt !== TokenType.SPL && tt !== TokenType.SOL) {
+      return res.status(400).json({ message: "tokenType must be 0 (SPL) or 1 (SOL)" });
+    }
 
     if (!adminPublicKey) {
       return res.status(400).json({ message: "adminPublicKey is required" });
     }
 
-    const tournamentsRef = ref(db, "tournaments");
+    const tournamentsRef = ref(db, `tournaments/${tt as TokenType}`);
     const tournamentsSnapshot = await get(tournamentsRef);
 
     if (!tournamentsSnapshot.exists()) {
@@ -182,7 +199,7 @@ export const getTournamentsByAdmin = async (req: Request, res: Response) => {
 
     const tournaments = tournamentsSnapshot.val();
     const adminTournaments = Object.values(tournaments).filter(
-      (tournament: any) => tournament.createdBy === adminPublicKey
+      (tournament: any) => tournament.createdBy === adminPublicKey && tournament.tokenType === tt
     );
 
     return res.status(200).json({
@@ -230,57 +247,6 @@ export async function getTournamentById(req: Request, res: Response) {
     return res.status(500).json({ message: "Internal Server Error" });
   }
 }
-
-
-// Controller to create a tournament pool
-export const initializeTournamentPoolController = async (req: Request, res: Response) => {
-  try {
-    const {
-      adminPublicKey,
-      tournamentId,
-      entryFee,
-      maxParticipants,
-      endTime,
-      mintPublicKey
-    } = req.body;
-
-    // Validate the required fields
-    if (!adminPublicKey || !tournamentId || entryFee === undefined ||
-      !maxParticipants || !endTime || !mintPublicKey) {
-      return res.status(400).json({
-        success: false,
-        message: 'Missing required fields: adminPublicKey, tournamentId, entryFee, maxParticipants, endTime, or mintPublicKey'
-      });
-    }
-
-    // Convert string public keys to PublicKey objects
-    const adminPubKey = new PublicKey(adminPublicKey);
-    const mintPubKey = new PublicKey(mintPublicKey);
-
-    // Call the service to initialize the tournament pool
-    const result = await initializeTournamentPoolService(
-      adminPubKey,
-      tournamentId,
-      entryFee,
-      maxParticipants,
-      endTime,
-      mintPubKey
-    );
-
-    if (result.success) {
-      return res.status(200).json(result);
-    } else {
-      return res.status(400).json(result);
-    }
-  } catch (error) {
-    console.error('❌ Error in initializeTournamentPool controller:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Internal server error',
-      error: error.message
-    });
-  }
-};
 
 
 // Modification to the registerForTournamentController in gamehubController.ts
@@ -355,18 +321,22 @@ export const registerForTournamentController = async (req: Request, res: Respons
 
 export const getTournamentPoolController = async (req: Request, res: Response) => {
   try {
-    const { tournamentId, adminPubKey } = req.body;
+    const { tournamentId, adminPubKey, tokenType } = req.body;
 
     // Validate the required fields
-    if (!tournamentId || !adminPubKey) {
+    if (!tournamentId || !adminPubKey || !tokenType || tokenType === undefined || tokenType === null) {
       return res.status(400).json({
         success: false,
         message: 'Missing required field: tournamentId or adminPubKey'
       });
     }
     const adminPublicKey = new PublicKey(adminPubKey);
+    const tt = Number(tokenType);
+    if (tt !== TokenType.SPL && tt !== TokenType.SOL) {
+      return res.status(400).json({ message: "tokenType must be 0 (SPL) or 1 (SOL)" });
+    }
     // Call the service to get tournament pool details
-    const result = await getTournamentPool(tournamentId, adminPublicKey);
+    const result = await getTournamentPool(tournamentId, adminPublicKey, tt as TokenType);
 
     if (result.success) {
       return res.status(200).json(result);
