@@ -12,6 +12,8 @@ import { BN } from "bn.js";
 import { createAssociatedTokenAccount, getProgram } from "../staking/services";
 import { ref, get } from "firebase/database";
 import { db } from "../config/firebase";
+import { getTournamentEscrowPDA, TokenType } from "../utils/getPDAs";
+import {getTournamentPoolPDA} from "../utils/getPDAs";
 
 dotenv.config();
 
@@ -23,28 +25,17 @@ export const initializeTournamentPoolService = async (
   entryFee: number,
   maxParticipants: number,
   endTime: number,
-  mintPublicKey: PublicKey
+  mintPublicKey: PublicKey,
+  tokenType: TokenType
 ) => {
   try {
     const { program, connection } = getProgram();
 
-    // Convert tournamentId correctly
-    const tournamentIdBytes = Buffer.from(tournamentId, "utf8"); // Ensure UTF-8 encoding
-
     // Derive the correct PDA for the tournament pool
-    const [tournamentPoolPublicKey] = PublicKey.findProgramAddressSync(
-      [Buffer.from("tournament_pool"), adminPublicKey.toBuffer(), tournamentIdBytes],
-      program.programId
-    );
+    const tournamentPoolPublicKey = getTournamentPoolPDA(adminPublicKey, tournamentId, tokenType);
 
     // Derive the escrow PDA correctly
-    const [poolEscrowAccountPublicKey] = PublicKey.findProgramAddressSync(
-      [Buffer.from("escrow"), tournamentPoolPublicKey.toBuffer()],
-      program.programId
-    );
-
-    console.log("✅ Tournament Pool PDA:", tournamentPoolPublicKey.toString());
-    console.log("✅ Pool Escrow PDA:", poolEscrowAccountPublicKey.toString());
+    const poolEscrowAccountPublicKey = getTournamentEscrowPDA(tournamentPoolPublicKey);
 
     const { blockhash } = await connection.getLatestBlockhash("finalized");
     
@@ -65,7 +56,8 @@ export const initializeTournamentPoolService = async (
         tournamentId,
         entryFeeBN,
         maxParticipantsBN,
-        endTimeBN
+        endTimeBN,
+        tokenType
       )
       .accounts({
         admin: adminPublicKey,
@@ -96,16 +88,11 @@ export const initializeTournamentPoolService = async (
 };
 
 // Get tournament pool data
-export const getTournamentPool = async (tournamentId: string, adminPublicKey: PublicKey) => {
+export const getTournamentPool = async (tournamentId: string, adminPublicKey: PublicKey, tokenType: TokenType) => {
   try {
     const { program } = getProgram();
 
-    const tournamentIdBytes = Buffer.from(tournamentId, "utf8");
-
-    const [tournamentPoolPublicKey] = PublicKey.findProgramAddressSync(
-      [Buffer.from("tournament_pool"), adminPublicKey.toBuffer(), tournamentIdBytes],
-      program.programId
-    );
+    const tournamentPoolPublicKey = getTournamentPoolPDA(adminPublicKey, tournamentId, tokenType);
     // Fetch the tournament pool data
     const tournamentPoolData = (await program.account.tournamentPool.fetch(
       tournamentPoolPublicKey
@@ -123,6 +110,7 @@ export const getTournamentPool = async (tournamentId: string, adminPublicKey: Pu
         maxParticipants: tournamentPoolData.maxParticipants,
         endTime: new Date(tournamentPoolData.endTime * 1000).toISOString(),
         isActive: tournamentPoolData.isActive,
+        tokenType: tokenType,
       }
     };
   } catch (err) {
