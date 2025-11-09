@@ -3,6 +3,7 @@ import { ref, push, set, get } from 'firebase/database';
 import { db } from '../config/firebase'; // Adjust import path
 import { S3Service } from './s3Service';
 import { Game, TGameStatus } from '../types/game'; // Adjust import path
+import { TokenType } from '../utils/getPDAs';
 
 export async function createGame(req: Request, res: Response): Promise<void> {
     try {
@@ -118,14 +119,23 @@ export async function getGameById(req: Request, res: Response): Promise<void> {
 
 export async function getGamePerformanceMetrics(req: Request, res: Response): Promise<void> {
     try {
+        const { tokenType } = req.query;
+        if (!tokenType || tokenType === undefined || tokenType === null) {
+            res.status(400).json({ message: "tokenType is required" });
+            return;
+        }
+        const tt = Number(tokenType);
+        if (tt !== TokenType.SPL && tt !== TokenType.SOL) {
+            res.status(400).json({ message: "tokenType must be 0 (SPL) or 1 (SOL)" });
+        }
         // Get all games
-        const gamesRef = ref(db, "games");
+        const gamesRef = ref(db, `games`);
         const gamesSnapshot = await get(gamesRef);
         const gamesData = gamesSnapshot.val();
         const games = gamesData ? Object.values(gamesData) as Game[] : [];
 
         // Get all tournaments
-        const tournamentsRef = ref(db, "tournaments");
+        const tournamentsRef = ref(db, `tournaments/${tt as TokenType}`);
         const tournamentsSnapshot = await get(tournamentsRef);
         const tournamentsData = tournamentsSnapshot.val();
         const tournaments = tournamentsData ? Object.values(tournamentsData) : [];
