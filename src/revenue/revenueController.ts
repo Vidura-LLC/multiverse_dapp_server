@@ -6,7 +6,7 @@ import { Request, Response } from 'express';
 import { PublicKey } from '@solana/web3.js';
 import { distributeTournamentRevenueService, distributeTournamentPrizesService } from './services';
 import { getProgram } from "../staking/services";
-
+import { TokenType } from "../utils/getPDAs";
 /**
  * Controller function to distribute tournament revenue according to the updated percentages
  */
@@ -365,14 +365,19 @@ export const getAdminPrizesDistributedController = async (req: Request, res: Res
  */
 export const getAdminDistributionTotalsController = async (req: Request, res: Response) => {
   try {
-    const { adminPubKey } = req.params as { adminPubKey?: string };
+    const { adminPubKey, tokenType } = req.params as { adminPubKey?: string, tokenType ?: string };
 
-    if (!adminPubKey) {
-      return res.status(400).json({ success: false, message: 'adminPubKey is required' });
+    if (!adminPubKey || !tokenType || tokenType === undefined || tokenType === null) {
+      return res.status(400).json({ success: false, message: 'adminPubKey and tokenType are required' });
+    }
+
+    const tt = Number(tokenType);
+    if (tt !== TokenType.SPL && tt !== TokenType.SOL) {
+      return res.status(400).json({ success: false, message: 'tokenType must be 0 (SPL) or 1 (SOL)' });
     }
 
     // Fetch all tournaments
-    const tournamentsRef = ref(db, 'tournaments');
+    const tournamentsRef = ref(db, `tournaments/${tokenType}`);
     const tournamentsSnapshot = await get(tournamentsRef);
 
     if (!tournamentsSnapshot.exists()) {
