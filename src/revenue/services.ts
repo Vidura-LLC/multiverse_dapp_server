@@ -2,7 +2,8 @@ import {
     Connection,
     PublicKey,
     ComputeBudgetProgram,
-    Transaction
+    Transaction,
+    SystemProgram
   } from "@solana/web3.js";
   import * as anchor from "@project-serum/anchor";
   import {
@@ -14,6 +15,7 @@ import {
   import { db } from "../config/firebase";
 import { getTournamentPool } from "../gamehub/services";
 import { getProgram } from "../staking/services";
+import { getPrizeEscrowPDA, getPrizePoolPDA, getRevenueEscrowPDA, getRevenuePoolPDA, getRewardEscrowPDA, getRewardPoolPDA, getStakingPoolPDA, getTournamentEscrowPDA, getTournamentPoolPDA, TokenType } from "../utils/getPDAs";
 dotenv.config();
 
 // Default percentage splits based on updated requirements
@@ -41,7 +43,8 @@ const DEFAULT_SPLITS = {
     revenuePercentage: number = DEFAULT_SPLITS.REVENUE_POOL,
     stakingPercentage: number = DEFAULT_SPLITS.STAKING_REWARD_POOL,
     burnPercentage: number = DEFAULT_SPLITS.BURN,
-    adminPublicKey: PublicKey
+    adminPublicKey: PublicKey,
+    tokenType: TokenType
   ) => {
     try {
       const { program, connection } = getProgram();
@@ -76,72 +79,42 @@ const DEFAULT_SPLITS = {
   
       // 2. Derive all necessary PDAs
       console.log("Deriving program addresses...");
-      const tournamentIdBytes = Buffer.from(tournamentId, "utf8");
-  
-      // Tournament Pool PDA
-      const [tournamentPoolPublicKey] = PublicKey.findProgramAddressSync(
-        [Buffer.from("tournament_pool"), adminPublicKey.toBuffer(), tournamentIdBytes],
-        program.programId
-      );
+      const tournamentPoolPublicKey = getTournamentPoolPDA(adminPublicKey, tournamentId, tokenType);
       console.log("🔹 Tournament Pool PDA:", tournamentPoolPublicKey.toString());
   
       // Prize Pool PDA (derived from tournament pool)
-      const [prizePoolPublicKey] = PublicKey.findProgramAddressSync(
-        [Buffer.from("prize_pool"), tournamentPoolPublicKey.toBuffer()],
-        program.programId
-      );
+      const prizePoolPublicKey = getPrizePoolPDA(tournamentPoolPublicKey);
       console.log("🔹 Prize Pool PDA:", prizePoolPublicKey.toString());
   
       // Revenue Pool PDA
-      const [revenuePoolPublicKey] = PublicKey.findProgramAddressSync(
-        [Buffer.from("revenue_pool"), adminPublicKey.toBuffer()],
-        program.programId
-      );
+      const revenuePoolPublicKey = getRevenuePoolPDA(adminPublicKey, tokenType);
       console.log("🔹 Revenue Pool PDA:", revenuePoolPublicKey.toString());
   
       // Staking Pool PDA (required by distributeTournamentRevenue)
-      const [stakingPoolPublicKey] = PublicKey.findProgramAddressSync(
-        [Buffer.from("staking_pool"), adminPublicKey.toBuffer()],
-        program.programId
-      );
+      const stakingPoolPublicKey = getStakingPoolPDA(adminPublicKey, tokenType);
       console.log("🔹 Staking Pool PDA:", stakingPoolPublicKey.toString());
 
       // Reward Pool PDA
-    const [rewardPoolPublicKey] = PublicKey.findProgramAddressSync(
-      [Buffer.from("reward_pool"), adminPublicKey.toBuffer()],
-      program.programId
-    );
+    const rewardPoolPublicKey = getRewardPoolPDA(adminPublicKey, tokenType);
     console.log("🔹 Reward Pool PDA:", rewardPoolPublicKey.toString());
   
       // 3. Derive escrow accounts
-      const [tournamentEscrowPublicKey] = PublicKey.findProgramAddressSync(
-        [Buffer.from("escrow"), tournamentPoolPublicKey.toBuffer()],
-        program.programId
-      );
+      const tournamentEscrowPublicKey = getTournamentEscrowPDA(tournamentPoolPublicKey);
       console.log("🔹 Tournament Escrow PDA:", tournamentEscrowPublicKey.toString());
   
-      const [prizeEscrowPublicKey] = PublicKey.findProgramAddressSync(
-        [Buffer.from("prize_escrow"), prizePoolPublicKey.toBuffer()],
-        program.programId
-      );
+      const prizeEscrowPublicKey = getPrizeEscrowPDA(prizePoolPublicKey);
       console.log("🔹 Prize Escrow PDA:", prizeEscrowPublicKey.toString());
   
-      const [revenueEscrowPublicKey] = PublicKey.findProgramAddressSync(
-        [Buffer.from("revenue_escrow"), revenuePoolPublicKey.toBuffer()],
-        program.programId
-      );
+      const revenueEscrowPublicKey = getRevenueEscrowPDA(revenuePoolPublicKey);
       console.log("🔹 Revenue Escrow PDA:", revenueEscrowPublicKey.toString());
   
-      const [rewardEscrowPublicKey] = PublicKey.findProgramAddressSync(
-        [Buffer.from("reward_escrow"), rewardPoolPublicKey.toBuffer()],
-        program.programId
-      );
+      const rewardEscrowPublicKey = getRewardEscrowPDA(rewardPoolPublicKey);
       console.log("🔹 Reward Escrow PDA:", rewardEscrowPublicKey.toString());
       
       // 4. Fetch tournament data
       console.log("Fetching tournament data from blockchain...");
       try {
-        const tournamentPoolResult = await getTournamentPool(tournamentId, adminPublicKey);
+        const tournamentPoolResult = await getTournamentPool(tournamentId, adminPublicKey, tokenType);
         
         if (!tournamentPoolResult.success) {
           return {
@@ -192,7 +165,7 @@ const DEFAULT_SPLITS = {
             revenueEscrowAccount: revenueEscrowPublicKey,
             rewardEscrowAccount: rewardEscrowPublicKey,
             mint: mintPublicKey,
-            tokenProgram: TOKEN_2022_PROGRAM_ID,
+            tokenProgram: tokenType === TokenType.SPL ? TOKEN_2022_PROGRAM_ID : SystemProgram.programId,
           })
           .instruction();
   
@@ -257,7 +230,8 @@ export const distributeTournamentPrizesService = async (
   firstPlacePublicKey: PublicKey,
   secondPlacePublicKey: PublicKey,
   thirdPlacePublicKey: PublicKey,
-  adminPublicKey: PublicKey
+  adminPublicKey: PublicKey,
+  tokenType: TokenType
 ) => {
   try {
     const { program, connection } = getProgram();
@@ -269,7 +243,7 @@ export const distributeTournamentPrizesService = async (
     console.log("3rd Place:", thirdPlacePublicKey.toString());
 
     // Get tournament data
-    const tournamentPoolResult = await getTournamentPool(tournamentId, adminPublicKey);
+    const tournamentPoolResult = await getTournamentPool(tournamentId, adminPublicKey, tokenType);
     if (!tournamentPoolResult.success) {
       return {
         success: false,
@@ -309,27 +283,15 @@ export const distributeTournamentPrizesService = async (
 
     // 2. Derive all the necessary PDAs
     console.log("Deriving program addresses...");
-    const tournamentIdBytes = Buffer.from(tournamentId, "utf8");
-
-    // Tournament Pool PDA
-    const [tournamentPoolPublicKey] = PublicKey.findProgramAddressSync(
-      [Buffer.from("tournament_pool"), adminPublicKey.toBuffer(), tournamentIdBytes],
-      program.programId
-    );
+    const tournamentPoolPublicKey = getTournamentPoolPDA(adminPublicKey, tournamentId, tokenType);
     console.log("🔹 Tournament Pool PDA:", tournamentPoolPublicKey.toString());
 
     // Prize Pool PDA (derived from tournament pool)
-    const [prizePoolPublicKey] = PublicKey.findProgramAddressSync(
-      [Buffer.from("prize_pool"), tournamentPoolPublicKey.toBuffer()],
-      program.programId
-    );
+    const prizePoolPublicKey = getPrizePoolPDA(tournamentPoolPublicKey);
     console.log("🔹 Prize Pool PDA:", prizePoolPublicKey.toString());
 
     // Prize Escrow PDA
-    const [prizeEscrowPublicKey] = PublicKey.findProgramAddressSync(
-      [Buffer.from("prize_escrow"), prizePoolPublicKey.toBuffer()],
-      program.programId
-    );
+    const prizeEscrowPublicKey = getPrizeEscrowPDA(prizePoolPublicKey);
     console.log("🔹 Prize Escrow PDA:", prizeEscrowPublicKey.toString());
 
     // 3. Get the mint address from the tournament data
@@ -376,7 +338,7 @@ export const distributeTournamentPrizesService = async (
         secondPlaceTokenAccount: secondPlaceTokenAccount,
         thirdPlaceTokenAccount: thirdPlaceTokenAccount,
         mint: mintPublicKey,
-        tokenProgram: TOKEN_2022_PROGRAM_ID,
+        tokenProgram: tokenType === TokenType.SPL ? TOKEN_2022_PROGRAM_ID : SystemProgram.programId,
         systemProgram: anchor.web3.SystemProgram.programId,
       })
       .transaction();
