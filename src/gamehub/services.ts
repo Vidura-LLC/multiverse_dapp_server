@@ -12,7 +12,7 @@ import { BN } from "bn.js";
 import { createAssociatedTokenAccount, getProgram } from "../staking/services";
 import { ref, get } from "firebase/database";
 import { db } from "../config/firebase";
-import { getTournamentEscrowPDA, TokenType } from "../utils/getPDAs";
+import { getPrizeEscrowPDA, getPrizePoolPDA, getRegistrationPDA, getTournamentEscrowPDA, TokenType } from "../utils/getPDAs";
 import {getTournamentPoolPDA} from "../utils/getPDAs";
 
 dotenv.config();
@@ -24,43 +24,45 @@ export const initializeTournamentPoolService = async (
   tournamentId: string,
   entryFee: number,
   maxParticipants: number,
-  endTime: number,
+  endTime: number, // Should be in SECONDS
   mintPublicKey: PublicKey,
   tokenType: TokenType
 ) => {
   try {
     const { program, connection } = getProgram();
 
-    // Derive the correct PDA for the tournament pool
     const tournamentPoolPublicKey = getTournamentPoolPDA(adminPublicKey, tournamentId, tokenType);
-
-    // Derive the escrow PDA correctly
-    const poolEscrowAccountPublicKey = getTournamentEscrowPDA(tournamentPoolPublicKey);
+    
+    const poolEscrowAccountPublicKey = tokenType === TokenType.SOL 
+      ? SystemProgram.programId 
+      : getTournamentEscrowPDA(tournamentPoolPublicKey);
 
     const { blockhash } = await connection.getLatestBlockhash("finalized");
     
-    // Convert entry fee from CRD (user input) to base units (smart contract format)
-    // CRD token has 9 decimals, so multiply by 10^9
+    // ✅ Log to verify endTime is in seconds
+    console.log(`✅ Creating tournament with endTime: ${endTime} (${new Date(endTime * 1000).toISOString()})`);
+    
     const CRD_DECIMALS = 9;
     const entryFeeInBaseUnits = Math.round(entryFee * Math.pow(10, CRD_DECIMALS));
     const entryFeeBN = new BN(entryFeeInBaseUnits);
     
-    console.log(`✅ Entry fee conversion: ${entryFee} CRD → ${entryFeeInBaseUnits} base units`);
+    console.log(`✅ Entry fee conversion: ${entryFee} → ${entryFeeInBaseUnits} base units`);
     
     const maxParticipantsBN = new BN(maxParticipants);
-    const endTimeBN = new BN(endTime);
+    const endTimeBN = new BN(endTime); // ✅ Should be in seconds
 
-    // Create the transaction without signing it
+    const tokenTypeArg = tokenType === TokenType.SPL ? {spl: {}} : {sol: {}};
+
     const transaction = await program.methods
       .createTournamentPool(
         tournamentId,
         entryFeeBN,
         maxParticipantsBN,
         endTimeBN,
-        tokenType
+        tokenTypeArg
       )
       .accounts({
-        admin: adminPublicKey,
+        creator: adminPublicKey,
         tournamentPool: tournamentPoolPublicKey,
         poolEscrowAccount: poolEscrowAccountPublicKey,
         mint: mintPublicKey,
@@ -72,7 +74,6 @@ export const initializeTournamentPoolService = async (
     transaction.recentBlockhash = blockhash;
     transaction.feePayer = adminPublicKey;
 
-    // Return the unsigned transaction for frontend to sign
     return {
       success: true,
       message: "Tournament pool transaction created successfully",
@@ -86,7 +87,6 @@ export const initializeTournamentPoolService = async (
     };
   }
 };
-
 // Get tournament pool data
 export const getTournamentPool = async (tournamentId: string, adminPublicKey: PublicKey, tokenType: TokenType) => {
   try {
@@ -122,17 +122,14 @@ export const getTournamentPool = async (tournamentId: string, adminPublicKey: Pu
 // Get prize pool data for a tournament
 export const getPrizePoolService = async (
   tournamentId: string,
-  adminPublicKey: PublicKey
+  adminPublicKey: PublicKey,
+  tokenType: TokenType
 ) => {
   try {
     const { program, connection } = getProgram();
 
     // Derive Tournament Pool PDA (same derivation as on-chain)
-    const tournamentIdBytes = Buffer.from(tournamentId, "utf8");
-    const [tournamentPoolPublicKey] = PublicKey.findProgramAddressSync(
-      [Buffer.from("tournament_pool"), adminPublicKey.toBuffer(), tournamentIdBytes],
-      program.programId
-    );
+    const tournamentPoolPublicKey = getTournamentPoolPDA(adminPublicKey, tournamentId, tokenType);
 
     // Ensure tournament pool account exists before proceeding
     const tournamentPoolAccountInfo = await connection.getAccountInfo(tournamentPoolPublicKey);
@@ -141,10 +138,7 @@ export const getPrizePoolService = async (
     }
 
     // Derive Prize Pool PDA: seeds = [b"prize_pool", tournament_pool.key().as_ref()]
-    const [prizePoolPublicKey] = PublicKey.findProgramAddressSync(
-      [Buffer.from("prize_pool"), tournamentPoolPublicKey.toBuffer()],
-      program.programId
-    );
+    const prizePoolPublicKey = getPrizePoolPDA(tournamentPoolPublicKey);
 
     // Check existence
     const prizePoolAccountInfo = await connection.getAccountInfo(prizePoolPublicKey);
@@ -158,10 +152,7 @@ export const getPrizePoolService = async (
     )) as PrizePoolAccount;
 
     // Derive Prize Escrow PDA: seeds = [b"prize_escrow", prize_pool.key().as_ref()]
-    const [prizeEscrowPublicKey] = PublicKey.findProgramAddressSync(
-      [Buffer.from("prize_escrow"), prizePoolPublicKey.toBuffer()],
-      program.programId
-    );
+    const prizeEscrowPublicKey = getPrizeEscrowPDA(prizePoolPublicKey);
 
     return {
       success: true,
@@ -310,18 +301,13 @@ export const getTotalTournamentEntryFeesService = async (
 export const registerForTournamentService = async (
   tournamentId: string,
   userPublicKey: PublicKey,
-  adminPublicKey: PublicKey
+  adminPublicKey: PublicKey,
+  tokenType: TokenType
 ) => {
   try {
     const { program, connection } = getProgram();
 
-    const tournamentIdBytes = Buffer.from(tournamentId, "utf8");
-
-    // Get tournament pool PDA
-    const [tournamentPoolPublicKey] = PublicKey.findProgramAddressSync(
-      [Buffer.from("tournament_pool"), adminPublicKey.toBuffer(), tournamentIdBytes],
-      program.programId
-    );
+    const tournamentPoolPublicKey = getTournamentPoolPDA(adminPublicKey, tournamentId, tokenType);
     // Fetch the tournament pool data
     const tournamentPoolData = (await program.account.tournamentPool.fetch(
       tournamentPoolPublicKey
@@ -329,18 +315,12 @@ export const registerForTournamentService = async (
     const mintPublicKey = tournamentPoolData.mint;
 
     // Get escrow PDA
-    const [poolEscrowAccountPublicKey] = PublicKey.findProgramAddressSync(
-      [Buffer.from("escrow"), tournamentPoolPublicKey.toBuffer()],
-      program.programId
-    );
+    const poolEscrowAccountPublicKey = getTournamentEscrowPDA(tournamentPoolPublicKey);
 
     // Get registration PDA
-    const [registrationAccountPublicKey] = PublicKey.findProgramAddressSync(
-      [Buffer.from("registration"), tournamentPoolPublicKey.toBuffer(), userPublicKey.toBuffer()],
-      program.programId
-    );
+    const registrationAccountPublicKey = getRegistrationPDA(tournamentPoolPublicKey, userPublicKey);
 
-    let userTokenAccountPublicKey = await getAssociatedTokenAddressSync(mintPublicKey, userPublicKey, false, TOKEN_2022_PROGRAM_ID);
+    let userTokenAccountPublicKey = await getAssociatedTokenAddressSync(mintPublicKey, userPublicKey, false, tokenType === TokenType.SPL ? TOKEN_2022_PROGRAM_ID : SystemProgram.programId);
     console.log("User Token Account PublicKey:", userTokenAccountPublicKey.toBase58());
 
     if (!userTokenAccountPublicKey) {
@@ -360,7 +340,7 @@ export const registerForTournamentService = async (
         userTokenAccount: userTokenAccountPublicKey,
         poolEscrowAccount: poolEscrowAccountPublicKey,
         mint: mintPublicKey,
-        tokenProgram: TOKEN_2022_PROGRAM_ID,
+        tokenProgram: tokenType === TokenType.SPL ? TOKEN_2022_PROGRAM_ID : SystemProgram.programId,
         systemProgram: SystemProgram.programId,
       })
       .transaction();
@@ -395,6 +375,7 @@ interface TournamentPoolAccount {
   entryFee: anchor.BN; // Entry fee in base units (e.g., lamports or token units)
   totalFunds: anchor.BN; // Total funds accumulated in the pool
   bump: number; // Bump seed for the tournament pool account
+  tokenType: TokenType;
 }
 
 interface PrizePoolAccount {
