@@ -20,7 +20,7 @@ export interface Tournament {
   createdAt: string;
   participants: { [key: string]: { joinedAt: string; score: number } };
   participantsCount: number;
-  status: "Active" | "Upcoming" | "Ended" | "Draft" | "Distributed" | "Awarded";
+  status: "Active" | "Not Started" | "Ended" | "Draft" | "Distributed" | "Awarded";
   createdBy: string
   tokenType: TokenType
 }
@@ -53,17 +53,47 @@ export async function createTournament(req: Request, res: Response) {
     const { mint, adminPublicKey, entryFee } = req.body;
     const maxParticipants = 100;
 
-    if (!name || !gameId || !startTime || !endTime || !adminPublicKey || !entryFee || !mint || !tokenType || tokenType === undefined || tokenType === null) {
+    if (!name || !gameId || !startTime || !endTime || !adminPublicKey || !entryFee || !mint || tokenType === undefined || tokenType === null) {
       return res.status(400).json({ message: "Missing required fields" });
     }
+
     const tt = Number(tokenType);
     if (tt !== TokenType.SPL && tt !== TokenType.SOL) {
       return res.status(400).json({ message: "tokenType must be 0 (SPL) or 1 (SOL)" });
     }
 
-    const endTimeInUnix = Math.floor(new Date(endTime).getTime() / 1000);
+    // ✅ FIX: Ensure endTime is in SECONDS (Unix timestamp)
+    let endTimeInUnix: number;
+    if (typeof endTime === 'string') {
+      // If it's an ISO string, convert to seconds
+      endTimeInUnix = Math.floor(new Date(endTime).getTime() / 1000);
+    } else if (typeof endTime === 'number') {
+      // If it's already a number, check if it's milliseconds or seconds
+      endTimeInUnix = endTime > 10000000000 ? Math.floor(endTime / 1000) : endTime;
+    } else {
+      return res.status(400).json({ message: "Invalid endTime format" });
+    }
+
+    // ✅ Validate that endTime is at least 5 minutes in the future
+    const currentTimeInUnix = Math.floor(Date.now() / 1000);
+    const MIN_DURATION = 300; // 5 minutes in seconds
+    
+    if (endTimeInUnix <= currentTimeInUnix + MIN_DURATION) {
+      return res.status(400).json({ 
+        message: `Tournament end time must be at least 5 minutes in the future. Current time: ${currentTimeInUnix}, End time: ${endTimeInUnix}` 
+      });
+    }
+
+    console.log(`✅ Time validation:`, {
+      currentTime: currentTimeInUnix,
+      endTime: endTimeInUnix,
+      difference: endTimeInUnix - currentTimeInUnix,
+      differenceHours: (endTimeInUnix - currentTimeInUnix) / 3600
+    });
+
     const pubKey = new PublicKey(adminPublicKey);
 
+    // Generate tournament ID first
     const tournamentsRef = ref(db, `tournaments/${tt as TokenType}`);
     const newTournamentRef = push(tournamentsRef);
     const tournamentId = newTournamentRef.key;
@@ -77,16 +107,28 @@ export async function createTournament(req: Request, res: Response) {
       tournamentId,
       entryFee,
       maxParticipants,
-      endTimeInUnix,
+      endTimeInUnix, // ✅ Pass as seconds
       mint,
       tt as TokenType
     );
+
+    if (!transaction.success) {
+      return res.status(500).json({ 
+        message: "Failed to create tournament transaction", 
+        error: transaction.message 
+      });
+    }
 
     res.status(201).json({
       message: "Tournament created successfully",
       transaction,
       tournamentId,
     });
+
+    // Determine initial status based on startTime
+    const now = new Date();
+    const startTimeDate = new Date(startTime);
+    const initialStatus = startTimeDate <= now ? "Active" : "Not Started";
 
     const tournament: Tournament = {
       id: tournamentId,
@@ -100,23 +142,28 @@ export async function createTournament(req: Request, res: Response) {
       createdAt: new Date().toISOString(),
       participants: {},
       participantsCount: 0,
-      status: "Draft",
+      status: initialStatus as "Active" | "Not Started" | "Ended" | "Draft" | "Distributed" | "Awarded",
       createdBy: adminPublicKey,
       tokenType: tt as TokenType
     };
 
+    // Save tournament to the correct path: tournaments/{tokenType}/{tournamentId}
     await set(newTournamentRef, tournament);
 
-    const tournamentRef = ref(db, `tournaments/${tt as TokenType}/${tournamentId}`);
+    // Use the same reference for scheduled updates
+    const tournamentRef = newTournamentRef;
 
-    schedule.scheduleJob(new Date(startTime), async () => {
-      try {
-        await update(tournamentRef, { status: "Active" });
-        console.log(`Tournament ${tournamentId} has started.`);
-      } catch (error) {
-        console.error(`Failed to start tournament ${tournamentId}:`, error);
-      }
-    });
+    // Only schedule job if startTime is in the future
+    if (startTimeDate > now) {
+      schedule.scheduleJob(startTimeDate, async () => {
+        try {
+          await update(tournamentRef, { status: "Active" });
+          console.log(`Tournament ${tournamentId} has started.`);
+        } catch (error) {
+          console.error(`Failed to start tournament ${tournamentId}:`, error);
+        }
+      });
+    }
 
     schedule.scheduleJob(new Date(endTime), async () => {
       try {
@@ -132,7 +179,6 @@ export async function createTournament(req: Request, res: Response) {
     return res.status(500).json({ message: "Internal Server Error" });
   }
 }
-
 // Controller function to retrieve active tournament data
 export const getActiveTournament = async (req: Request, res: Response) => {
   try {
@@ -252,10 +298,10 @@ export async function getTournamentById(req: Request, res: Response) {
 // Modification to the registerForTournamentController in gamehubController.ts
 export const registerForTournamentController = async (req: Request, res: Response) => {
   try {
-    const { tournamentId, userPublicKey } = req.body;
+    const { tournamentId, userPublicKey, tokenType } = req.body;
 
     // Validate required fields
-    if (!userPublicKey || !tournamentId) {
+    if (!userPublicKey || !tournamentId || !tokenType || tokenType === undefined || tokenType === null ) {
       return res.status(400).json({
         success: false,
         message: "Missing required fields: tournamentId or userPublicKey",
@@ -287,8 +333,13 @@ export const registerForTournamentController = async (req: Request, res: Respons
 
     const userPubKey = new PublicKey(userPublicKey);
 
+    const tt = Number(tokenType);
+    if (tt !== TokenType.SPL && tt !== TokenType.SOL) {
+      return res.status(400).json({ message: "tokenType must be 0 (SPL) or 1 (SOL)" });
+    }
+
     // First register on blockchain (maintains existing functionality)
-    const blockchainResult = await registerForTournamentService(tournamentId, userPubKey, new PublicKey(adminPublicKey));
+    const blockchainResult = await registerForTournamentService(tournamentId, userPubKey, new PublicKey(adminPublicKey), tt as TokenType );
 
     // Then update Firebase to add participant with initial score
     if (blockchainResult.success) {
@@ -356,14 +407,17 @@ export const getTournamentPoolController = async (req: Request, res: Response) =
 // Controller: get a single prize pool by tournamentId and adminPubKey
 export const getPrizePoolController = async (req: Request, res: Response) => {
   try {
-    const { tournamentId, adminPubKey } = req.body;
+    const { tournamentId, adminPubKey, tokenType } = req.body;
 
-    if (!tournamentId || !adminPubKey) {
+    if (!tournamentId || !adminPubKey || !tokenType || tokenType === undefined || tokenType === null ) {
       return res.status(400).json({ success: false, message: 'Missing required field: tournamentId or adminPubKey' });
     }
-
+    const tt = Number(tokenType);
+    if (tt !== TokenType.SPL && tt !== TokenType.SOL) {
+      return res.status(400).json({ message: "tokenType must be 0 (SPL) or 1 (SOL)" });
+    }
     const adminPublicKey = new PublicKey(adminPubKey);
-    const result = await getPrizePoolService(tournamentId, adminPublicKey);
+    const result = await getPrizePoolService(tournamentId, adminPublicKey, tt as TokenType );
 
     if (result.success) {
       return res.status(200).json(result);
