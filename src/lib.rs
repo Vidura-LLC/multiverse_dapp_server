@@ -1,11 +1,11 @@
 use anchor_lang::prelude::InterfaceAccount;
 use anchor_lang::prelude::*;
+use anchor_lang::system_program;
 use anchor_spl::token_2022::{self, Burn, Token2022, TransferChecked};
 use anchor_spl::token_interface::{Mint, TokenAccount};
 use solana_program::program::invoke;
 use solana_program::program::invoke_signed; // ✅ ADD THIS
 use solana_program::system_instruction; // ✅ ADD THIS
-use solana_program::system_program;
 
 declare_id!("A5sbJW4hgVtaYU8TvfJc8bxeWsvFgapc88qX1VruTfq4");
 
@@ -31,7 +31,7 @@ pub const SEED_REWARD_ESCROW: &[u8] = b"reward_escrow";
 // Tournament limits
 pub const MAX_TOURNAMENT_PARTICIPANTS: u16 = 1000;
 pub const MAX_TOURNAMENT_DURATION_DAYS: i64 = 90;
-pub const MIN_TOURNAMENT_DURATION_SECONDS: i64 = 3600; // 1 hour
+pub const MIN_TOURNAMENT_DURATION_SECONDS: i64 = 120; // 1 hour
 
 // Fixed-point precision for reward accumulator
 const ACC_PRECISION: u128 = 1_000_000_000_000; // 1e12
@@ -477,7 +477,6 @@ pub mod multiversed_dapp {
         // Transfer tokens based on token type
         match staking_pool.token_type {
             TokenType::SOL => {
-
                 system_program::transfer(
                     CpiContext::new(
                         ctx.accounts.system_program.to_account_info(),
@@ -784,8 +783,6 @@ pub mod multiversed_dapp {
     // TOURNAMENT FUNCTIONS
     // ==============================
 
-    /// Create tournament pool
-    /// PERMISSIONLESS: Any user can create a tournament
     pub fn create_tournament_pool(
         ctx: Context<CreateTournamentPool>,
         tournament_id: String,
@@ -805,10 +802,7 @@ pub mod multiversed_dapp {
         );
 
         let current_time = Clock::get()?.unix_timestamp;
-        require!(
-            end_time > current_time + MIN_TOURNAMENT_DURATION_SECONDS,
-            TournamentError::InvalidEndTime
-        );
+        require!(end_time > current_time, TournamentError::InvalidEndTime);
         require!(
             end_time < current_time + (MAX_TOURNAMENT_DURATION_DAYS * 24 * 60 * 60),
             TournamentError::InvalidEndTime
@@ -820,9 +814,8 @@ pub mod multiversed_dapp {
         let len = id_bytes.len().min(32);
         tournament_id_bytes[..len].copy_from_slice(&id_bytes[..len]);
 
-        // Initialize tournament pool
-        tournament_pool.admin = creator.key(); // Creator is the admin
-        tournament_pool.mint = ctx.accounts.mint.key();
+        // Initialize tournament pool fields
+        tournament_pool.admin = creator.key();
         tournament_pool.tournament_id = tournament_id_bytes;
         tournament_pool.entry_fee = entry_fee;
         tournament_pool.total_funds = 0;
@@ -833,14 +826,82 @@ pub mod multiversed_dapp {
         tournament_pool.token_type = token_type;
         tournament_pool.bump = ctx.bumps.tournament_pool;
 
+        match token_type {
+            TokenType::SOL => {
+                // For SOL tournaments - no escrow needed
+                tournament_pool.mint = tournament_pool.key();
+
+                msg!("✅ SOL tournament pool created (no escrow needed)");
+                msg!("   Pool stores SOL directly in its account");
+            }
+            TokenType::SPL => {
+                // For SPL tournaments - create and initialize escrow
+                tournament_pool.mint = ctx.accounts.mint.key();
+
+                require!(
+                    ctx.accounts.token_program.key() == anchor_spl::token_2022::ID,
+                    TournamentError::InvalidTokenProgram
+                );
+
+                let tournament_pool_key = tournament_pool.key();
+                let escrow_seeds = &[SEED_ESCROW, tournament_pool_key.as_ref()];
+                let (escrow_pda, escrow_bump) =
+                    Pubkey::find_program_address(escrow_seeds, ctx.program_id);
+
+                require!(
+                    ctx.accounts.pool_escrow_account.key() == escrow_pda,
+                    TournamentError::InvalidEscrowAccount
+                );
+
+                let rent = Rent::get()?;
+                let space = 165;
+                let lamports = rent.minimum_balance(space);
+
+                invoke_signed(
+                    &system_instruction::create_account(
+                        ctx.accounts.creator.key,
+                        &escrow_pda,
+                        lamports,
+                        space as u64,
+                        &anchor_spl::token_2022::ID,
+                    ),
+                    &[
+                        ctx.accounts.creator.to_account_info(),
+                        ctx.accounts.pool_escrow_account.to_account_info(),
+                        ctx.accounts.system_program.to_account_info(),
+                    ],
+                    &[&[SEED_ESCROW, tournament_pool_key.as_ref(), &[escrow_bump]]],
+                )?;
+
+                let init_account_ix = spl_token_2022::instruction::initialize_account3(
+                    &anchor_spl::token_2022::ID,
+                    &escrow_pda,
+                    &ctx.accounts.mint.key(),
+                    &tournament_pool.key(),
+                )?;
+
+                invoke(
+                    &init_account_ix,
+                    &[
+                        ctx.accounts.pool_escrow_account.to_account_info(),
+                        ctx.accounts.mint.to_account_info(),
+                    ],
+                )?;
+
+                msg!("✅ SPL tournament pool and escrow initialized");
+                msg!("   Mint: {}", ctx.accounts.mint.key());
+                msg!("   Escrow: {}", escrow_pda);
+            }
+        }
+
         msg!(
-            "✅ Tournament pool created by {}: ID={}, entry_fee={}, max_participants={}, token_type={:?}",
-            creator.key(),
-            String::from_utf8_lossy(&tournament_id_bytes),
-            entry_fee,
-            max_participants,
-            token_type
-        );
+        "✅ Tournament pool created by {}: ID={}, entry_fee={}, max_participants={}, token_type={:?}",
+        creator.key(),
+        String::from_utf8_lossy(&tournament_id_bytes),
+        entry_fee,
+        max_participants,
+        token_type
+    );
 
         Ok(())
     }
@@ -1462,6 +1523,9 @@ pub struct Unstake<'info> {
 
     /// CHECK: Token program - only used for SPL
     pub token_program: UncheckedAccount<'info>,
+
+    // Check System Program
+    pub system_program: Program<'info, System>,
 }
 
 #[derive(Accounts)]
@@ -1538,23 +1602,20 @@ pub struct CreateTournamentPool<'info> {
     )]
     pub tournament_pool: Account<'info, TournamentPool>,
 
-    #[account(
-        init_if_needed,
-        payer = creator,
-        token::mint = mint,
-        token::authority = tournament_pool,
-        seeds = [SEED_ESCROW, tournament_pool.key().as_ref()],
-        bump
-    )]
-    pub pool_escrow_account: InterfaceAccount<'info, TokenAccount>,
+    /// CHECK: For SPL, this will be a token account. For SOL, can be any account (we pass SystemProgram)
+    // Removed mut constraint
+    pub pool_escrow_account: UncheckedAccount<'info>,
 
-    pub mint: InterfaceAccount<'info, Mint>,
+    /// CHECK: For SPL, must be valid mint. For SOL, we pass SystemProgram.programId or tournament_pool.key() as dummy
+    pub mint: UncheckedAccount<'info>,
 
     #[account(mut)]
     pub creator: Signer<'info>,
 
     pub system_program: Program<'info, System>,
-    pub token_program: Program<'info, Token2022>,
+
+    /// CHECK: Token program - only validated when token_type is SPL
+    pub token_program: UncheckedAccount<'info>,
 }
 
 #[derive(Accounts)]
@@ -1976,6 +2037,11 @@ pub enum TournamentError {
 
     #[msg("Prize pool has already been distributed.")]
     AlreadyDistributed,
+    #[msg("Invalid token program provided")]
+    InvalidTokenProgram,
+
+    #[msg("Invalid escrow account provided")]
+    InvalidEscrowAccount,
 }
 
 #[error_code]
