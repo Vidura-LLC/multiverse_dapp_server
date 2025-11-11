@@ -19,7 +19,7 @@ import { getPrizeEscrowPDA, getPrizePoolPDA, getRevenueEscrowPDA, getRevenuePool
 dotenv.config();
 
 // Default percentage splits based on updated requirements
-const DEFAULT_SPLITS = {
+export const DEFAULT_SPLITS = {
   PRIZE_POOL: 40,    // 40% to tournament's prize pool
   REVENUE_POOL: 50,  // 50% to global revenue pool
   STAKING_REWARD_POOL: 5,   // 5% to reward pool
@@ -35,6 +35,7 @@ const DEFAULT_SPLITS = {
  * @param stakingRewardPercentage - Percentage for staking reward pool (default 5%)
  * @param burnPercentage - Percentage for burn (default 5%)
  * @param adminPublicKey - The admin's public key
+ * @param tokenType - The token type (SPL or SOL)
  * @returns Result object with the unsigned transaction for frontend signing
  */
   export const distributeTournamentRevenueService = async (
@@ -51,7 +52,7 @@ const DEFAULT_SPLITS = {
   
       // 1. Verify tournament in Firebase
       console.log("Verifying tournament in Firebase...");
-      const tournamentRef = ref(db, `tournaments/${tournamentId}`);
+      const tournamentRef = ref(db, `tournaments/${tokenType}/${tournamentId}`);
       const tournamentSnapshot = await get(tournamentRef);
       
       if (!tournamentSnapshot.exists()) {
@@ -82,131 +83,163 @@ const DEFAULT_SPLITS = {
       const tournamentPoolPublicKey = getTournamentPoolPDA(adminPublicKey, tournamentId, tokenType);
       console.log("🔹 Tournament Pool PDA:", tournamentPoolPublicKey.toString());
   
-      // Prize Pool PDA (derived from tournament pool)
       const prizePoolPublicKey = getPrizePoolPDA(tournamentPoolPublicKey);
       console.log("🔹 Prize Pool PDA:", prizePoolPublicKey.toString());
   
-      // Revenue Pool PDA
       const revenuePoolPublicKey = getRevenuePoolPDA(adminPublicKey, tokenType);
       console.log("🔹 Revenue Pool PDA:", revenuePoolPublicKey.toString());
   
-      // Staking Pool PDA (required by distributeTournamentRevenue)
       const stakingPoolPublicKey = getStakingPoolPDA(adminPublicKey, tokenType);
       console.log("🔹 Staking Pool PDA:", stakingPoolPublicKey.toString());
-
-      // Reward Pool PDA
-    const rewardPoolPublicKey = getRewardPoolPDA(adminPublicKey, tokenType);
-    console.log("🔹 Reward Pool PDA:", rewardPoolPublicKey.toString());
   
-      // 3. Derive escrow accounts
-      const tournamentEscrowPublicKey = getTournamentEscrowPDA(tournamentPoolPublicKey);
-      console.log("🔹 Tournament Escrow PDA:", tournamentEscrowPublicKey.toString());
+      const rewardPoolPublicKey = getRewardPoolPDA(adminPublicKey, tokenType);
+      console.log("🔹 Reward Pool PDA:", rewardPoolPublicKey.toString());
   
-      const prizeEscrowPublicKey = getPrizeEscrowPDA(prizePoolPublicKey);
-      console.log("🔹 Prize Escrow PDA:", prizeEscrowPublicKey.toString());
-  
-      const revenueEscrowPublicKey = getRevenueEscrowPDA(revenuePoolPublicKey);
-      console.log("🔹 Revenue Escrow PDA:", revenueEscrowPublicKey.toString());
-  
-      const rewardEscrowPublicKey = getRewardEscrowPDA(rewardPoolPublicKey);
-      console.log("🔹 Reward Escrow PDA:", rewardEscrowPublicKey.toString());
-      
-      // 4. Fetch tournament data
+      // 3. Fetch tournament data from blockchain
       console.log("Fetching tournament data from blockchain...");
-      try {
-        const tournamentPoolResult = await getTournamentPool(tournamentId, adminPublicKey, tokenType);
-        
-        if (!tournamentPoolResult.success) {
-          return {
-            success: false,
-            message: `Failed to fetch tournament data: ${tournamentPoolResult.message || "Unknown error"}`
-          };
-        }
-        
-        const tournamentPoolData = tournamentPoolResult.data;
-        const mintPublicKey = new PublicKey(tournamentPoolData.mint);
-        const totalFunds = Number(tournamentPoolData.totalFunds);
-        
-        console.log("🔹 Token Mint:", mintPublicKey.toString());
-        console.log("🔹 Total Tournament Funds:", totalFunds);
-        
-        if (totalFunds <= 0) {
-          return {
-            success: false,
-            message: "Tournament has no funds to distribute"
-          };
-        }
-  
-        // 5. Create transaction with compute budget optimization
-        console.log("Creating optimized distribution transaction...");
-        
-        // Add compute budget instruction to handle complex operations
-        const computeBudgetInstruction = ComputeBudgetProgram.setComputeUnitLimit({
-          units: 400_000, // Increased compute units
-        });
-  
-        const distributionInstruction = await program.methods
-          .distributeTournamentRevenue(
-            tournamentId,
-            prizePercentage,
-            revenuePercentage,
-            stakingPercentage,
-            burnPercentage
-          )
-          .accounts({
-            admin: adminPublicKey,
-            tournamentPool: tournamentPoolPublicKey,
-            prizePool: prizePoolPublicKey,
-            revenuePool: revenuePoolPublicKey,
-            stakingPool: stakingPoolPublicKey,
-            rewardPool: rewardPoolPublicKey,
-            tournamentEscrowAccount: tournamentEscrowPublicKey,
-            prizeEscrowAccount: prizeEscrowPublicKey,
-            revenueEscrowAccount: revenueEscrowPublicKey,
-            rewardEscrowAccount: rewardEscrowPublicKey,
-            mint: mintPublicKey,
-            tokenProgram: tokenType === TokenType.SPL ? TOKEN_2022_PROGRAM_ID : SystemProgram.programId,
-          })
-          .instruction();
-  
-        // Create transaction with both instructions
-        const transaction = new Transaction()
-          .add(computeBudgetInstruction)
-          .add(distributionInstruction);
-  
-        // Set transaction metadata
-        const { blockhash } = await connection.getLatestBlockhash("finalized");
-        transaction.recentBlockhash = blockhash;
-        transaction.feePayer = adminPublicKey;
-  
-        // Calculate distribution amounts
-        const prizeAmount = Math.floor((totalFunds * prizePercentage) / 100);
-        const revenueAmount = Math.floor((totalFunds * revenuePercentage) / 100);
-        const stakingAmount = Math.floor((totalFunds * stakingPercentage) / 100);
-        const burnAmount = Math.floor((totalFunds * burnPercentage) / 100);
-  
-        return {
-          success: true,
-          message: "Tournament revenue distribution transaction created successfully!",
-          tournamentId,
-          transaction: transaction.serialize({ requireAllSignatures: false }).toString('base64'),
-          distribution: {
-            totalFunds,
-            prizeAmount,
-            revenueAmount,
-            stakingAmount,
-            burnAmount
-          },
-          tournamentRef: tournamentRef.toString(),
-          status: "Pending Signature"
-        };
-      } catch (err) {
-        console.error("❌ Error preparing distribution transaction:", err);
+      const tournamentPoolResult = await getTournamentPool(tournamentId, adminPublicKey, tokenType);
+      
+      if (!tournamentPoolResult.success) {
         return {
           success: false,
-          message: `Error preparing distribution transaction: ${err.message || err}`
+          message: `Failed to fetch tournament data: ${tournamentPoolResult.message || "Unknown error"}`
         };
       }
+      
+      const tournamentPoolData = tournamentPoolResult.data;
+      const totalFunds = Number(tournamentPoolData.totalFunds);
+      
+      console.log("🔹 Total Tournament Funds:", totalFunds);
+      
+      if (totalFunds <= 0) {
+        return {
+          success: false,
+          message: "Tournament has no funds to distribute"
+        };
+      }
+  
+      // 4. Determine accounts based on token type
+      let mintPublicKey: PublicKey;
+      let tournamentEscrowPublicKey: PublicKey;
+      let prizeEscrowPublicKey: PublicKey;
+      let revenueEscrowPublicKey: PublicKey;
+      let rewardEscrowPublicKey: PublicKey;
+      let tokenProgramId: PublicKey;
+  
+      if (tokenType === TokenType.SOL) {
+        // For SOL tournaments, use SystemProgram as dummy values
+        mintPublicKey = SystemProgram.programId;
+        tournamentEscrowPublicKey = SystemProgram.programId;
+        prizeEscrowPublicKey = SystemProgram.programId;
+        revenueEscrowPublicKey = SystemProgram.programId;
+        rewardEscrowPublicKey = SystemProgram.programId;
+        tokenProgramId = SystemProgram.programId;
+        
+        console.log("🔹 Token Type: SOL (no escrow accounts needed)");
+        console.log("   Distribution via direct lamport transfers");
+      } else {
+        // For SPL tournaments, derive actual escrow PDAs
+        mintPublicKey = new PublicKey(tournamentPoolData.mint);
+        tournamentEscrowPublicKey = getTournamentEscrowPDA(tournamentPoolPublicKey);
+        prizeEscrowPublicKey = getPrizeEscrowPDA(prizePoolPublicKey);
+        revenueEscrowPublicKey = getRevenueEscrowPDA(revenuePoolPublicKey);
+        rewardEscrowPublicKey = getRewardEscrowPDA(rewardPoolPublicKey);
+        tokenProgramId = TOKEN_2022_PROGRAM_ID;
+        
+        console.log("🔹 Token Type: SPL");
+        console.log("🔹 Token Mint:", mintPublicKey.toString());
+        console.log("🔹 Tournament Escrow:", tournamentEscrowPublicKey.toString());
+        console.log("🔹 Prize Escrow:", prizeEscrowPublicKey.toString());
+        console.log("🔹 Revenue Escrow:", revenueEscrowPublicKey.toString());
+        console.log("🔹 Reward Escrow:", rewardEscrowPublicKey.toString());
+      }
+  
+      // 5. Validate percentages
+      const totalPercentage = prizePercentage + revenuePercentage + stakingPercentage + burnPercentage;
+      if (totalPercentage !== 100) {
+        return {
+          success: false,
+          message: `Percentages must add up to 100. Current total: ${totalPercentage}%`
+        };
+      }
+  
+      console.log("📊 Distribution Percentages:");
+      console.log(`   Prize Pool: ${prizePercentage}%`);
+      console.log(`   Revenue Pool: ${revenuePercentage}%`);
+      console.log(`   Staking Rewards: ${stakingPercentage}%`);
+      console.log(`   Burn: ${burnPercentage}%`);
+  
+      // 6. Create transaction with compute budget
+      console.log("Creating distribution transaction...");
+      
+      const computeBudgetInstruction = ComputeBudgetProgram.setComputeUnitLimit({
+        units: 400_000,
+      });
+  
+      const distributionInstruction = await program.methods
+        .distributeTournamentRevenue(
+          tournamentId,
+          prizePercentage,
+          revenuePercentage,
+          stakingPercentage,
+          burnPercentage
+        )
+        .accounts({
+          creator: adminPublicKey,
+          tournamentPool: tournamentPoolPublicKey,
+          prizePool: prizePoolPublicKey,
+          revenuePool: revenuePoolPublicKey,
+          rewardPool: rewardPoolPublicKey,
+          stakingPool: stakingPoolPublicKey,
+          tournamentEscrowAccount: tournamentEscrowPublicKey,
+          prizeEscrowAccount: prizeEscrowPublicKey,
+          revenueEscrowAccount: revenueEscrowPublicKey,
+          rewardEscrowAccount: rewardEscrowPublicKey,
+          mint: mintPublicKey,
+          tokenProgram: tokenProgramId,
+          systemProgram: SystemProgram.programId,
+        })
+        .instruction();
+  
+      // Create transaction with both instructions
+      const transaction = new Transaction()
+        .add(computeBudgetInstruction)
+        .add(distributionInstruction);
+  
+      // Set transaction metadata
+      const { blockhash } = await connection.getLatestBlockhash("finalized");
+      transaction.recentBlockhash = blockhash;
+      transaction.feePayer = adminPublicKey;
+  
+      // Calculate distribution amounts for response
+      const prizeAmount = Math.floor((totalFunds * prizePercentage) / 100);
+      const revenueAmount = Math.floor((totalFunds * revenuePercentage) / 100);
+      const stakingAmount = Math.floor((totalFunds * stakingPercentage) / 100);
+      const burnAmount = Math.floor((totalFunds * burnPercentage) / 100);
+  
+      console.log("💰 Distribution Breakdown:");
+      console.log(`   Prize Pool: ${prizeAmount}`);
+      console.log(`   Revenue Pool: ${revenueAmount}`);
+      console.log(`   Staking Rewards: ${stakingAmount}`);
+      console.log(`   Burn: ${burnAmount}`);
+      console.log(`   Total: ${prizeAmount + revenueAmount + stakingAmount + burnAmount}`);
+  
+      return {
+        success: true,
+        message: "Tournament revenue distribution transaction created successfully!",
+        tournamentId,
+        transaction: transaction.serialize({ requireAllSignatures: false }).toString('base64'),
+        distribution: {
+          totalFunds,
+          prizeAmount,
+          revenueAmount,
+          stakingAmount,
+          burnAmount
+        },
+        tournamentRef: tournamentRef.toString(),
+        status: "Pending Signature",
+        tokenType: tokenType === TokenType.SOL ? "SOL" : "SPL"
+      };
     } catch (err) {
       console.error("❌ Error distributing tournament revenue:", err);
       return {
