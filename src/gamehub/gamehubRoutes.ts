@@ -65,7 +65,7 @@ router.get('/admin-leaderboards/:adminPublicKey', getAdminTournamentsLeaderboard
 router.post('/score/update', verifyUser as unknown as RequestHandler, updateParticipantScoreController as unknown as RequestHandler);
 
 // Route to get tournaments by game
-router.get('/get-tournaments-by-game/:gameId', getTournamentsByGameController as unknown as RequestHandler);
+router.get('/get-tournaments-by-game/:gameId/:tokenType', getTournamentsByGameController as unknown as RequestHandler);
 
 // Define the route to fetch active tournament data
 router.get("/active-tournament", verifyUser as unknown as RequestHandler, getActiveTournament as unknown as RequestHandler);
