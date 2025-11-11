@@ -1,6 +1,7 @@
 // src/gamehub/leaderboardService.ts
 import { ref, get, set, query, orderByChild, limitToLast, startAt, endAt } from "firebase/database";
 import { db } from "../config/firebase";
+import { TokenType } from "../utils/getPDAs";
 
 // Interface for leaderboard entry
 interface LeaderboardEntry {
@@ -97,9 +98,9 @@ export const updateParticipantScore = async (tournamentId: string, participantId
 };
 
 // Get tournaments by game
-export const getTournamentsByGame = async (gameId: string) => {
+export const getTournamentsByGame = async (gameId: string, tokenType: TokenType) => {
   try {
-    const tournamentsRef = ref(db, 'tournaments');
+    const tournamentsRef = ref(db, `tournaments/${tokenType}`);
     const snapshot = await get(tournamentsRef);
     
     if (!snapshot.exists()) {
