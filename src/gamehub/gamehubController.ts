@@ -584,19 +584,27 @@ export async function getAdminTournamentsLeaderboardsController(req: Request, re
 // Get tournaments by game
 export async function getTournamentsByGameController(req: Request, res: Response) {
   try {
-    const { gameId } = req.params;
-
+    const { gameId, tokenType } = req.params;
+    if (!tokenType || tokenType === undefined || tokenType === null) {
+      return res.status(400).json({ message: "Token type is required" });
+    }
+    const tt = Number(tokenType);
+    if (tt !== TokenType.SPL && tt !== TokenType.SOL) {
+      return res.status(400).json({ message: "tokenType must be 0 (SPL) or 1 (SOL)" });
+    }
     if (!gameId) {
       return res.status(400).json({ message: "Game ID is required" });
     }
 
-    const result = await getTournamentsByGame(gameId);
-
-    if (result.success) {
-      return res.status(200).json(result);
-    } else {
-      return res.status(500).json(result);
+    // Fetch from Firebase at tournaments/{tokenType} and filter by gameId
+    const tournamentsRef = ref(db, `tournaments/${tt as TokenType}`);
+    const snapshot = await get(tournamentsRef);
+    if (!snapshot.exists()) {
+      return res.status(200).json({ success: true, data: [] });
     }
+    const all = snapshot.val() as Record<string, any>;
+    const data = Object.values(all).filter((t: any) => t.gameId === gameId);
+    return res.status(200).json({ success: true, data });
   } catch (error) {
     console.error("Error in getTournamentsByGameController:", error);
     return res.status(500).json({ message: "Internal Server Error" });
