@@ -1037,7 +1037,7 @@ pub mod multiversed_dapp {
     /// Only callable by tournament creator
     pub fn distribute_tournament_revenue(
         ctx: Context<DistributeTournamentRevenue>,
-        _tournament_id: String, // Prefixed with underscore - used only for PDA derivation in Context
+        _tournament_id: String,
         prize_percentage: u8,
         revenue_percentage: u8,
         staking_percentage: u8,
@@ -1049,55 +1049,70 @@ pub mod multiversed_dapp {
             .and_then(|sum| sum.checked_add(staking_percentage))
             .and_then(|sum| sum.checked_add(burn_percentage))
             .ok_or(TournamentError::MathOverflow)?;
-
+    
         require!(total == 100, TournamentError::InvalidPercentages);
-
+    
         let tournament_pool = &mut ctx.accounts.tournament_pool;
-
+    
         // Verify tournament has ended
         let current_time = Clock::get()?.unix_timestamp;
         require!(
             current_time >= tournament_pool.end_time,
             TournamentError::TournamentNotActive
         );
-
+    
         // Verify tournament is still active (not already distributed)
         require!(
             tournament_pool.is_active,
             TournamentError::TournamentNotActive
         );
-
+    
         let total_funds = tournament_pool.total_funds;
         require!(total_funds > 0, TournamentError::InsufficientFunds);
-
+    
+        // ✅ Initialize prize pool if it was just created
+        if ctx.accounts.prize_pool.total_funds == 0 && !ctx.accounts.prize_pool.distributed {
+            let prize_pool = &mut ctx.accounts.prize_pool;
+            prize_pool.admin = tournament_pool.admin;
+            prize_pool.tournament_pool = tournament_pool.key();
+            prize_pool.mint = tournament_pool.mint;
+            prize_pool.tournament_id = tournament_pool.tournament_id;
+            prize_pool.total_funds = 0;
+            prize_pool.distributed = false;
+            prize_pool.token_type = tournament_pool.token_type;
+            prize_pool.bump = ctx.bumps.prize_pool;
+            
+            msg!("✅ Prize pool initialized for tournament");
+        }
+    
         // Calculate distribution amounts
         let prize_amount = (total_funds as u128)
             .saturating_mul(prize_percentage as u128)
             .checked_div(100)
             .ok_or(TournamentError::MathOverflow)? as u64;
-
+    
         let revenue_amount = (total_funds as u128)
             .saturating_mul(revenue_percentage as u128)
             .checked_div(100)
             .ok_or(TournamentError::MathOverflow)? as u64;
-
+    
         let staking_amount = (total_funds as u128)
             .saturating_mul(staking_percentage as u128)
             .checked_div(100)
             .ok_or(TournamentError::MathOverflow)? as u64;
-
+    
         let burn_amount = (total_funds as u128)
             .saturating_mul(burn_percentage as u128)
             .checked_div(100)
             .ok_or(TournamentError::MathOverflow)? as u64;
-
+    
         // Distribute based on token type
         match tournament_pool.token_type {
             TokenType::SOL => {
                 // SOL distribution via lamport transfers
                 let tournament_pool_info = tournament_pool.to_account_info();
                 let mut tournament_lamports = tournament_pool_info.try_borrow_mut_lamports()?;
-
+    
                 // Distribute to prize pool
                 if prize_amount > 0 {
                     **ctx
@@ -1106,8 +1121,9 @@ pub mod multiversed_dapp {
                         .to_account_info()
                         .try_borrow_mut_lamports()? += prize_amount;
                     **tournament_lamports -= prize_amount;
+                    ctx.accounts.prize_pool.total_funds += prize_amount;  // ✅ Added
                 }
-
+    
                 // Distribute to revenue pool
                 if revenue_amount > 0 {
                     **ctx
@@ -1117,7 +1133,7 @@ pub mod multiversed_dapp {
                         .try_borrow_mut_lamports()? += revenue_amount;
                     **tournament_lamports -= revenue_amount;
                 }
-
+    
                 // Distribute to reward pool (staking)
                 if staking_amount > 0 {
                     **ctx
@@ -1127,31 +1143,86 @@ pub mod multiversed_dapp {
                         .try_borrow_mut_lamports()? += staking_amount;
                     **tournament_lamports -= staking_amount;
                 }
-
-                // Handle burn (transfer to burn address or keep in pool)
+    
+                // Handle burn
                 if burn_amount > 0 {
-                    // For SOL, we typically transfer to a burn address
-                    // You can customize this based on your tokenomics
                     **tournament_lamports -= burn_amount;
                 }
-
+    
                 msg!("✅ SOL tournament revenue distributed");
             }
             TokenType::SPL => {
                 // SPL token distribution via token transfers
-                let mint_decimals = ctx.accounts.mint.decimals;
+                let mint_data = ctx.accounts.mint.try_borrow_data()?;
+                let mint = Mint::try_deserialize(&mut &mint_data[..])?;
+                let mint_decimals = mint.decimals;
+                
                 let creator_key = tournament_pool.admin;
                 let tournament_id_bytes = tournament_pool.tournament_id;
+                let token_type_seed = [tournament_pool.token_type as u8];  // ✅ Added
                 let bump = tournament_pool.bump;
-
+    
                 let tournament_seeds = &[
                     SEED_TOURNAMENT_POOL,
                     creator_key.as_ref(),
                     tournament_id_bytes.as_ref(),
+                    token_type_seed.as_ref(),  // ✅ Added
                     &[bump],
                 ];
                 let signer_seeds: &[&[&[u8]]] = &[tournament_seeds];
-
+    
+                // ✅ CREATE PRIZE ESCROW IF NEEDED
+                let prize_escrow_info = ctx.accounts.prize_escrow_account.to_account_info();
+                
+                if prize_escrow_info.lamports() == 0 {
+                    let prize_pool_key = ctx.accounts.prize_pool.key();
+                    let escrow_seeds = &[SEED_PRIZE_ESCROW, prize_pool_key.as_ref()];
+                    let (escrow_pda, escrow_bump) = 
+                        Pubkey::find_program_address(escrow_seeds, ctx.program_id);
+    
+                    require!(
+                        prize_escrow_info.key() == escrow_pda,
+                        TournamentError::InvalidEscrowAccount
+                    );
+    
+                    let rent = Rent::get()?;
+                    let space = 165;
+                    let lamports = rent.minimum_balance(space);
+    
+                    invoke_signed(
+                        &system_instruction::create_account(
+                            ctx.accounts.creator.key,
+                            &escrow_pda,
+                            lamports,
+                            space as u64,
+                            &anchor_spl::token_2022::ID,
+                        ),
+                        &[
+                            ctx.accounts.creator.to_account_info(),
+                            prize_escrow_info.clone(),
+                            ctx.accounts.system_program.to_account_info(),
+                        ],
+                        &[&[SEED_PRIZE_ESCROW, prize_pool_key.as_ref(), &[escrow_bump]]],
+                    )?;
+    
+                    let init_account_ix = spl_token_2022::instruction::initialize_account3(
+                        &anchor_spl::token_2022::ID,
+                        &escrow_pda,
+                        &ctx.accounts.mint.key(),
+                        &ctx.accounts.prize_pool.key(),
+                    )?;
+    
+                    invoke(
+                        &init_account_ix,
+                        &[
+                            prize_escrow_info.clone(),
+                            ctx.accounts.mint.to_account_info(),
+                        ],
+                    )?;
+    
+                    msg!("✅ Prize escrow account created");
+                }
+    
                 // Transfer to prize pool
                 if prize_amount > 0 {
                     let prize_pool = &mut ctx.accounts.prize_pool;
@@ -1171,7 +1242,7 @@ pub mod multiversed_dapp {
                     )?;
                     prize_pool.total_funds += prize_amount;
                 }
-
+    
                 // Transfer to revenue pool
                 if revenue_amount > 0 {
                     token_2022::transfer_checked(
@@ -1190,7 +1261,7 @@ pub mod multiversed_dapp {
                     )?;
                     ctx.accounts.revenue_pool.total_funds += revenue_amount;
                 }
-
+    
                 // Transfer to reward pool
                 if staking_amount > 0 {
                     token_2022::transfer_checked(
@@ -1208,7 +1279,7 @@ pub mod multiversed_dapp {
                         mint_decimals,
                     )?;
                     ctx.accounts.reward_pool.total_funds += staking_amount;
-
+    
                     // Update staking pool accumulator
                     let staking_pool = &mut ctx.accounts.staking_pool;
                     if staking_pool.total_weight > 0 {
@@ -1220,7 +1291,7 @@ pub mod multiversed_dapp {
                             staking_pool.acc_reward_per_weight.saturating_add(delta);
                     }
                 }
-
+    
                 // Burn tokens
                 if burn_amount > 0 {
                     token_2022::burn(
@@ -1236,16 +1307,16 @@ pub mod multiversed_dapp {
                         burn_amount,
                     )?;
                 }
-
+    
                 msg!("✅ SPL tournament revenue distributed");
             }
         }
-
+    
         // Update tournament pool state
         tournament_pool.is_active = false;
         tournament_pool.total_funds = 0;
         ctx.accounts.revenue_pool.last_distribution = current_time;
-
+    
         msg!(
             "✅ Tournament revenue distributed: Prize: {}, Revenue: {}, Staking: {}, Burned: {}",
             prize_amount,
@@ -1253,7 +1324,7 @@ pub mod multiversed_dapp {
             staking_amount,
             burn_amount
         );
-
+    
         Ok(())
     }
 
@@ -1753,7 +1824,7 @@ pub struct DistributeTournamentRevenue<'info> {
     pub creator: Signer<'info>,
 
     #[account(
-        mut,
+        mut, 
         seeds = [SEED_TOURNAMENT_POOL, creator.key().as_ref(), tournament_id.as_bytes(), &[tournament_pool.token_type as u8]],
         bump = tournament_pool.bump
     )]
@@ -1770,48 +1841,44 @@ pub struct DistributeTournamentRevenue<'info> {
 
     #[account(
         mut,
-        seeds = [SEED_REVENUE_POOL, revenue_pool.admin.as_ref(), &[staking_pool.token_type as u8]],
+        seeds = [SEED_REVENUE_POOL, revenue_pool.admin.as_ref(), &[tournament_pool.token_type as u8]],
         bump = revenue_pool.bump
     )]
     pub revenue_pool: Account<'info, RevenuePool>,
-
+    
     #[account(
         mut,
-        seeds = [SEED_STAKING_POOL, staking_pool.admin.as_ref(), &[staking_pool.token_type as u8]],
+        seeds = [SEED_REWARD_POOL, reward_pool.admin.as_ref(), &[tournament_pool.token_type as u8]],
+        bump = reward_pool.bump
+    )]
+    pub reward_pool: Account<'info, RewardPool>,
+    
+    #[account(
+        mut,
+        seeds = [SEED_STAKING_POOL, staking_pool.admin.as_ref(), &[tournament_pool.token_type as u8]],
         bump = staking_pool.bump
     )]
     pub staking_pool: Account<'info, StakingPool>,
 
-    #[account(
-        mut,
-        seeds = [SEED_REWARD_POOL, reward_pool.admin.as_ref(), &[staking_pool.token_type as u8]],
-        bump = reward_pool.bump
-    )]
-    pub reward_pool: Account<'info, RewardPool>,
+    /// CHECK: For SPL, this is a token escrow. For SOL, not used
+    pub tournament_escrow_account: UncheckedAccount<'info>,
 
-    #[account(mut)]
-    pub tournament_escrow_account: InterfaceAccount<'info, TokenAccount>,
+    /// CHECK: For SPL, this is a token escrow. For SOL, not used
+    // ✅ Derived from prize_pool.key() (correct!)
+    pub prize_escrow_account: UncheckedAccount<'info>,
 
-    #[account(
-        init_if_needed,
-        payer = creator,
-        token::mint = mint,
-        token::authority = prize_pool,
-        seeds = [SEED_PRIZE_ESCROW, prize_pool.key().as_ref()],
-        bump
-    )]
-    pub prize_escrow_account: InterfaceAccount<'info, TokenAccount>,
+    /// CHECK: For SPL, this is a token escrow. For SOL, not used
+    pub revenue_escrow_account: UncheckedAccount<'info>,
+    
+    /// CHECK: For SPL, this is a token escrow. For SOL, not used
+    pub reward_escrow_account: UncheckedAccount<'info>,
 
-    #[account(mut)]
-    pub revenue_escrow_account: InterfaceAccount<'info, TokenAccount>,
+    /// CHECK: For SPL, must be valid mint. For SOL, we pass SystemProgram.programId
+    pub mint: UncheckedAccount<'info>,
 
-    #[account(mut)]
-    pub reward_escrow_account: InterfaceAccount<'info, TokenAccount>,
+    /// CHECK: Token program - only used for SPL
+    pub token_program: UncheckedAccount<'info>,
 
-    #[account(mut)]
-    pub mint: InterfaceAccount<'info, Mint>,
-
-    pub token_program: Program<'info, Token2022>,
     pub system_program: Program<'info, System>,
 }
 
