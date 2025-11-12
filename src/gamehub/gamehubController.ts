@@ -635,7 +635,150 @@ export async function updateTournamentStatus(req: Request, res: Response) {
     console.error("Error updating tournament status:", error);
     return res.status(500).json({ message: "Internal Server Error" });
   }
+}
 
+// Track scheduled jobs to avoid duplicates
+const scheduledJobs = new Map<string, { startJob?: schedule.Job; endJob?: schedule.Job }>();
 
+/**
+ * Check and update tournament statuses based on current time
+ * This function should be called on server startup and periodically
+ * 
+ * Performance optimizations:
+ * - Only checks tournaments that can change status ("Not Started", "Active", "Draft")
+ * - Skips "Ended", "Distributed", "Awarded" tournaments
+ * - Tracks scheduled jobs to avoid duplicates
+ * - Uses efficient filtering to minimize Firebase reads
+ */
+export async function checkAndUpdateTournamentStatuses(): Promise<void> {
+  try {
+    const now = new Date();
+    let updatedCount = 0;
+    let scheduledCount = 0;
+    let skippedCount = 0;
 
+    // Check tournaments for both token types
+    for (const tokenType of [TokenType.SPL, TokenType.SOL]) {
+      const tournamentsRef = ref(db, `tournaments/${tokenType}`);
+      const snapshot = await get(tournamentsRef);
+
+      if (!snapshot.exists()) {
+        continue;
+      }
+
+      const tournaments = snapshot.val() as Record<string, Tournament>;
+
+      for (const [tournamentId, tournament] of Object.entries(tournaments)) {
+        if (!tournament || !tournament.startTime || !tournament.endTime) {
+          continue;
+        }
+
+        // Performance optimization: Skip tournaments that can't change status
+        const finalStatuses = ["Ended", "Distributed", "Awarded"];
+        if (finalStatuses.includes(tournament.status)) {
+          skippedCount++;
+          continue;
+        }
+
+        const startTimeDate = new Date(tournament.startTime);
+        const endTimeDate = new Date(tournament.endTime);
+        const tournamentRef = ref(db, `tournaments/${tokenType}/${tournamentId}`);
+        const jobKey = `${tokenType}-${tournamentId}`;
+        let statusUpdated = false;
+
+        // Check if tournament should be "Ended"
+        if (now >= endTimeDate) {
+          if (tournament.status !== "Ended" && 
+              tournament.status !== "Distributed" && 
+              tournament.status !== "Awarded") {
+            await update(tournamentRef, { status: "Ended" });
+            console.log(`✅ Tournament ${tournamentId} (${tokenType}) status updated to "Ended"`);
+            updatedCount++;
+            statusUpdated = true;
+            
+            // Cancel scheduled jobs for ended tournaments
+            const jobs = scheduledJobs.get(jobKey);
+            if (jobs) {
+              if (jobs.startJob) jobs.startJob.cancel();
+              if (jobs.endJob) jobs.endJob.cancel();
+              scheduledJobs.delete(jobKey);
+            }
+          }
+        }
+        // Check if tournament should be "Active"
+        else if (now >= startTimeDate) {
+          if (tournament.status === "Not Started" || tournament.status === "Draft") {
+            await update(tournamentRef, { status: "Active" });
+            console.log(`✅ Tournament ${tournamentId} (${tokenType}) status updated to "Active"`);
+            updatedCount++;
+            statusUpdated = true;
+            
+            // Cancel start job if it exists
+            const jobs = scheduledJobs.get(jobKey);
+            if (jobs?.startJob) {
+              jobs.startJob.cancel();
+              jobs.startJob = undefined;
+            }
+          }
+        }
+
+        // Restore scheduled jobs for future tournaments (only if not already scheduled)
+        if (!statusUpdated) {
+          const existingJobs = scheduledJobs.get(jobKey) || {};
+
+          // Schedule start job if startTime is in the future and status is "Not Started"
+          if (startTimeDate > now && tournament.status === "Not Started" && !existingJobs.startJob) {
+            const startJob = schedule.scheduleJob(startTimeDate, async () => {
+              try {
+                await update(tournamentRef, { status: "Active" });
+                console.log(`✅ Tournament ${tournamentId} (${tokenType}) has started.`);
+                // Clean up job after execution
+                const jobs = scheduledJobs.get(jobKey);
+                if (jobs) {
+                  jobs.startJob = undefined;
+                  if (!jobs.endJob) scheduledJobs.delete(jobKey);
+                }
+              } catch (error) {
+                console.error(`❌ Failed to start tournament ${tournamentId}:`, error);
+              }
+            });
+            existingJobs.startJob = startJob;
+            scheduledJobs.set(jobKey, existingJobs);
+            scheduledCount++;
+          }
+
+          // Schedule end job if endTime is in the future and tournament is not already ended
+          if (endTimeDate > now && 
+              tournament.status !== "Ended" && 
+              tournament.status !== "Distributed" && 
+              tournament.status !== "Awarded" &&
+              !existingJobs.endJob) {
+            const endJob = schedule.scheduleJob(endTimeDate, async () => {
+              try {
+                await update(tournamentRef, { status: "Ended" });
+                console.log(`✅ Tournament ${tournamentId} (${tokenType}) has ended.`);
+                // Clean up job after execution
+                const jobs = scheduledJobs.get(jobKey);
+                if (jobs) {
+                  jobs.endJob = undefined;
+                  if (!jobs.startJob) scheduledJobs.delete(jobKey);
+                }
+              } catch (error) {
+                console.error(`❌ Failed to end tournament ${tournamentId}:`, error);
+              }
+            });
+            existingJobs.endJob = endJob;
+            scheduledJobs.set(jobKey, existingJobs);
+            scheduledCount++;
+          }
+        }
+      }
+    }
+
+    if (updatedCount > 0 || scheduledCount > 0) {
+      console.log(`✅ Tournament status check: Updated: ${updatedCount}, Scheduled: ${scheduledCount}, Skipped: ${skippedCount}`);
+    }
+  } catch (error) {
+    console.error("❌ Error checking tournament statuses:", error);
+  }
 }
