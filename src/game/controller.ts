@@ -174,7 +174,8 @@ export async function getGamePerformanceMetrics(req: Request, res: Response): Pr
 
         res.status(200).json({
             success: true,
-            data: gamePerformanceMetrics
+            data: gamePerformanceMetrics,
+            tokenType: tt as TokenType
         });
         return;
     } catch (error) {
