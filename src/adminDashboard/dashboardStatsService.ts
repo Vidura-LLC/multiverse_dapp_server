@@ -28,10 +28,12 @@ import { RevenuePoolAccount, RewardPoolAccount } from "./services";
 
 /**
  * Get comprehensive tournament statistics from Firebase
+ * @param tokenType - Token type to filter tournaments (0 for SPL, 1 for SOL)
  */
-export async function getTournamentStats(): Promise<any> {
+export async function getTournamentStats(tokenType: TokenType): Promise<any> {
     try {
-        const tournamentsRef = ref(db, 'tournaments');
+        // Read from tournaments/{tokenType} path
+        const tournamentsRef = ref(db, `tournaments/${tokenType}`);
         const snapshot = await get(tournamentsRef);
 
         const stats: TournamentStats = {
@@ -51,6 +53,7 @@ export async function getTournamentStats(): Promise<any> {
         const tournaments = snapshot.val();
         const currentTime = new Date().getTime();
 
+        // tournaments is an object with tournament IDs as keys
         Object.values(tournaments).forEach((tournamentData: any) => {
             const tournament = tournamentData;
 
@@ -66,6 +69,7 @@ export async function getTournamentStats(): Promise<any> {
                     stats.activeTournaments++;
                     break;
 
+                case "Not Started":
                 case "Upcoming":
                 case "Draft":
                     stats.upcomingTournaments++;
@@ -333,8 +337,8 @@ export const getDashboardData = async (adminPublicKey: PublicKey, tokenType: Tok
     try {
         console.log("📊 Fetching comprehensive dashboard data...");
 
-        // Fetch tournament stats
-        const tournamentStats = await getTournamentStats();
+        // Fetch tournament stats filtered by tokenType
+        const tournamentStats = await getTournamentStats(tokenType);
 
         // Fetch revenue pool stats
         const revenuePoolStats = await getRevenuePoolStatsService(adminPublicKey, tokenType);
