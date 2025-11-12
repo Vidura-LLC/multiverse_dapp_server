@@ -465,9 +465,27 @@ export const getDetailedStakersController = async (req: Request, res: Response) 
 export const getTournamentStatsController = async (req: Request, res: Response) => {
     try {
         console.log('📊 Fetching tournament statistics...');
+        
+        const { tokenType } = req.query;
+        
+        // Validate tokenType
+        if (!tokenType || tokenType === undefined || tokenType === null) {
+            return res.status(400).json({
+                success: false,
+                message: 'tokenType is required'
+            });
+        }
+        
+        const tt = Number(tokenType);
+        if (tt !== TokenType.SPL && tt !== TokenType.SOL) {
+            return res.status(400).json({
+                success: false,
+                message: 'tokenType must be 0 (SPL) or 1 (SOL)'
+            });
+        }
 
-        // Call the service to get tournament stats
-        const result = await getTournamentStats();
+        // Call the service to get tournament stats filtered by tokenType
+        const result = await getTournamentStats(tt as TokenType);
 
         if (result !== null && result !== undefined) {
             return res.status(200).json({
