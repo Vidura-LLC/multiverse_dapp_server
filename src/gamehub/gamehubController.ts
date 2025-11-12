@@ -279,14 +279,44 @@ export async function getTournaments(req: Request, res: Response) {
 export async function getTournamentById(req: Request, res: Response) {
   try {
     const { id } = req.params;
-    const tournamentRef = ref(db, `tournaments/${id}`);
-    const tournamentSnapshot = await get(tournamentRef);
+    const { tokenType } = req.query;
 
-    if (!tournamentSnapshot.exists()) {
+    // Parse tokenType if provided
+    let tt: TokenType | undefined = undefined;
+    if (tokenType !== undefined && tokenType !== null) {
+      const parsed = Number(tokenType);
+      if (parsed === TokenType.SPL || parsed === TokenType.SOL) {
+        tt = parsed as TokenType;
+      }
+    }
+
+    let tournament: any = null;
+
+    // If tokenType is provided, search directly in that path
+    if (tt !== undefined) {
+      const tournamentRef = ref(db, `tournaments/${tt}/${id}`);
+      const tournamentSnapshot = await get(tournamentRef);
+
+      if (tournamentSnapshot.exists()) {
+        tournament = tournamentSnapshot.val();
+      }
+    } else {
+      // If tokenType is not provided, search in both token types
+      for (const tokenTypeValue of [TokenType.SPL, TokenType.SOL]) {
+        const tournamentRef = ref(db, `tournaments/${tokenTypeValue}/${id}`);
+        const tournamentSnapshot = await get(tournamentRef);
+
+        if (tournamentSnapshot.exists()) {
+          tournament = tournamentSnapshot.val();
+          break;
+        }
+      }
+    }
+
+    if (!tournament) {
       return res.status(404).json({ message: "Tournament not found" });
     }
 
-    const tournament = tournamentSnapshot.val();
     return res.status(200).json({ tournament });
   } catch (error) {
     console.error(error);
@@ -308,8 +338,13 @@ export const registerForTournamentController = async (req: Request, res: Respons
       });
     }
 
-    // Find tournament by tournamentId
-    const tournamentRef = ref(db, `tournaments/${tournamentId}`);
+    const tt = Number(tokenType);
+    if (tt !== TokenType.SPL && tt !== TokenType.SOL) {
+      return res.status(400).json({ message: "tokenType must be 0 (SPL) or 1 (SOL)" });
+    }
+
+    // Find tournament by tournamentId in the correct path: tournaments/{tokenType}/{tournamentId}
+    const tournamentRef = ref(db, `tournaments/${tt as TokenType}/${tournamentId}`);
     const tournamentSnapshot = await get(tournamentRef);
 
     // Check if tournament exists
@@ -332,11 +367,6 @@ export const registerForTournamentController = async (req: Request, res: Respons
     }
 
     const userPubKey = new PublicKey(userPublicKey);
-
-    const tt = Number(tokenType);
-    if (tt !== TokenType.SPL && tt !== TokenType.SOL) {
-      return res.status(400).json({ message: "tokenType must be 0 (SPL) or 1 (SOL)" });
-    }
 
     // First register on blockchain (maintains existing functionality)
     const blockchainResult = await registerForTournamentService(tournamentId, userPubKey, new PublicKey(adminPublicKey), tt as TokenType );
@@ -497,12 +527,22 @@ export const getTotalTournamentEntryFeesController = async (req: Request, res: R
 export async function getTournamentLeaderboardController(req: Request, res: Response) {
   try {
     const { id } = req.params;
+    const { tokenType } = req.query;
 
     if (!id) {
       return res.status(400).json({ message: "Tournament ID is required" });
     }
 
-    const result = await getTournamentLeaderboard(id);
+    // Parse tokenType if provided
+    let tt: TokenType | undefined = undefined;
+    if (tokenType !== undefined && tokenType !== null) {
+      const parsed = Number(tokenType);
+      if (parsed === TokenType.SPL || parsed === TokenType.SOL) {
+        tt = parsed as TokenType;
+      }
+    }
+
+    const result = await getTournamentLeaderboard(id, tt);
 
     if (result.success) {
       return res.status(200).json(result);
@@ -518,13 +558,22 @@ export async function getTournamentLeaderboardController(req: Request, res: Resp
 // Update participant score
 export async function updateParticipantScoreController(req: Request, res: Response) {
   try {
-    const { tournamentId, participantId, score } = req.body;
+    const { tournamentId, participantId, score, tokenType } = req.body;
 
     if (!tournamentId || !participantId || score === undefined) {
       return res.status(400).json({ message: "Missing required fields" });
     }
 
-    const result = await updateParticipantScore(tournamentId, participantId, score);
+    // Parse tokenType if provided
+    let tt: TokenType | undefined = undefined;
+    if (tokenType !== undefined && tokenType !== null) {
+      const parsed = Number(tokenType);
+      if (parsed === TokenType.SPL || parsed === TokenType.SOL) {
+        tt = parsed as TokenType;
+      }
+    }
+
+    const result = await updateParticipantScore(tournamentId, participantId, score, tt);
 
     if (result.success) {
       return res.status(200).json(result);
@@ -541,12 +590,22 @@ export async function updateParticipantScoreController(req: Request, res: Respon
 export async function getTournamentLeaderboardAgainstAdminController(req: Request, res: Response) {
   try {
     const { id } = req.params;
+    const { tokenType } = req.query;
 
     if (!id) {
       return res.status(400).json({ message: "Tournament ID is required" });
     }
 
-    const result = await getTournamentLeaderboardAgainstAdmin(id);
+    // Parse tokenType if provided
+    let tt: TokenType | undefined = undefined;
+    if (tokenType !== undefined && tokenType !== null) {
+      const parsed = Number(tokenType);
+      if (parsed === TokenType.SPL || parsed === TokenType.SOL) {
+        tt = parsed as TokenType;
+      }
+    }
+
+    const result = await getTournamentLeaderboardAgainstAdmin(id, tt);
 
     if (result.success) {
       return res.status(200).json(result);
