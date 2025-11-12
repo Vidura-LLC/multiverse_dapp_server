@@ -9,6 +9,8 @@ import webhooksRoutes from './webhooks/routes'
 import adminDashboardRoutes from "./adminDashboard/adminDashboardRoutes";
 import gameRoutes from "./game/routes";
 import userRoutes from "./user/route";
+import { checkAndUpdateTournamentStatuses } from "./gamehub/gamehubController";
+import schedule from 'node-schedule';
 
 // Load environment variables
 dotenv.config();
@@ -42,8 +44,20 @@ app.get('/', (req: Request, res: Response): any => {
 })
 
 // Start the server
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
     console.log(`🚀 Server running on http://localhost:${PORT}`);
+    
+    // Check and update tournament statuses on server startup
+    console.log("🔄 Initializing tournament status checks...");
+    await checkAndUpdateTournamentStatuses();
+    
+    // Schedule periodic checks every 5 minutes to catch any missed updates
+    // Reduced frequency from 1 minute to 5 minutes for better performance
+    // Scheduled jobs handle most updates, this is just a safety net
+    schedule.scheduleJob('*/5 * * * *', async () => {
+        await checkAndUpdateTournamentStatuses();
+    });
+    console.log("✅ Tournament status checker scheduled (runs every 5 minutes)");
 });
 
 export default app;
