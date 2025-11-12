@@ -1,6 +1,7 @@
 import {
   PublicKey,
   SystemProgram,
+  Transaction,
 } from "@solana/web3.js";
 import * as anchor from "@project-serum/anchor";
 import {
@@ -24,7 +25,7 @@ export const initializeTournamentPoolService = async (
   tournamentId: string,
   entryFee: number,
   maxParticipants: number,
-  endTime: number, // Should be in SECONDS
+  endTime: number,
   mintPublicKey: PublicKey,
   tokenType: TokenType
 ) => {
@@ -39,21 +40,20 @@ export const initializeTournamentPoolService = async (
 
     const { blockhash } = await connection.getLatestBlockhash("finalized");
     
-    // ✅ Log to verify endTime is in seconds
-    console.log(`✅ Creating tournament with endTime: ${endTime} (${new Date(endTime * 1000).toISOString()})`);
-    
     const CRD_DECIMALS = 9;
     const entryFeeInBaseUnits = Math.round(entryFee * Math.pow(10, CRD_DECIMALS));
     const entryFeeBN = new BN(entryFeeInBaseUnits);
     
     console.log(`✅ Entry fee conversion: ${entryFee} → ${entryFeeInBaseUnits} base units`);
+    console.log(`✅ Token Type: ${tokenType === TokenType.SOL ? 'SOL' : 'SPL'}`);
     
     const maxParticipantsBN = new BN(maxParticipants);
-    const endTimeBN = new BN(endTime); // ✅ Should be in seconds
+    const endTimeBN = new BN(endTime);
 
     const tokenTypeArg = tokenType === TokenType.SPL ? {spl: {}} : {sol: {}};
 
-    const transaction = await program.methods
+    // Build instruction
+    const instruction = await program.methods
       .createTournamentPool(
         tournamentId,
         entryFeeBN,
@@ -69,8 +69,26 @@ export const initializeTournamentPoolService = async (
         systemProgram: SystemProgram.programId,
         tokenProgram: TOKEN_2022_PROGRAM_ID,
       })
-      .transaction();
+      .instruction();
 
+    // ✅ For SPL tokens, mark pool_escrow_account as writable
+    if (tokenType === TokenType.SPL) {
+      const escrowAccountIndex = instruction.keys.findIndex(
+        key => key.pubkey.equals(poolEscrowAccountPublicKey)
+      );
+      
+      if (escrowAccountIndex !== -1) {
+        instruction.keys[escrowAccountIndex].isWritable = true;
+        console.log(`✅ Marked pool_escrow_account as writable for SPL: ${poolEscrowAccountPublicKey.toString()}`);
+      } else {
+        console.warn(`⚠️ Could not find pool_escrow_account in instruction keys`);
+      }
+    } else {
+      console.log(`✅ SOL tournament - no escrow account write needed`);
+    }
+
+    // Create transaction
+    const transaction = new Transaction().add(instruction);
     transaction.recentBlockhash = blockhash;
     transaction.feePayer = adminPublicKey;
 
