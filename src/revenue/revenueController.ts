@@ -7,6 +7,7 @@ import { PublicKey } from '@solana/web3.js';
 import { distributeTournamentRevenueService, distributeTournamentPrizesService, DEFAULT_SPLITS } from './services';
 import { getProgram } from "../staking/services";
 import { TokenType } from "../utils/getPDAs";
+import { getRevenuePoolStatsService } from "../adminDashboard/dashboardStatsService";
 
 
 /**
@@ -447,13 +448,17 @@ export const getAdminDistributionTotalsController = async (req: Request, res: Re
     const tournamentsRef = ref(db, `tournaments/${tt as TokenType}`);
     const tournamentsSnapshot = await get(tournamentsRef);
 
+    // Fetch revenue pool information (even if no tournaments exist)
+    const revenuePoolStats = await getRevenuePoolStatsService(new PublicKey(adminPubKey), tt as TokenType);
+    
     if (!tournamentsSnapshot.exists()) {
       return res.status(200).json({
         success: true,
         data: {
           prizeAmountRaw: '0', revenueAmountRaw: '0', stakingAmountRaw: '0', burnAmountRaw: '0',
           prizeAmount: 0, revenueAmount: 0, stakingAmount: 0, burnAmount: 0,
-          tokenDecimals: 9, tournamentCount: 0
+          tokenDecimals: 9, tournamentCount: 0,
+          revenue: revenuePoolStats, // Include revenue pool information
         }
       });
     }
@@ -484,6 +489,7 @@ export const getAdminDistributionTotalsController = async (req: Request, res: Re
     const burnAmountRaw = burn.toString();
 
     const divisor = Math.pow(10, tokenDecimals);
+    
     return res.status(200).json({
       success: true,
       data: {
@@ -492,6 +498,7 @@ export const getAdminDistributionTotalsController = async (req: Request, res: Re
         stakingAmount: Number(stakingAmountRaw) / divisor,
         burnAmount: Number(burnAmountRaw) / divisor,
         tournamentCount: adminTournaments.length,
+        revenue: revenuePoolStats, // Include revenue pool information
       }
     });
   } catch (err) {
