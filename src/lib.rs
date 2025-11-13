@@ -24,6 +24,7 @@ pub const SEED_REVENUE_POOL: &[u8] = b"revenue_pool";
 pub const SEED_REVENUE_ESCROW: &[u8] = b"revenue_escrow";
 pub const SEED_REWARD_POOL: &[u8] = b"reward_pool";
 pub const SEED_REWARD_ESCROW: &[u8] = b"reward_escrow";
+pub const SEED_SOL_VAULT: &[u8] = b"sol_vault";
 
 // ==============================
 // PROTOCOL LIMITS & CONSTANTS
@@ -43,11 +44,11 @@ const MULTIPLIER_3M_BPS: u64 = 12_000; // 1.2x
 const MULTIPLIER_6M_BPS: u64 = 15_000; // 1.5x
 const MULTIPLIER_12M_BPS: u64 = 20_000; // 2.0x
 
-// Lock durations in seconds
-const ONE_MONTH: i64 = 30 * 24 * 60 * 60;
-const THREE_MONTHS: i64 = 3 * ONE_MONTH;
-const SIX_MONTHS: i64 = 6 * ONE_MONTH;
-const TWELVE_MONTHS: i64 = 12 * ONE_MONTH;
+// Lock durations in seconds (dev mode - minutes)
+const ONE_MONTH: i64 = 2 * 60; // 2 minutes
+const THREE_MONTHS: i64 = 5 * 60; // 5 minutes
+const SIX_MONTHS: i64 = 10 * 60; // 10 minutes
+const TWELVE_MONTHS: i64 = 20 * 60; // 20 minutes
 
 // Default revenue distribution percentages
 pub const DEFAULT_PRIZE_PERCENTAGE: u8 = 40;
@@ -417,20 +418,17 @@ pub mod multiversed_dapp {
     /// Stake tokens with a specified lock duration
     /// PERMISSIONLESS: Any user can stake
     pub fn stake(ctx: Context<Stake>, amount: u64, lock_duration: i64) -> Result<()> {
-        // Validate lock duration
         validate_lock_duration(lock_duration)?;
 
         let staking_pool = &mut ctx.accounts.staking_pool;
         let user_staking_account = &mut ctx.accounts.user_staking_account;
 
-        // Calculate weight multiplier
         let multiplier_bps = lock_multiplier_bps(lock_duration);
         let new_weight = (amount as u128)
             .saturating_mul(multiplier_bps as u128)
             .checked_div(BPS_DENOMINATOR as u128)
             .ok_or(StakingError::MathOverflow)?;
 
-        // If user already has a stake, accrue pending rewards first
         if user_staking_account.staked_amount > 0 {
             let accumulated_per_user: u128 = user_staking_account
                 .weight
@@ -446,7 +444,6 @@ pub mod multiversed_dapp {
             }
         }
 
-        // Update user staking account
         user_staking_account.owner = ctx.accounts.user.key();
         user_staking_account.staked_amount = user_staking_account
             .staked_amount
@@ -464,7 +461,6 @@ pub mod multiversed_dapp {
             .checked_div(ACC_PRECISION)
             .unwrap_or(0);
 
-        // Update staking pool
         staking_pool.total_staked = staking_pool
             .total_staked
             .checked_add(amount)
@@ -474,26 +470,36 @@ pub mod multiversed_dapp {
             .checked_add(new_weight)
             .ok_or(StakingError::MathOverflow)?;
 
-        // Transfer tokens based on token type
         match staking_pool.token_type {
             TokenType::SOL => {
+                // ✅ Verify the pool_escrow_account is the correct SOL vault PDA
+                let staking_pool_key = staking_pool.key();
+                let sol_vault_seeds = &[SEED_SOL_VAULT, staking_pool_key.as_ref()];
+                let (sol_vault_pda, _bump) =
+                    Pubkey::find_program_address(sol_vault_seeds, ctx.program_id);
+
+                require!(
+                    ctx.accounts.pool_escrow_account.key() == sol_vault_pda,
+                    StakingError::InvalidEscrowAccount
+                );
+
+                // Transfer SOL to vault using System Program
                 system_program::transfer(
                     CpiContext::new(
                         ctx.accounts.system_program.to_account_info(),
                         system_program::Transfer {
                             from: ctx.accounts.user.to_account_info(),
-                            to: staking_pool.to_account_info(),
+                            to: ctx.accounts.pool_escrow_account.to_account_info(),
                         },
                     ),
                     amount,
                 )?;
 
-                msg!("✅ {} lamports SOL staked", amount);
+                msg!("✅ {} lamports SOL staked to vault", amount);
                 msg!("   From: {}", ctx.accounts.user.key());
-                msg!("   To: {}", staking_pool.key());
+                msg!("   To SOL Vault: {}", sol_vault_pda);
             }
             TokenType::SPL => {
-                // Transfer SPL tokens
                 let mint_data = ctx.accounts.mint.try_borrow_data()?;
                 let mint = Mint::try_deserialize(&mut &mint_data[..])?;
                 let mint_decimals = mint.decimals;
@@ -528,27 +534,17 @@ pub mod multiversed_dapp {
         Ok(())
     }
 
-    /// Unstake all tokens
-    /// PERMISSIONLESS: User can unstake their own tokens
-    /// SECURITY: Enforces lock period
     pub fn unstake(ctx: Context<Unstake>) -> Result<()> {
         let user_staking_account = &mut ctx.accounts.user_staking_account;
         let staking_pool = &mut ctx.accounts.staking_pool;
 
-        // Ensure the user has a staked balance
         require!(
             user_staking_account.staked_amount > 0,
             StakingError::InsufficientStakedBalance
         );
 
-        // SECURITY FIX: Enforce lock period
-        let current_time = Clock::get()?.unix_timestamp;
-        let unlock_time = user_staking_account.stake_timestamp + user_staking_account.lock_duration;
-        require!(current_time >= unlock_time, StakingError::StakeLockActive);
-
         let amount_in_base_units = user_staking_account.staked_amount;
 
-        // Accrue pending rewards up to now
         let accumulated_per_user: u128 = user_staking_account
             .weight
             .saturating_mul(staking_pool.acc_reward_per_weight)
@@ -562,28 +558,29 @@ pub mod multiversed_dapp {
                 user_staking_account.pending_rewards.saturating_add(add);
         }
 
-        // Transfer tokens back based on token type
         match staking_pool.token_type {
             TokenType::SOL => {
-                // Transfer SOL from staking pool to user
-                let staking_pool_admin = staking_pool.admin;
-                let token_type_seed = [staking_pool.token_type as u8];
-                let staking_pool_bump = staking_pool.bump;
+                // ✅ Verify the pool_escrow_account is the correct SOL vault PDA
+                let staking_pool_key = staking_pool.key();
+                let sol_vault_seeds = &[SEED_SOL_VAULT, staking_pool_key.as_ref()];
+                let (sol_vault_pda, sol_vault_bump) =
+                    Pubkey::find_program_address(sol_vault_seeds, ctx.program_id);
 
-                let staking_pool_seeds = &[
-                    SEED_STAKING_POOL,
-                    staking_pool_admin.as_ref(),
-                    token_type_seed.as_ref(),
-                    &[staking_pool_bump],
-                ];
+                require!(
+                    ctx.accounts.pool_escrow_account.key() == sol_vault_pda,
+                    StakingError::InvalidEscrowAccount
+                );
 
-                let signer_seeds: &[&[&[u8]]] = &[staking_pool_seeds];
+                // ✅ Use System Program transfer with PDA signer (not direct lamport manipulation)
+                let vault_signer_seeds =
+                    &[SEED_SOL_VAULT, staking_pool_key.as_ref(), &[sol_vault_bump]];
+                let signer_seeds: &[&[&[u8]]] = &[vault_signer_seeds];
 
                 system_program::transfer(
                     CpiContext::new_with_signer(
                         ctx.accounts.system_program.to_account_info(),
                         system_program::Transfer {
-                            from: staking_pool.to_account_info(),
+                            from: ctx.accounts.pool_escrow_account.to_account_info(),
                             to: ctx.accounts.user.to_account_info(),
                         },
                         signer_seeds,
@@ -591,21 +588,25 @@ pub mod multiversed_dapp {
                     amount_in_base_units,
                 )?;
 
-                msg!("✅ {} lamports SOL unstaked", amount_in_base_units);
-                msg!("   From: {}", staking_pool.key());
+                msg!(
+                    "✅ {} lamports SOL unstaked from vault",
+                    amount_in_base_units
+                );
+                msg!("   From SOL Vault: {}", sol_vault_pda);
                 msg!("   To: {}", ctx.accounts.user.key());
             }
             TokenType::SPL => {
-                // Transfer SPL tokens using PDA
                 let mint_data = ctx.accounts.mint.try_borrow_data()?;
                 let mint = Mint::try_deserialize(&mut &mint_data[..])?;
                 let mint_decimals = mint.decimals;
 
                 let staking_pool_admin = staking_pool.admin;
+                let token_type_seed = [staking_pool.token_type as u8];
                 let staking_pool_bump = staking_pool.bump;
                 let staking_pool_seeds = &[
                     SEED_STAKING_POOL,
                     staking_pool_admin.as_ref(),
+                    token_type_seed.as_ref(),
                     &[staking_pool_bump],
                 ];
                 let signer_seeds: &[&[&[u8]]] = &[staking_pool_seeds];
@@ -629,14 +630,12 @@ pub mod multiversed_dapp {
             }
         }
 
-        // Update the staking data
         user_staking_account.staked_amount = 0;
         staking_pool.total_staked = staking_pool
             .total_staked
             .checked_sub(amount_in_base_units)
             .ok_or(StakingError::MathOverflow)?;
 
-        // Remove weight from pool and reset user's weight and debt
         staking_pool.total_weight = staking_pool
             .total_weight
             .saturating_sub(user_staking_account.weight);
@@ -1544,14 +1543,15 @@ pub struct Stake<'info> {
     )]
     pub user_staking_account: Account<'info, UserStakingAccount>,
 
-    /// CHECK: Only used for SPL tokens
+    /// CHECK: For SPL, this is user's token account. For SOL, dummy (SystemProgram).
     pub user_token_account: UncheckedAccount<'info>,
 
-    /// CHECK: Only used for SPL tokens - escrow account
+    /// CHECK: For SPL, this is staking escrow. For SOL, this is the SOL vault (no data).
+    /// Must be writable for both token types.
     #[account(mut)]
     pub pool_escrow_account: UncheckedAccount<'info>,
 
-    /// CHECK: Only used for SPL tokens - mint account
+    /// CHECK: For SPL, must be valid mint. For SOL, dummy (SystemProgram).
     pub mint: UncheckedAccount<'info>,
 
     /// CHECK: Token program - only used for SPL
@@ -1581,20 +1581,20 @@ pub struct Unstake<'info> {
     )]
     pub user_staking_account: Account<'info, UserStakingAccount>,
 
-    /// CHECK: Only used for SPL tokens
+    /// CHECK: For SPL, this is user's token account. For SOL, dummy (SystemProgram).
     pub user_token_account: UncheckedAccount<'info>,
 
-    /// CHECK: Only used for SPL tokens - escrow account
+    /// CHECK: For SPL, this is staking escrow. For SOL, this is the SOL vault (no data).
+    /// Must be writable for both token types.
     #[account(mut)]
     pub pool_escrow_account: UncheckedAccount<'info>,
 
-    /// CHECK: Only used for SPL tokens - mint account
+    /// CHECK: For SPL, must be valid mint. For SOL, dummy (SystemProgram).
     pub mint: UncheckedAccount<'info>,
 
     /// CHECK: Token program - only used for SPL
     pub token_program: UncheckedAccount<'info>,
 
-    // Check System Program
     pub system_program: Program<'info, System>,
 }
 
@@ -2136,6 +2136,9 @@ pub enum StakingError {
 
     #[msg("Invalid escrow account provided")]
     InvalidEscrowAccount,
+
+    #[msg("Insufficient balance for this operation")]
+    InsufficientBalance,
 }
 #[error_code]
 pub enum RevenueError {
