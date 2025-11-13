@@ -69,14 +69,13 @@ export const stakeTokenService = async (
   mintPublicKey: PublicKey,
   userPublicKey: PublicKey,
   amount: number,
-  lockDuration: number, // Lock duration in seconds
-  adminPublicKey: PublicKey, // Admin public key from client
+  lockDuration: number,
+  adminPublicKey: PublicKey,
   tokenType: TokenType
 ) => {
   try {
     const { program, connection } = getProgram();
 
-    // Log initial parameters for clarity
     console.log("Staking Details:");
     console.log("User PublicKey:", userPublicKey.toBase58());
     console.log("Admin PublicKey:", adminPublicKey.toBase58());
@@ -85,31 +84,25 @@ export const stakeTokenService = async (
     console.log("Lock Duration (in seconds):", lockDuration);
     console.log("Token Type:", tokenType === TokenType.SPL ? "SPL" : "SOL");
 
-    // Validate lockDuration
     if (!lockDuration || typeof lockDuration !== 'number') {
       throw new Error('Invalid lock duration provided');
     }
 
     const stakingPoolPublicKey = getStakingPoolPDA(adminPublicKey, tokenType);
-
     const userStakingAccountPublicKey = getUserStakingPDA(stakingPoolPublicKey, userPublicKey);
-
     const poolEscrowAccountPublicKey = getStakingEscrowPDA(stakingPoolPublicKey);
 
-    // Check if the user already has a staking account
     const userStakingAccountResponse = await getUserStakingAccount(userPublicKey, adminPublicKey, tokenType);
     console.log("User Staking Account Response:", userStakingAccountResponse);
 
-    // ✅ KEY FIX: For SOL, use SystemProgram as mint and dummy accounts
     const actualMint = tokenType === TokenType.SOL 
-      ? SystemProgram.programId  // Dummy mint for SOL
+      ? SystemProgram.programId
       : mintPublicKey;
 
     let userTokenAccountPublicKey: PublicKey;
     
     if (tokenType === TokenType.SPL) {
-      // For SPL, get/create ATA
-      userTokenAccountPublicKey = await getAssociatedTokenAddressSync(
+      userTokenAccountPublicKey = getAssociatedTokenAddressSync(
         mintPublicKey, 
         userPublicKey, 
         false, 
@@ -117,29 +110,23 @@ export const stakeTokenService = async (
       );
       console.log("User Token Account PublicKey:", userTokenAccountPublicKey.toBase58());
 
-      if (!userTokenAccountPublicKey) {
-        console.log("User Token Account PublicKey does not exist. Creating ATA...");
-        const createATAResponse = await createAssociatedTokenAccount(mintPublicKey, userPublicKey);
-        console.log("Create ATA Response:", createATAResponse);
-        userTokenAccountPublicKey = createATAResponse.associatedTokenAddress;
+      const ataInfo = await connection.getAccountInfo(userTokenAccountPublicKey);
+      if (!ataInfo) {
+        console.log("⚠️ User Token Account does not exist. User needs to create ATA first.");
       }
     } else {
-      // For SOL, use SystemProgram as dummy (not actually used on-chain)
       userTokenAccountPublicKey = SystemProgram.programId;
     }
 
     const { blockhash } = await connection.getLatestBlockhash("finalized");
     console.log("Latest Blockhash:", blockhash);
 
-    // Convert amount from tokens (human-readable) to base units (lamports)
-    // Client sends amount as human-readable (e.g., 4 = 4 tokens)
-    // Blockchain needs amount in base units (e.g., 4 tokens = 4 * 10^9 = 4000000000 base units)
     const tokenDecimals = 9;
     const amountInBaseUnits = Math.floor(amount * Math.pow(10, tokenDecimals));
     console.log(`Converting ${amount} tokens to ${amountInBaseUnits} base units (${amount} * 10^${tokenDecimals})`);
 
-    // Create an unsigned transaction for staking
-    const transaction = await program.methods
+    // ✅ FIXED: Build instruction first, then create transaction
+    const instruction = await program.methods
       .stake(new anchor.BN(amountInBaseUnits), new anchor.BN(lockDuration))
       .accounts({
         user: userPublicKey,
@@ -151,12 +138,19 @@ export const stakeTokenService = async (
         tokenProgram: TOKEN_2022_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
       })
-      .transaction();
+      .instruction();
 
+    // Create transaction
+    const transaction = new Transaction();
+    transaction.add(instruction);
     transaction.recentBlockhash = blockhash;
     transaction.feePayer = userPublicKey;
 
-    // Serialize transaction and send it to the frontend
+    console.log("✅ Transaction accounts:");
+    instruction.keys.forEach((key, idx) => {
+      console.log(`  ${idx}: ${key.pubkey.toBase58()} - Signer: ${key.isSigner}, Writable: ${key.isWritable}`);
+    });
+
     return {
       success: true,
       message: "Transaction created successfully!",
@@ -170,7 +164,6 @@ export const stakeTokenService = async (
     };
   }
 };
-
 
 // Function to unstake tokens from the staking pool
 export const unstakeTokenService = async (
@@ -189,9 +182,7 @@ export const unstakeTokenService = async (
 
     // Find the staking pool, user staking account, and escrow account
     const stakingPoolPublicKey = getStakingPoolPDA(adminPublicKey, tokenType);
-
     const userStakingAccountPublicKey = getUserStakingPDA(stakingPoolPublicKey, userPublicKey);
-
     const poolEscrowAccountPublicKey = getStakingEscrowPDA(stakingPoolPublicKey);
 
     // Check if the user already has a staking account to log the amount being unstaked
@@ -214,7 +205,7 @@ export const unstakeTokenService = async (
     
     if (tokenType === TokenType.SPL) {
       // For SPL, get/create ATA
-      userTokenAccountPublicKey = await getAssociatedTokenAddressSync(
+      userTokenAccountPublicKey = getAssociatedTokenAddressSync(
         mintPublicKey, 
         userPublicKey, 
         false, 
@@ -222,11 +213,11 @@ export const unstakeTokenService = async (
       );
       console.log("User Token Account PublicKey:", userTokenAccountPublicKey.toBase58());
 
-      if (!userTokenAccountPublicKey) {
-        console.log("User Token Account PublicKey does not exist. Creating ATA...");
-        const createATAResponse = await createAssociatedTokenAccount(mintPublicKey, userPublicKey);
-        console.log("Create ATA Response:", createATAResponse);
-        userTokenAccountPublicKey = createATAResponse.associatedTokenAddress;
+      // Check if ATA exists, if not log warning
+      const ataInfo = await connection.getAccountInfo(userTokenAccountPublicKey);
+      if (!ataInfo) {
+        console.log("⚠️ User Token Account does not exist. User needs to create ATA first.");
+        // You might want to create it here or return an error
       }
     } else {
       // For SOL, use SystemProgram as dummy (not actually used on-chain)
@@ -236,23 +227,31 @@ export const unstakeTokenService = async (
     // Get the latest blockhash
     const { blockhash } = await connection.getLatestBlockhash('finalized');
 
-    // Create an unsigned transaction to unstake all tokens
-    // Note: unstake() unstakes ALL tokens - the amount is determined by what's stored on-chain
-    const transaction = await program.methods
-      .unstake() // No need to pass amount, as unstake now operates on the full staked amount
+    // ✅ FIXED: Build instruction with proper account metas
+    const instruction = await program.methods
+      .unstake()
       .accounts({
         user: userPublicKey,
         stakingPool: stakingPoolPublicKey,
         userStakingAccount: userStakingAccountPublicKey,
         userTokenAccount: userTokenAccountPublicKey,
         poolEscrowAccount: poolEscrowAccountPublicKey,
-        mint: actualMint,  // ✅ Use SystemProgram for SOL
+        mint: actualMint,
         tokenProgram: TOKEN_2022_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
       })
-      .transaction();
+      .instruction();
 
+    // Create transaction
+    const transaction = new Transaction();
+    transaction.add(instruction);
     transaction.recentBlockhash = blockhash;
     transaction.feePayer = userPublicKey;
+
+    console.log("✅ Transaction accounts:");
+    instruction.keys.forEach((key, idx) => {
+      console.log(`  ${idx}: ${key.pubkey.toBase58()} - Signer: ${key.isSigner}, Writable: ${key.isWritable}`);
+    });
 
     // Serialize transaction and send it to the frontend
     return {
