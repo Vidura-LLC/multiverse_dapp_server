@@ -15,6 +15,7 @@ export const SEEDS = {
   USER_STAKING: "user_staking",
   REGISTRATION: "registration",
   TOURNAMENT_ESCROW: "escrow", // Tournament pool also uses "escrow" for its escrow
+  SOL_VAULT: "sol_vault",
 }
 
 export enum TokenType {
@@ -41,6 +42,19 @@ export const getStakingPoolPDA = (
       adminPublicKey.toBuffer(),
       Buffer.from([tokenType]) // ✅ CRITICAL: Include token type
     ],
+    program.programId
+  )[0];
+};
+
+/**
+ * Get SOL Vault PDA
+ * @param stakingPoolPublicKey - The staking pool PDA
+ * @returns SOL Vault PDA
+ */
+export const getSOLVaultPDA = (stakingPoolPublicKey: PublicKey) => {
+  const { program } = getProgram();
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from(SEEDS.SOL_VAULT), stakingPoolPublicKey.toBuffer()],
     program.programId
   )[0];
 };
@@ -317,6 +331,8 @@ export const getAllStakingPoolPDAs = (
     },
   };
 };
+
+
 
 /**
  * Helper function to log all PDAs for debugging
