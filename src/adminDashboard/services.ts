@@ -4,6 +4,7 @@
 import {
     PublicKey,
     SystemProgram,
+    Transaction,
   } from "@solana/web3.js";
   import {
     TOKEN_2022_PROGRAM_ID,
@@ -186,77 +187,99 @@ export interface RevenuePoolAccount {
    * @param adminPublicKey - The admin public key
    * @returns Result object with transaction details and addresses
    */
-    export const initializePrizePoolService = async (tournamentId: string, mintPublicKey: PublicKey, adminPublicKey: PublicKey, tokenType: TokenType = TokenType.SPL) => {
-        try {
-          const { program, connection } = getProgram();
-      
-          // Log initial parameters for clarity
-          console.log("Initializing Prize Pool for Tournament:");
-          console.log("Tournament ID:", tournamentId);
-          console.log("Admin PublicKey:", adminPublicKey.toBase58());
-          console.log("Mint PublicKey:", mintPublicKey.toBase58());
-          console.log("Token Type:", tokenType === TokenType.SPL ? "SPL" : "SOL");
-      
-          // First, derive the tournament pool PDA to ensure it exists
-          const tournamentIdBytes = Buffer.from(tournamentId, "utf8");
-          const tournamentPoolPublicKey = getTournamentPoolPDA(adminPublicKey, tournamentId, tokenType);
-          
-          console.log("🔹 Tournament Pool PDA Address:", tournamentPoolPublicKey.toString());
-          
-          // Add this to initializePrizePoolService
-          console.log("Full tournament pool key:", tournamentPoolPublicKey.toString());
-          console.log("Tournament ID bytes:", tournamentIdBytes);
-          console.log("Admin pubkey:", adminPublicKey.toString());
-      
-          // Derive the PDA for the prize pool (now derived from tournament pool)
-          const prizePoolPublicKey = getPrizePoolPDA(tournamentPoolPublicKey);
-      
-          // Derive the PDA for the prize escrow account
-          const prizeEscrowPublicKey = getPrizeEscrowPDA(prizePoolPublicKey);
-      
-          console.log("🔹 Prize Pool PDA Address:", prizePoolPublicKey.toString());
-          console.log("🔹 Prize Escrow PDA Address:", prizeEscrowPublicKey.toString());
-      
-          // Get the latest blockhash
-          const { blockhash } = await connection.getLatestBlockhash("finalized");
-          console.log("Latest Blockhash:", blockhash);
-      
-          const tokenTypeArg = tokenType === TokenType.SPL ? {spl: {}} : {sol: {}};
-          // Create the transaction
-          const transaction = await program.methods
-            .initializePrizePool(tournamentId, tokenTypeArg)
-            .accounts({
-              prizePool: prizePoolPublicKey,
-              tournamentPool: tournamentPoolPublicKey,
-              prizeEscrowAccount: prizeEscrowPublicKey,
-              mint: mintPublicKey,
-              admin: adminPublicKey,
-              systemProgram: anchor.web3.SystemProgram.programId,
-              tokenProgram: TOKEN_2022_PROGRAM_ID,
-            })
-            .transaction();
-      
-          // Set recent blockhash and fee payer
-          transaction.recentBlockhash = blockhash;
-          transaction.feePayer = adminPublicKey;
-          // Serialize transaction and send it to the frontend
-        return {
-          success: true,
-          message: "Transaction created successfully!",
-          transaction: transaction.serialize({ requireAllSignatures: false }).toString('base64'),
-          prizePool: prizePoolPublicKey.toString(),
-          prizeEscrowAccountPublicKey: prizeEscrowPublicKey.toString(),
-          tokenType: tokenType === TokenType.SPL ? "SPL" : "SOL",
-        };
-      } catch (err) {
-          console.error("❌ Error initializing prize pool:", err);
-          return {
-            success: false,
-            message: `Error initializing prize pool: ${err.message || err}`
-          };
-        }
-      };
-      
+/**
+ * Initialize a prize pool for a specific tournament
+ */
+export const initializePrizePoolService = async (
+  tournamentId: string, 
+  mintPublicKey: PublicKey, 
+  adminPublicKey: PublicKey, 
+  tokenType: TokenType
+) => {
+  try {
+    const { program, connection } = getProgram();
+
+    console.log("Initializing Prize Pool for Tournament:");
+    console.log("Tournament ID:", tournamentId);
+    console.log("Admin PublicKey:", adminPublicKey.toBase58());
+    console.log("Token Type:", tokenType === TokenType.SPL ? "SPL" : "SOL");
+
+    const tournamentPoolPublicKey = getTournamentPoolPDA(adminPublicKey, tournamentId, tokenType);
+    console.log("🔹 Tournament Pool PDA Address:", tournamentPoolPublicKey.toString());
+
+    const prizePoolPublicKey = getPrizePoolPDA(tournamentPoolPublicKey);
+    console.log("🔹 Prize Pool PDA Address:", prizePoolPublicKey.toString());
+
+    let prizeEscrowPublicKey: PublicKey;
+    let finalMintPublicKey: PublicKey;
+
+    if (tokenType === TokenType.SOL) {
+      prizeEscrowPublicKey = SystemProgram.programId;
+      finalMintPublicKey = SystemProgram.programId;
+      console.log("🔹 SOL Prize Pool (no escrow needed)");
+    } else {
+      prizeEscrowPublicKey = getPrizeEscrowPDA(prizePoolPublicKey);
+      finalMintPublicKey = mintPublicKey;
+      console.log("🔹 Prize Escrow PDA Address:", prizeEscrowPublicKey.toString());
+      console.log("🔹 Mint PublicKey:", mintPublicKey.toBase58());
+    }
+
+    const { blockhash } = await connection.getLatestBlockhash("finalized");
+
+    // ✅ Build instruction first, then modify account metas
+    const instruction = await program.methods
+      .initializePrizePool(tournamentId)
+      .accounts({
+        prizePool: prizePoolPublicKey,
+        tournamentPool: tournamentPoolPublicKey,
+        prizeEscrowAccount: prizeEscrowPublicKey,
+        mint: finalMintPublicKey,
+        creator: adminPublicKey,
+        systemProgram: SystemProgram.programId,
+        tokenProgram: tokenType === TokenType.SPL ? TOKEN_2022_PROGRAM_ID : SystemProgram.programId,
+      })
+      .instruction();
+
+    // ✅ For SPL tournaments, ensure prize_escrow_account and mint are writable
+    if (tokenType === TokenType.SPL) {
+      const escrowAccountIndex = instruction.keys.findIndex(
+        key => key.pubkey.equals(prizeEscrowPublicKey)
+      );
+      if (escrowAccountIndex !== -1) {
+        instruction.keys[escrowAccountIndex].isWritable = true;
+        console.log("✅ Marked prize_escrow_account as writable");
+      }
+
+      const mintAccountIndex = instruction.keys.findIndex(
+        key => key.pubkey.equals(finalMintPublicKey)
+      );
+      if (mintAccountIndex !== -1) {
+        instruction.keys[mintAccountIndex].isWritable = true;
+        console.log("✅ Marked mint as writable");
+      }
+    }
+
+    const transaction = new Transaction().add(instruction);
+
+    transaction.recentBlockhash = blockhash;
+    transaction.feePayer = adminPublicKey;
+
+    return {
+      success: true,
+      message: "Transaction created successfully!",
+      transaction: transaction.serialize({ requireAllSignatures: false }).toString('base64'),
+      prizePool: prizePoolPublicKey.toString(),
+      prizeEscrowAccountPublicKey: prizeEscrowPublicKey.toString(),
+      tokenType: tokenType === TokenType.SPL ? "SPL" : "SOL",
+    };
+  } catch (err) {
+    console.error("❌ Error initializing prize pool:", err);
+    return {
+      success: false,
+      message: `Error initializing prize pool: ${err.message || err}`
+    };
+  }
+};
 
 
   // ✅ Initialize Reward Pool (admin-only)
