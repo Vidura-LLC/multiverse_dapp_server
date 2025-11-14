@@ -315,7 +315,6 @@ export const getTotalTournamentEntryFeesService = async (
   }
 };
 
-// Register for tournament
 export const registerForTournamentService = async (
   tournamentId: string,
   userPublicKey: PublicKey,
@@ -326,30 +325,42 @@ export const registerForTournamentService = async (
     const { program, connection } = getProgram();
 
     const tournamentPoolPublicKey = getTournamentPoolPDA(adminPublicKey, tournamentId, tokenType);
-    // Fetch the tournament pool data
+    
     const tournamentPoolData = (await program.account.tournamentPool.fetch(
       tournamentPoolPublicKey
     )) as TournamentPoolAccount;
+    
     const mintPublicKey = tournamentPoolData.mint;
 
-    // Get escrow PDA
-    const poolEscrowAccountPublicKey = getTournamentEscrowPDA(tournamentPoolPublicKey);
+    let userTokenAccountPublicKey: PublicKey;
+    let poolEscrowAccountPublicKey: PublicKey;
 
-    // Get registration PDA
+    if (tokenType === TokenType.SOL) {
+      userTokenAccountPublicKey = SystemProgram.programId;
+      poolEscrowAccountPublicKey = SystemProgram.programId;
+    } else {
+      poolEscrowAccountPublicKey = getTournamentEscrowPDA(tournamentPoolPublicKey);
+      
+      userTokenAccountPublicKey = await getAssociatedTokenAddressSync(
+        mintPublicKey, 
+        userPublicKey, 
+        false, 
+        TOKEN_2022_PROGRAM_ID
+      );
+
+      const userTokenAccountInfo = await connection.getAccountInfo(userTokenAccountPublicKey);
+      if (!userTokenAccountInfo) {
+        console.log("User Token Account does not exist. Creating ATA...");
+        const createATAResponse = await createAssociatedTokenAccount(mintPublicKey, userPublicKey);
+        console.log("Create ATA Response:", createATAResponse);
+        userTokenAccountPublicKey = createATAResponse.associatedTokenAddress;
+      }
+    }
+
     const registrationAccountPublicKey = getRegistrationPDA(tournamentPoolPublicKey, userPublicKey);
 
-    let userTokenAccountPublicKey = await getAssociatedTokenAddressSync(mintPublicKey, userPublicKey, false, tokenType === TokenType.SPL ? TOKEN_2022_PROGRAM_ID : SystemProgram.programId);
-    console.log("User Token Account PublicKey:", userTokenAccountPublicKey.toBase58());
-
-    if (!userTokenAccountPublicKey) {
-      console.log("User Token Account PublicKey does not exist. Creating ATA...");
-      const createATAResponse = await createAssociatedTokenAccount(mintPublicKey, userPublicKey);
-      console.log("Create ATA Response:", createATAResponse);
-      userTokenAccountPublicKey = createATAResponse.associatedTokenAddress;
-    }
-  
-
-    const transaction = await program.methods
+    // ✅ Build instruction with explicit account metas for proper mutability
+    const instruction = await program.methods
       .registerForTournament(tournamentId)
       .accounts({
         user: userPublicKey,
@@ -361,13 +372,32 @@ export const registerForTournamentService = async (
         tokenProgram: tokenType === TokenType.SPL ? TOKEN_2022_PROGRAM_ID : SystemProgram.programId,
         systemProgram: SystemProgram.programId,
       })
-      .transaction();
+      .instruction();
+
+    // ✅ For SPL tournaments, ensure pool_escrow_account is writable
+    if (tokenType === TokenType.SPL) {
+      // Find the pool_escrow_account in the instruction and ensure it's writable
+      const escrowAccountIndex = instruction.keys.findIndex(
+        key => key.pubkey.equals(poolEscrowAccountPublicKey)
+      );
+      if (escrowAccountIndex !== -1) {
+        instruction.keys[escrowAccountIndex].isWritable = true;
+      }
+
+      // Also ensure user_token_account is writable for SPL
+      const userTokenAccountIndex = instruction.keys.findIndex(
+        key => key.pubkey.equals(userTokenAccountPublicKey)
+      );
+      if (userTokenAccountIndex !== -1) {
+        instruction.keys[userTokenAccountIndex].isWritable = true;
+      }
+    }
+
+    const transaction = new Transaction().add(instruction);
 
     const { blockhash } = await connection.getLatestBlockhash("finalized");
     transaction.recentBlockhash = blockhash;
     transaction.feePayer = userPublicKey;
-
-
 
     return {
       success: true,
