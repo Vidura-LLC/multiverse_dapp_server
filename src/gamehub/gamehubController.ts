@@ -358,7 +358,7 @@ export const registerForTournamentController = async (req: Request, res: Respons
     const { tournamentId, userPublicKey, tokenType } = req.body;
 
     // Validate required fields
-    if (!userPublicKey || !tournamentId || !tokenType || tokenType === undefined || tokenType === null ) {
+    if (!userPublicKey || !tournamentId || tokenType === undefined || tokenType === null) {
       return res.status(400).json({
         success: false,
         message: "Missing required fields: tournamentId or userPublicKey",
@@ -420,7 +420,7 @@ export const confirmParticipationController = async (req: Request, res: Response
     const { tournamentId, userPublicKey, transactionSignature, tokenType } = req.body;
 
     // Validate required fields
-    if (!userPublicKey || !tournamentId || !transactionSignature || !tokenType || tokenType === undefined || tokenType === null) {
+    if (!userPublicKey || !tournamentId || !transactionSignature || tokenType === undefined || tokenType === null) {
       return res.status(400).json({
         success: false,
         message: "Missing required fields: tournamentId, userPublicKey, transactionSignature, or tokenType",
