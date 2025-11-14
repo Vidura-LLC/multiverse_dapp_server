@@ -908,7 +908,7 @@ pub mod multiversed_dapp {
     /// PERMISSIONLESS: Any user can register
     pub fn register_for_tournament(
         ctx: Context<RegisterForTournament>,
-        _tournament_id: String, // Prefixed with underscore - used only for PDA derivation in Context
+        _tournament_id: String,
     ) -> Result<()> {
         let tournament_pool = &mut ctx.accounts.tournament_pool;
         let registration_account = &mut ctx.accounts.registration_account;
@@ -937,25 +937,42 @@ pub mod multiversed_dapp {
         // Transfer entry fee based on token type
         match tournament_pool.token_type {
             TokenType::SOL => {
-                // Transfer SOL from user to tournament pool
-                let user_account = ctx.accounts.user.to_account_info();
-                let pool_account = tournament_pool.to_account_info();
-
-                **user_account.try_borrow_mut_lamports()? = user_account
-                    .lamports()
-                    .checked_sub(entry_fee)
-                    .ok_or(TournamentError::InsufficientFunds)?;
-
-                **pool_account.try_borrow_mut_lamports()? = pool_account
-                    .lamports()
-                    .checked_add(entry_fee)
-                    .ok_or(TournamentError::MathOverflow)?;
+                // ✅ Use System Program transfer for SOL
+                system_program::transfer(
+                    CpiContext::new(
+                        ctx.accounts.system_program.to_account_info(),
+                        system_program::Transfer {
+                            from: ctx.accounts.user.to_account_info(),
+                            to: tournament_pool.to_account_info(),
+                        },
+                    ),
+                    entry_fee,
+                )?;
 
                 msg!("✅ {} lamports SOL transferred as entry fee", entry_fee);
             }
             TokenType::SPL => {
+                // ✅ Validate token program is correct
+                require!(
+                    ctx.accounts.token_program.key() == anchor_spl::token_2022::ID,
+                    TournamentError::InvalidTokenProgram
+                );
+
+                // ✅ Validate escrow account
+                let tournament_pool_key = tournament_pool.key();
+                let escrow_seeds = &[SEED_ESCROW, tournament_pool_key.as_ref()];
+                let (escrow_pda, _bump) =
+                    Pubkey::find_program_address(escrow_seeds, ctx.program_id);
+
+                require!(
+                    ctx.accounts.pool_escrow_account.key() == escrow_pda,
+                    TournamentError::InvalidEscrowAccount
+                );
+
                 // Transfer SPL tokens from user to tournament escrow
-                let mint_decimals = ctx.accounts.mint.decimals;
+                let mint_data = ctx.accounts.mint.try_borrow_data()?;
+                let mint = Mint::try_deserialize(&mut &mint_data[..])?;
+                let mint_decimals = mint.decimals;
 
                 token_2022::transfer_checked(
                     CpiContext::new(
@@ -995,7 +1012,6 @@ pub mod multiversed_dapp {
 
         Ok(())
     }
-
     /// Initialize prize pool for a tournament
     /// Can be called by tournament creator or auto-initialized
     pub fn initialize_prize_pool(
@@ -1711,21 +1727,19 @@ pub struct RegisterForTournament<'info> {
     )]
     pub registration_account: Account<'info, RegistrationRecord>,
 
-    /// CHECK: Only used for SPL tokens
-    #[account(mut)]
+    /// CHECK: Only used for SPL tokens. For SOL, we pass SystemProgram.programId (not mutable).
     pub user_token_account: UncheckedAccount<'info>,
 
-    #[account(
-        mut,
-        token::mint = tournament_pool.mint,
-        token::authority = tournament_pool
-    )]
-    pub pool_escrow_account: InterfaceAccount<'info, TokenAccount>,
+    /// CHECK: For SPL, this must be a valid token account. For SOL, we pass SystemProgram.programId (not used).
+    pub pool_escrow_account: UncheckedAccount<'info>,
 
-    #[account(mut, constraint = mint.key() == tournament_pool.mint)]
-    pub mint: InterfaceAccount<'info, Mint>,
+    /// CHECK: For SPL, must be valid mint. For SOL, we pass SystemProgram.programId as dummy.
+    /// Not mutable because mints are only read during transfers, not modified.
+    pub mint: UncheckedAccount<'info>,
 
-    pub token_program: Program<'info, Token2022>,
+    /// CHECK: Token program - only used for SPL
+    pub token_program: UncheckedAccount<'info>,
+
     pub system_program: Program<'info, System>,
 }
 
