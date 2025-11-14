@@ -1,17 +1,18 @@
 //src/adminDashboard/adminDashboardController.ts
 
-import { PublicKey } from '@solana/web3.js';
-    import { checkPoolStatus, initializeRevenuePoolService, initializeStakingPoolService, initializeRewardPoolService, initializePrizePoolService } from "./services";
-    import { Request, Response } from 'express';
+import { PublicKey, SystemProgram } from '@solana/web3.js';
+import { checkPoolStatus, initializeRevenuePoolService, initializeStakingPoolService, initializeRewardPoolService, initializePrizePoolService } from "./services";
+import { getTournamentPoolPDA, getPrizePoolPDA, TokenType } from "../utils/getPDAs";
+import { getProgram } from "../staking/services";
+import { Request, Response } from 'express';
 import {
     getStakingPoolData,
     getActiveStakers,
     calculateAPY
 } from './stakingStatsService';
 import { getRevenuePoolStatsService, getTournamentStats, getStakingStats, getDashboardData } from './dashboardStatsService';
-import { get, ref, set } from 'firebase/database';
+import { get, ref, set, update } from 'firebase/database';
 import { db } from '../config/firebase';
-import { TokenType } from "../utils/getPDAs";
 
 
 export const checkPoolStatusController = async (req: Request, res: Response,) => {
@@ -134,47 +135,40 @@ export const initializeRevenuePoolController = async (req: Request, res: Respons
  */
 export const initializePrizePoolController = async (req: Request, res: Response) => {
     try {
-      const { tournamentId, mintPublicKey, adminPublicKey } = req.body;
+      const { tournamentId, mintPublicKey, adminPublicKey, tokenType } = req.body;
   
       // Validate required fields
-      if (!tournamentId) {
+      if (!tournamentId || !adminPublicKey || tokenType === undefined) {
         return res.status(400).json({ 
           success: false, 
-          message: 'Tournament ID is required' 
+          message: 'Tournament ID, Admin public key, and token type are required' 
         });
       }
   
-      if (!mintPublicKey || !adminPublicKey) {
+      const tt = Number(tokenType);
+      if (tt !== TokenType.SPL && tt !== TokenType.SOL) {
         return res.status(400).json({ 
           success: false, 
-          message: 'Mint and Admin public key are required' 
+          message: 'tokenType must be 0 (SPL) or 1 (SOL)' 
         });
       }
   
-      // Convert string public key to PublicKey object
-      const mintPubkey = new PublicKey(mintPublicKey);
+      // For SPL, mint is required
+      if (tt === TokenType.SPL && !mintPublicKey) {
+        return res.status(400).json({ 
+          success: false, 
+          message: 'Mint public key is required for SPL tournaments' 
+        });
+      }
+  
       const adminPubKey = new PublicKey(adminPublicKey);
+      const mintPubkey = mintPublicKey ? new PublicKey(mintPublicKey) : SystemProgram.programId;
       
-      // Call the service function to initialize prize pool for the tournament
-      const result = await initializePrizePoolService(tournamentId, mintPubkey, adminPubKey);
-  
+      // Call the service function to create transaction
+      const result = await initializePrizePoolService(tournamentId, mintPubkey, adminPubKey, tt as TokenType);
+
+      // Return transaction - prize pool will be updated in Firebase after transaction is confirmed
       if (result.success) {
-        const tournamentRef = ref(db, `tournaments/${tournamentId}`);
-        const tournamentSnapshot = await get(tournamentRef);
-  
-        if (!tournamentSnapshot.exists()) {
-          return res.status(404).json({
-            success: false,
-            message: 'Tournament not found'
-          });
-        }
-  
-        const tournament = tournamentSnapshot.val();
-        tournament.prizePool = result.prizePool;
-  
-        // Save the updated tournament data back to Firebase
-        await set(tournamentRef, tournament);
-  
         return res.status(200).json(result);
       } else {
         return res.status(500).json(result);
@@ -188,7 +182,128 @@ export const initializePrizePoolController = async (req: Request, res: Response)
       });
     }
   };
-  
+
+// Controller to confirm prize pool initialization after transaction is verified on blockchain
+export const confirmPrizePoolController = async (req: Request, res: Response) => {
+  try {
+    const { tournamentId, adminPublicKey, transactionSignature, prizePool, tokenType } = req.body;
+
+    // Validate required fields
+    if (!tournamentId || !adminPublicKey || !transactionSignature || !prizePool || tokenType === undefined || tokenType === null) {
+      return res.status(400).json({
+        success: false,
+        message: "Missing required fields: tournamentId, adminPublicKey, transactionSignature, prizePool, or tokenType",
+      });
+    }
+
+    const tt = Number(tokenType);
+    if (tt !== TokenType.SPL && tt !== TokenType.SOL) {
+      return res.status(400).json({ message: "tokenType must be 0 (SPL) or 1 (SOL)" });
+    }
+
+    // Verify transaction exists on blockchain and was successful
+    const { connection, program } = getProgram();
+    try {
+      const txInfo = await connection.getTransaction(transactionSignature, {
+        maxSupportedTransactionVersion: 0
+      });
+      
+      if (!txInfo) {
+        return res.status(400).json({
+          success: false,
+          message: 'Transaction not found on blockchain'
+        });
+      }
+
+      // Check if transaction was successful
+      if (txInfo.meta?.err) {
+        return res.status(400).json({
+          success: false,
+          message: 'Transaction failed on blockchain',
+          error: txInfo.meta.err
+        });
+      }
+    } catch (err) {
+      console.error('Error verifying transaction on blockchain:', err);
+      return res.status(400).json({
+        success: false,
+        message: 'Could not verify transaction on blockchain',
+        error: err.message
+      });
+    }
+
+    // Verify prize pool account exists on blockchain (confirms initialization was successful)
+    try {
+      const adminPubKey = new PublicKey(adminPublicKey);
+      const tournamentPoolPublicKey = getTournamentPoolPDA(adminPubKey, tournamentId, tt as TokenType);
+      const prizePoolPublicKey = getPrizePoolPDA(tournamentPoolPublicKey);
+      
+      // Verify the prize pool address matches
+      if (prizePoolPublicKey.toBase58() !== prizePool) {
+        return res.status(400).json({
+          success: false,
+          message: 'Prize pool address mismatch'
+        });
+      }
+
+      // Try to fetch the prize pool account - if it exists, initialization was successful
+      const prizePoolAccount = await program.account.prizePool.fetchNullable(prizePoolPublicKey);
+      
+      if (!prizePoolAccount) {
+        return res.status(400).json({
+          success: false,
+          message: 'Prize pool account not found on blockchain - initialization may have failed'
+        });
+      }
+    } catch (err) {
+      console.error('Error verifying prize pool account:', err);
+      return res.status(400).json({
+        success: false,
+        message: 'Could not verify prize pool on blockchain - prize pool account does not exist',
+        error: err.message
+      });
+    }
+
+    // Transaction verified and prize pool confirmed - now update Firebase
+    const tournamentRef = ref(db, `tournaments/${tt}/${tournamentId}`);
+    const tournamentSnapshot = await get(tournamentRef);
+
+    if (!tournamentSnapshot.exists()) {
+      return res.status(404).json({
+        success: false,
+        message: 'Tournament not found'
+      });
+    }
+
+    const tournament = tournamentSnapshot.val();
+    
+    // Check if prize pool already exists (idempotency)
+    if (tournament.prizePool) {
+      return res.status(200).json({
+        success: true,
+        message: "Prize pool already initialized",
+      });
+    }
+
+    // Update tournament with prize pool address
+    tournament.prizePool = prizePool;
+
+    await update(tournamentRef, tournament);
+
+    return res.status(200).json({
+      success: true,
+      message: "Prize pool confirmed and tournament updated",
+      prizePool: prizePool
+    });
+  } catch (error) {
+    console.error("❌ Error in confirmPrizePool controller:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: error.message,
+    });
+  }
+};
   
       
 
