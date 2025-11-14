@@ -1013,10 +1013,11 @@ pub mod multiversed_dapp {
         Ok(())
     }
     /// Initialize prize pool for a tournament
+    /// Initialize prize pool for a tournament
     /// Can be called by tournament creator or auto-initialized
     pub fn initialize_prize_pool(
         ctx: Context<InitializePrizePool>,
-        _tournament_id: String, // Prefixed with underscore - used only for PDA derivation in Context
+        _tournament_id: String,
     ) -> Result<()> {
         let prize_pool = &mut ctx.accounts.prize_pool;
         let creator = &ctx.accounts.creator;
@@ -1025,20 +1026,94 @@ pub mod multiversed_dapp {
         // Use tournament_id from tournament_pool (already validated in Context)
         let tournament_id_bytes = tournament_pool.tournament_id;
 
-        // Initialize prize pool
+        // Initialize prize pool basic fields
         prize_pool.admin = creator.key();
         prize_pool.tournament_pool = tournament_pool.key();
-        prize_pool.mint = ctx.accounts.mint.key();
         prize_pool.tournament_id = tournament_id_bytes;
         prize_pool.total_funds = 0;
         prize_pool.distributed = false;
         prize_pool.token_type = tournament_pool.token_type;
         prize_pool.bump = ctx.bumps.prize_pool;
 
-        msg!(
-            "✅ Prize pool initialized for tournament: {}",
-            String::from_utf8_lossy(&tournament_id_bytes)
-        );
+        // Handle token-type-specific initialization
+        match tournament_pool.token_type {
+            TokenType::SOL => {
+                // For SOL, no escrow needed - use prize_pool pubkey as mint
+                prize_pool.mint = prize_pool.key();
+
+                msg!("✅ SOL prize pool initialized (no escrow needed)");
+                msg!(
+                    "   Tournament: {}",
+                    String::from_utf8_lossy(&tournament_id_bytes)
+                );
+            }
+            TokenType::SPL => {
+                // For SPL, initialize escrow account
+                prize_pool.mint = ctx.accounts.mint.key();
+
+                // Validate token program
+                require!(
+                    ctx.accounts.token_program.key() == anchor_spl::token_2022::ID,
+                    TournamentError::InvalidTokenProgram
+                );
+
+                // Validate escrow PDA
+                let prize_pool_key = prize_pool.key();
+                let escrow_seeds = &[SEED_PRIZE_ESCROW, prize_pool_key.as_ref()];
+                let (escrow_pda, escrow_bump) =
+                    Pubkey::find_program_address(escrow_seeds, ctx.program_id);
+
+                require!(
+                    ctx.accounts.prize_escrow_account.key() == escrow_pda,
+                    TournamentError::InvalidEscrowAccount
+                );
+
+                // Create the escrow account
+                let rent = Rent::get()?;
+                let space = 165; // Token account size
+                let lamports = rent.minimum_balance(space);
+
+                invoke_signed(
+                    &system_instruction::create_account(
+                        ctx.accounts.creator.key,
+                        &escrow_pda,
+                        lamports,
+                        space as u64,
+                        &anchor_spl::token_2022::ID,
+                    ),
+                    &[
+                        ctx.accounts.creator.to_account_info(),
+                        ctx.accounts.prize_escrow_account.to_account_info(),
+                        ctx.accounts.system_program.to_account_info(),
+                    ],
+                    &[&[SEED_PRIZE_ESCROW, prize_pool_key.as_ref(), &[escrow_bump]]],
+                )?;
+
+                // Initialize as token account
+                let init_account_ix = spl_token_2022::instruction::initialize_account3(
+                    &anchor_spl::token_2022::ID,
+                    &escrow_pda,
+                    &ctx.accounts.mint.key(),
+                    &prize_pool.key(),
+                )?;
+
+                invoke(
+                    &init_account_ix,
+                    &[
+                        ctx.accounts.prize_escrow_account.to_account_info(),
+                        ctx.accounts.mint.to_account_info(),
+                    ],
+                )?;
+
+                msg!("✅ SPL prize pool and escrow initialized");
+                msg!(
+                    "   Tournament: {}",
+                    String::from_utf8_lossy(&tournament_id_bytes)
+                );
+                msg!("   Mint: {}", ctx.accounts.mint.key());
+                msg!("   Escrow: {}", escrow_pda);
+            }
+        }
 
         Ok(())
     }
@@ -1809,23 +1884,19 @@ pub struct InitializePrizePool<'info> {
     )]
     pub tournament_pool: Account<'info, TournamentPool>,
 
-    #[account(
-        init_if_needed,
-        payer = creator,
-        token::mint = mint,
-        token::authority = prize_pool,
-        seeds = [SEED_PRIZE_ESCROW, prize_pool.key().as_ref()],
-        bump
-    )]
-    pub prize_escrow_account: InterfaceAccount<'info, TokenAccount>,
+    /// CHECK: For SPL, this will be a token account. For SOL, we pass SystemProgram.programId (not used).
+    pub prize_escrow_account: UncheckedAccount<'info>,
 
-    pub mint: InterfaceAccount<'info, Mint>,
+    /// CHECK: For SPL, must be valid mint. For SOL, we pass SystemProgram.programId as dummy.
+    pub mint: UncheckedAccount<'info>,
 
     #[account(mut)]
     pub creator: Signer<'info>,
 
     pub system_program: Program<'info, System>,
-    pub token_program: Program<'info, Token2022>,
+
+    /// CHECK: Token program - only used for SPL
+    pub token_program: UncheckedAccount<'info>,
 }
 
 #[derive(Accounts)]
