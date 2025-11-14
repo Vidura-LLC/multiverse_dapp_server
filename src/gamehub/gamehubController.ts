@@ -6,7 +6,8 @@ import { getTournamentLeaderboard, updateParticipantScore, getTournamentsByGame 
 import { getTournamentLeaderboardAgainstAdmin, getAdminTournamentsLeaderboards } from "./adminLeaderboardService";
 import { PublicKey } from "@solana/web3.js";
 import schedule from 'node-schedule'
-import { TokenType } from "../utils/getPDAs";
+import { TokenType, getTournamentPoolPDA, getRegistrationPDA } from "../utils/getPDAs";
+import { getProgram } from "../staking/services";
 // Define Tournament interface
 export interface Tournament {
   id: string;
@@ -261,15 +262,41 @@ export const getTournamentsByAdmin = async (req: Request, res: Response) => {
 
 export async function getTournaments(req: Request, res: Response) {
   try {
-    const tournamentsRef = ref(db, 'tournaments');
-    const tournamentsSnapshot = await get(tournamentsRef);
+    const { tokenType } = req.query;
 
-    if (!tournamentsSnapshot.exists()) {
-      return res.status(404).json({ message: "No tournaments found" });
+    // If tokenType is provided, fetch tournaments for that specific token type
+    if (tokenType !== undefined && tokenType !== null) {
+      const tt = Number(tokenType);
+      if (tt !== TokenType.SPL && tt !== TokenType.SOL) {
+        return res.status(400).json({ message: "tokenType must be 0 (SPL) or 1 (SOL)" });
+      }
+
+      // Fetch tournaments for specific token type
+      const tournamentsRef = ref(db, `tournaments/${tt as TokenType}`);
+      const tournamentsSnapshot = await get(tournamentsRef);
+
+      if (!tournamentsSnapshot.exists()) {
+        return res.status(200).json({ tournaments: {} });
+      }
+
+      const tournaments = tournamentsSnapshot.val();
+      return res.status(200).json({ tournaments });
+    } else {
+      // If no tokenType provided, fetch tournaments from both token types and merge them
+      const allTournaments: Record<string, any> = {};
+      
+      for (const tt of [TokenType.SPL, TokenType.SOL]) {
+        const tournamentsRef = ref(db, `tournaments/${tt}`);
+        const tournamentsSnapshot = await get(tournamentsRef);
+        
+        if (tournamentsSnapshot.exists()) {
+          const tournaments = tournamentsSnapshot.val();
+          Object.assign(allTournaments, tournaments);
+        }
+      }
+
+      return res.status(200).json({ tournaments: allTournaments });
     }
-
-    const tournaments = tournamentsSnapshot.val();
-    return res.status(200).json({ tournaments });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ message: "Internal Server Error" });
@@ -368,29 +395,150 @@ export const registerForTournamentController = async (req: Request, res: Respons
 
     const userPubKey = new PublicKey(userPublicKey);
 
-    // First register on blockchain (maintains existing functionality)
+    // Create transaction for blockchain registration (don't add to Firebase yet)
     const blockchainResult = await registerForTournamentService(tournamentId, userPubKey, new PublicKey(adminPublicKey), tt as TokenType );
 
-    // Then update Firebase to add participant with initial score
+    // Return transaction - participant will be added to Firebase after transaction is confirmed
     if (blockchainResult.success) {
-      const participants = tournament.participants || {};
-
-      // Initialize the participant with a score of 0 (in Firebase )
-      participants[userPublicKey] = {
-        score: 0
-      };
-
-      await update(tournamentRef, {
-        participants,
-        participantsCount: Object.keys(participants).length
-      });
-
       return res.status(200).json(blockchainResult);
     } else {
       return res.status(400).json(blockchainResult);
     }
   } catch (error) {
     console.error("❌ Error in registerForTournament controller:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: error.message,
+    });
+  }
+};
+
+// Controller to confirm participation after transaction is verified on blockchain
+export const confirmParticipationController = async (req: Request, res: Response) => {
+  try {
+    const { tournamentId, userPublicKey, transactionSignature, tokenType } = req.body;
+
+    // Validate required fields
+    if (!userPublicKey || !tournamentId || !transactionSignature || !tokenType || tokenType === undefined || tokenType === null) {
+      return res.status(400).json({
+        success: false,
+        message: "Missing required fields: tournamentId, userPublicKey, transactionSignature, or tokenType",
+      });
+    }
+
+    const tt = Number(tokenType);
+    if (tt !== TokenType.SPL && tt !== TokenType.SOL) {
+      return res.status(400).json({ message: "tokenType must be 0 (SPL) or 1 (SOL)" });
+    }
+
+    // Find tournament by tournamentId
+    const tournamentRef = ref(db, `tournaments/${tt as TokenType}/${tournamentId}`);
+    const tournamentSnapshot = await get(tournamentRef);
+
+    // Check if tournament exists
+    if (!tournamentSnapshot.exists()) {
+      return res.status(404).json({
+        success: false,
+        message: "Tournament not found",
+      });
+    }
+
+    const tournament = tournamentSnapshot.val();
+    const adminPublicKey = tournament.createdBy;
+    if (!adminPublicKey) {
+      return res.status(400).json({
+        success: false,
+        message: "Tournament does not have an adminPublicKey",
+      });
+    }
+
+    const userPubKey = new PublicKey(userPublicKey);
+    const adminPubKey = new PublicKey(adminPublicKey);
+
+    // Verify transaction exists on blockchain and was successful
+    const { connection, program } = getProgram();
+    try {
+      const txInfo = await connection.getTransaction(transactionSignature, {
+        maxSupportedTransactionVersion: 0
+      });
+      
+      if (!txInfo) {
+        return res.status(400).json({
+          success: false,
+          message: 'Transaction not found on blockchain'
+        });
+      }
+
+      // Check if transaction was successful
+      if (txInfo.meta?.err) {
+        return res.status(400).json({
+          success: false,
+          message: 'Transaction failed on blockchain',
+          error: txInfo.meta.err
+        });
+      }
+    } catch (err) {
+      console.error('Error verifying transaction on blockchain:', err);
+      return res.status(400).json({
+        success: false,
+        message: 'Could not verify transaction on blockchain',
+        error: err.message
+      });
+    }
+
+    // Verify registration account exists on blockchain (confirms registration was successful)
+    try {
+      const tournamentPoolPublicKey = getTournamentPoolPDA(adminPubKey, tournamentId, tt as TokenType);
+      const registrationAccountPublicKey = getRegistrationPDA(tournamentPoolPublicKey, userPubKey);
+      
+      // Try to fetch the registration account - if it exists, registration was successful
+      // Use fetchNullable to handle cases where account might not exist yet
+      const registrationAccount = await program.account.registrationRecord.fetchNullable(registrationAccountPublicKey);
+      
+      if (!registrationAccount) {
+        return res.status(400).json({
+          success: false,
+          message: 'Registration account not found on blockchain - registration may have failed or transaction not yet confirmed'
+        });
+      }
+    } catch (err) {
+      console.error('Error verifying registration account:', err);
+      return res.status(400).json({
+        success: false,
+        message: 'Could not verify registration on blockchain - registration account does not exist',
+        error: err.message
+      });
+    }
+
+    // Transaction verified and registration confirmed - now add participant to Firebase
+    const participants = tournament.participants || {};
+
+    // Check if participant already exists (idempotency)
+    if (participants[userPublicKey]) {
+      return res.status(200).json({
+        success: true,
+        message: "Participant already registered",
+      });
+    }
+
+    // Initialize the participant with a score of 0
+    participants[userPublicKey] = {
+      score: 0,
+      joinedAt: new Date().toISOString()
+    };
+
+    await update(tournamentRef, {
+      participants,
+      participantsCount: Object.keys(participants).length
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Participation confirmed and participant added to tournament",
+    });
+  } catch (error) {
+    console.error("❌ Error in confirmParticipation controller:", error);
     return res.status(500).json({
       success: false,
       message: "Internal server error",
