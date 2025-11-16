@@ -1351,7 +1351,7 @@ pub mod multiversed_dapp {
     /// Only callable by tournament creator
     pub fn distribute_tournament_prizes(
         ctx: Context<DistributeTournamentPrizes>,
-        tournament_id: String, // Used for verification
+        tournament_id: String,
     ) -> Result<()> {
         // Fixed percentages for the top 3 positions
         const PERCENTAGES: [u8; 3] = [50, 30, 20]; // 1st: 50%, 2nd: 30%, 3rd: 20%
@@ -1400,39 +1400,40 @@ pub mod multiversed_dapp {
         // Distribute based on token type
         match prize_pool.token_type {
             TokenType::SOL => {
-                // SOL PRIZE DISTRIBUTION
+                // SOL PRIZE DISTRIBUTION via direct lamport manipulation
                 let prize_pool_info = prize_pool.to_account_info();
-                let mut prize_pool_lamports = prize_pool_info.try_borrow_mut_lamports()?;
 
-                require!(
-                    **prize_pool_lamports >= total_prize_pool,
-                    TournamentError::InsufficientFunds
-                );
-
-                // Transfer to winners
+                // Transfer to 1st place
                 if first_place_amount > 0 {
+                    **prize_pool_info.try_borrow_mut_lamports()? -= first_place_amount;
                     **ctx.accounts.first_place_winner.try_borrow_mut_lamports()? +=
                         first_place_amount;
-                    **prize_pool_lamports -= first_place_amount;
                 }
 
+                // Transfer to 2nd place
                 if second_place_amount > 0 {
+                    **prize_pool_info.try_borrow_mut_lamports()? -= second_place_amount;
                     **ctx.accounts.second_place_winner.try_borrow_mut_lamports()? +=
                         second_place_amount;
-                    **prize_pool_lamports -= second_place_amount;
                 }
 
+                // Transfer to 3rd place
                 if third_place_amount > 0 {
+                    **prize_pool_info.try_borrow_mut_lamports()? -= third_place_amount;
                     **ctx.accounts.third_place_winner.try_borrow_mut_lamports()? +=
                         third_place_amount;
-                    **prize_pool_lamports -= third_place_amount;
                 }
 
                 msg!("✅ SOL tournament prizes distributed");
             }
             TokenType::SPL => {
                 // SPL TOKEN PRIZE DISTRIBUTION
-                let mint_decimals = ctx.accounts.mint.decimals;
+                let mint_decimals = {
+                    let mint_data = ctx.accounts.mint.try_borrow_data()?;
+                    let mint = Mint::try_deserialize(&mut &mint_data[..])?;
+                    mint.decimals
+                };
+
                 let tournament_pool_key = prize_pool.tournament_pool;
                 let bump = prize_pool.bump;
                 let signer_seeds: &[&[&[u8]]] =
@@ -1509,6 +1510,7 @@ pub mod multiversed_dapp {
 
         Ok(())
     }
+
 }
 
 // ==============================
@@ -1894,6 +1896,7 @@ pub struct DistributeTournamentRevenue<'info> {
 
     pub system_program: Program<'info, System>,
 }
+
 #[derive(Accounts)]
 #[instruction(tournament_id: String)]
 pub struct DistributeTournamentPrizes<'info> {
@@ -1915,14 +1918,10 @@ pub struct DistributeTournamentPrizes<'info> {
     )]
     pub prize_pool: Account<'info, PrizePool>,
 
-    #[account(
-        mut,
-        token::mint = mint,
-        token::authority = prize_pool
-    )]
-    pub prize_escrow_account: InterfaceAccount<'info, TokenAccount>,
+    /// CHECK: For SPL, this is a token escrow. For SOL, not used (SystemProgram.programId)
+    pub prize_escrow_account: UncheckedAccount<'info>,
 
-    // Winner accounts (for SOL, these are System accounts; for SPL, ignored)
+    // Winner accounts (for SOL, these receive lamports directly; for SPL, these are just references)
     /// CHECK: First place winner
     #[account(mut)]
     pub first_place_winner: UncheckedAccount<'info>,
@@ -1935,23 +1934,22 @@ pub struct DistributeTournamentPrizes<'info> {
     #[account(mut)]
     pub third_place_winner: UncheckedAccount<'info>,
 
-    // Winner token accounts (for SPL only)
+    // Winner token accounts (for SPL only, for SOL pass SystemProgram.programId)
     /// CHECK: Only used for SPL tokens
-    #[account(mut)]
     pub first_place_token_account: UncheckedAccount<'info>,
 
     /// CHECK: Only used for SPL tokens
-    #[account(mut)]
     pub second_place_token_account: UncheckedAccount<'info>,
 
     /// CHECK: Only used for SPL tokens
-    #[account(mut)]
     pub third_place_token_account: UncheckedAccount<'info>,
 
-    #[account(mut, constraint = mint.key() == prize_pool.mint)]
-    pub mint: InterfaceAccount<'info, Mint>,
+    /// CHECK: For SPL, must be valid mint. For SOL, we pass SystemProgram.programId
+    pub mint: UncheckedAccount<'info>,
 
-    pub token_program: Program<'info, Token2022>,
+    /// CHECK: Token program - only used for SPL
+    pub token_program: UncheckedAccount<'info>,
+
     pub system_program: Program<'info, System>,
 }
 
