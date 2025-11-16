@@ -310,23 +310,15 @@ export const distributeTournamentPrizesService = async (
     const { program, connection } = getProgram();
 
     console.log("Preparing prize distribution for tournament:", tournamentId);
+    console.log("Token Type:", tokenType === TokenType.SOL ? "SOL" : "SPL");
     console.log("Winners:");
     console.log("1st Place:", firstPlacePublicKey.toString());
     console.log("2nd Place:", secondPlacePublicKey.toString());
     console.log("3rd Place:", thirdPlacePublicKey.toString());
 
-    // Get tournament data
-    const tournamentPoolResult = await getTournamentPool(tournamentId, adminPublicKey, tokenType);
-    if (!tournamentPoolResult.success) {
-      return {
-        success: false,
-        message: `Failed to fetch tournament data: ${tournamentPoolResult.message || "Unknown error"}`
-      };
-    }
-
-    // 1. First, check if tournament exists and has been distributed in Firebase
+    // 1. Verify tournament in Firebase (use correct path with tokenType)
     console.log("Verifying tournament in Firebase...");
-    const tournamentRef = ref(db, `tournaments/${tournamentId}`);
+    const tournamentRef = ref(db, `tournaments/${tokenType}/${tournamentId}`);
     const tournamentSnapshot = await get(tournamentRef);
     
     if (!tournamentSnapshot.exists()) {
@@ -359,99 +351,184 @@ export const distributeTournamentPrizesService = async (
     const tournamentPoolPublicKey = getTournamentPoolPDA(adminPublicKey, tournamentId, tokenType);
     console.log("🔹 Tournament Pool PDA:", tournamentPoolPublicKey.toString());
 
-    // Prize Pool PDA (derived from tournament pool)
     const prizePoolPublicKey = getPrizePoolPDA(tournamentPoolPublicKey);
     console.log("🔹 Prize Pool PDA:", prizePoolPublicKey.toString());
 
-    // Prize Escrow PDA
-    const prizeEscrowPublicKey = getPrizeEscrowPDA(prizePoolPublicKey);
-    console.log("🔹 Prize Escrow PDA:", prizeEscrowPublicKey.toString());
+    // 3. Get tournament data from blockchain
+    const tournamentPoolResult = await getTournamentPool(tournamentId, adminPublicKey, tokenType);
+    if (!tournamentPoolResult.success) {
+      return {
+        success: false,
+        message: `Failed to fetch tournament data: ${tournamentPoolResult.message || "Unknown error"}`
+      };
+    }
 
-    // 3. Get the mint address from the tournament data
-    const mintPublicKey = new PublicKey(tournamentPoolResult.data.mint);
-    console.log("🔹 Token Mint:", mintPublicKey.toString());
+    // 4. Prepare accounts based on token type
+    let mintPublicKey: PublicKey;
+    let prizeEscrowPublicKey: PublicKey;
+    let firstPlaceTokenAccount: PublicKey;
+    let secondPlaceTokenAccount: PublicKey;
+    let thirdPlaceTokenAccount: PublicKey;
+    let tokenProgramId: PublicKey;
 
-    // 4. Get token accounts for the winners
-    console.log("Getting associated token accounts for winners...");
+    if (tokenType === TokenType.SOL) {
+      // For SOL, use SystemProgram as dummy values
+      mintPublicKey = SystemProgram.programId;
+      prizeEscrowPublicKey = SystemProgram.programId;
+      firstPlaceTokenAccount = SystemProgram.programId;
+      secondPlaceTokenAccount = SystemProgram.programId;
+      thirdPlaceTokenAccount = SystemProgram.programId;
+      tokenProgramId = SystemProgram.programId;
+      
+      console.log("🔹 Token Type: SOL (winners receive lamports directly)");
+    } else {
+      // For SPL, derive actual escrow and get token accounts
+      mintPublicKey = new PublicKey(tournamentPoolResult.data.mint);
+      prizeEscrowPublicKey = getPrizeEscrowPDA(prizePoolPublicKey);
+      tokenProgramId = TOKEN_2022_PROGRAM_ID;
 
-    // First place token account
-    const firstPlaceTokenAccount = await getOrCreateAssociatedTokenAccount(
-      connection,
-      mintPublicKey,
-      firstPlacePublicKey
-    );
-    console.log("1st Place Token Account:", firstPlaceTokenAccount.toString());
+      console.log("🔹 Token Type: SPL");
+      console.log("🔹 Token Mint:", mintPublicKey.toString());
+      console.log("🔹 Prize Escrow:", prizeEscrowPublicKey.toString());
 
-    // Second place token account
-    const secondPlaceTokenAccount = await getOrCreateAssociatedTokenAccount(
-      connection,
-      mintPublicKey,
-      secondPlacePublicKey
-    );
-    console.log("2nd Place Token Account:", secondPlaceTokenAccount.toString());
+      // Get associated token accounts for winners
+      console.log("Getting associated token accounts for winners...");
+      
+      firstPlaceTokenAccount = await getOrCreateAssociatedTokenAccount(
+        connection,
+        mintPublicKey,
+        firstPlacePublicKey
+      );
+      console.log("1st Place Token Account:", firstPlaceTokenAccount.toString());
 
-    // Third place token account
-    const thirdPlaceTokenAccount = await getOrCreateAssociatedTokenAccount(
-      connection,
-      mintPublicKey,
-      thirdPlacePublicKey
-    );
-    console.log("3rd Place Token Account:", thirdPlaceTokenAccount.toString());
+      secondPlaceTokenAccount = await getOrCreateAssociatedTokenAccount(
+        connection,
+        mintPublicKey,
+        secondPlacePublicKey
+      );
+      console.log("2nd Place Token Account:", secondPlaceTokenAccount.toString());
 
-    // 5. Create the transaction (but don't sign it)
-    console.log("Creating unsigned prize distribution transaction...");
-    const transaction = await program.methods
+      thirdPlaceTokenAccount = await getOrCreateAssociatedTokenAccount(
+        connection,
+        mintPublicKey,
+        thirdPlacePublicKey
+      );
+      console.log("3rd Place Token Account:", thirdPlaceTokenAccount.toString());
+    }
+
+    // 5. Create the instruction
+    console.log("Creating prize distribution transaction...");
+
+    const computeBudgetInstruction = ComputeBudgetProgram.setComputeUnitLimit({
+      units: 400_000,
+    });
+
+    const prizeDistributionInstruction = await program.methods
       .distributeTournamentPrizes(tournamentId)
       .accounts({
-        admin: adminPublicKey,
+        creator: adminPublicKey,
         tournamentPool: tournamentPoolPublicKey,
         prizePool: prizePoolPublicKey,
         prizeEscrowAccount: prizeEscrowPublicKey,
+        firstPlaceWinner: firstPlacePublicKey,
+        secondPlaceWinner: secondPlacePublicKey,
+        thirdPlaceWinner: thirdPlacePublicKey,
         firstPlaceTokenAccount: firstPlaceTokenAccount,
         secondPlaceTokenAccount: secondPlaceTokenAccount,
         thirdPlaceTokenAccount: thirdPlaceTokenAccount,
         mint: mintPublicKey,
-        tokenProgram: tokenType === TokenType.SPL ? TOKEN_2022_PROGRAM_ID : SystemProgram.programId,
-        systemProgram: anchor.web3.SystemProgram.programId,
+        tokenProgram: tokenProgramId,
+        systemProgram: SystemProgram.programId,
       })
-      .transaction();
+      .instruction();
 
-    // 6. Set recent blockhash and fee payer
+    // ✅ Mark accounts as writable based on token type
+    console.log("🔧 Adjusting account mutability...");
+
+    if (tokenType === TokenType.SOL) {
+      // For SOL, mark winner accounts as writable (they receive lamports)
+      const writableAccounts = [
+        { pubkey: firstPlacePublicKey, name: 'first_place_winner' },
+        { pubkey: secondPlacePublicKey, name: 'second_place_winner' },
+        { pubkey: thirdPlacePublicKey, name: 'third_place_winner' }
+      ];
+
+      writableAccounts.forEach(({ pubkey, name }) => {
+        const accountIndex = prizeDistributionInstruction.keys.findIndex(
+          key => key.pubkey.equals(pubkey)
+        );
+        if (accountIndex !== -1) {
+          prizeDistributionInstruction.keys[accountIndex].isWritable = true;
+          console.log(`   ✅ Marked ${name} as writable`);
+        }
+      });
+    } else {
+      // For SPL, mark escrow and token accounts as writable
+      const writableAccounts = [
+        { pubkey: prizeEscrowPublicKey, name: 'prize_escrow' },
+        { pubkey: firstPlaceTokenAccount, name: 'first_place_token' },
+        { pubkey: secondPlaceTokenAccount, name: 'second_place_token' },
+        { pubkey: thirdPlaceTokenAccount, name: 'third_place_token' },
+        { pubkey: mintPublicKey, name: 'mint' }
+      ];
+
+      writableAccounts.forEach(({ pubkey, name }) => {
+        const accountIndex = prizeDistributionInstruction.keys.findIndex(
+          key => key.pubkey.equals(pubkey)
+        );
+        if (accountIndex !== -1) {
+          prizeDistributionInstruction.keys[accountIndex].isWritable = true;
+          console.log(`   ✅ Marked ${name} as writable`);
+        }
+      });
+    }
+
+    // Create transaction
+    const transaction = new Transaction()
+      .add(computeBudgetInstruction)
+      .add(prizeDistributionInstruction);
+
+    // Set transaction metadata
     const { blockhash } = await connection.getLatestBlockhash("finalized");
     transaction.recentBlockhash = blockhash;
     transaction.feePayer = adminPublicKey;
 
-    // 7. Calculate prize amounts (if needed for frontend display)
+    // Calculate prize amounts
     const distributionDetails = tournament.distributionDetails || {};
     const totalPrizeAmount = distributionDetails.prizeAmount || 0;
     
-    // Example split: 50% for 1st, 30% for 2nd, 20% for 3rd
     const firstPlaceAmount = Math.floor(totalPrizeAmount * 0.5);
     const secondPlaceAmount = Math.floor(totalPrizeAmount * 0.3);
     const thirdPlaceAmount = Math.floor(totalPrizeAmount * 0.2);
 
-    // 8. Return the unsigned transaction and metadata for frontend
+    console.log("💰 Prize Distribution:");
+    console.log(`   1st Place: ${firstPlaceAmount}`);
+    console.log(`   2nd Place: ${secondPlaceAmount}`);
+    console.log(`   3rd Place: ${thirdPlaceAmount}`);
+
     return {
       success: true,
       message: "Prize distribution transaction created successfully!",
+      tournamentId,
       transaction: transaction.serialize({ requireAllSignatures: false }).toString('base64'),
       winnerData: {
         firstPlace: {
           publicKey: firstPlacePublicKey.toString(),
-          tokenAccount: firstPlaceTokenAccount.toString(),
+          tokenAccount: tokenType === TokenType.SPL ? firstPlaceTokenAccount.toString() : "N/A (SOL)",
           amount: firstPlaceAmount
         },
         secondPlace: {
           publicKey: secondPlacePublicKey.toString(),
-          tokenAccount: secondPlaceTokenAccount.toString(),
+          tokenAccount: tokenType === TokenType.SPL ? secondPlaceTokenAccount.toString() : "N/A (SOL)",
           amount: secondPlaceAmount
         },
         thirdPlace: {
           publicKey: thirdPlacePublicKey.toString(),
-          tokenAccount: thirdPlaceTokenAccount.toString(),
+          tokenAccount: tokenType === TokenType.SPL ? thirdPlaceTokenAccount.toString() : "N/A (SOL)",
           amount: thirdPlaceAmount
         }
       },
+      tokenType: tokenType === TokenType.SOL ? "SOL" : "SPL",
       status: "Pending Signature"
     };
 
