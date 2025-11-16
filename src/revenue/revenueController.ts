@@ -571,7 +571,7 @@ export const confirmDistributionController = async (req: Request, res: Response)
 
     // Update tournament status in Firebase
     console.log("Updating tournament status in Firebase...");
-    const tournamentRef = ref(db, `tournaments/${tt}/${tournamentId}`);
+    const tournamentRef = ref(db, `tournaments/${tt as TokenType}/${tournamentId}`);
 
     // Check if tournament exists
     const tournamentSnapshot = await get(tournamentRef);
@@ -594,7 +594,7 @@ export const confirmDistributionController = async (req: Request, res: Response)
 
     // Update tournament with distribution info
     await update(tournamentRef, {
-      status: 'Completed',
+      status: 'Distributed',
       distributionCompleted: true,
       distributionTimestamp: new Date().toISOString(),
       distributionTransaction: transactionSignature,
