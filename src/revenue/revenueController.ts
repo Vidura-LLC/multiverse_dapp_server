@@ -236,7 +236,7 @@ export const distributeTournamentPrizesController = async (req: Request, res: Re
       });
     }
 
-    if (!tokenType || tokenType === undefined || tokenType === null) {
+    if (tokenType === undefined || tokenType === null) {
       return res.status(400).json({
         success: false,
         message: "Token type is required"
@@ -312,6 +312,7 @@ export const distributeTournamentPrizesController = async (req: Request, res: Re
 export const getTournamentPrizesDistributionController = async (req: Request, res: Response) => {
   try {
     const { tournamentId } = req.params;
+    const { tokenType } = req.query;
 
     // Validate tournament ID
     if (!tournamentId) {
@@ -321,8 +322,23 @@ export const getTournamentPrizesDistributionController = async (req: Request, re
       });
     }
 
+    if (tokenType === undefined || tokenType === null) {
+      return res.status(400).json({
+        success: false,
+        message: 'Token type is required'
+      });
+    }
+
+    const tt = Number(tokenType);
+    if (tt !== TokenType.SPL && tt !== TokenType.SOL) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'tokenType must be 0 (SPL) or 1 (SOL)' 
+      });
+    }
+
     // Get tournament data from Firebase
-    const tournamentRef = ref(db, `tournaments/${tournamentId}`);
+    const tournamentRef = ref(db, `tournaments/${tt as TokenType}/${tournamentId}`);
     const tournamentSnapshot = await get(tournamentRef);
     
     if (!tournamentSnapshot.exists()) {
@@ -435,7 +451,7 @@ export const getAdminDistributionTotalsController = async (req: Request, res: Re
     const { adminPubKey } = req.params as { adminPubKey?: string };
     const { tokenType } = req.query;
 
-    if (!adminPubKey || !tokenType || tokenType === undefined || tokenType === null) {
+    if (!adminPubKey || (tokenType === undefined || tokenType === null)) {
       return res.status(400).json({ success: false, message: 'adminPubKey and tokenType are required' });
     }
 
@@ -634,7 +650,8 @@ export const confirmPrizeDistributionController = async (req: Request, res: Resp
     const {
       tournamentId,
       transactionSignature,
-      winnerData
+      winnerData,
+      tokenType
     } = req.body;
 
     // Validate required fields
@@ -642,6 +659,21 @@ export const confirmPrizeDistributionController = async (req: Request, res: Resp
       return res.status(400).json({
         success: false,
         message: 'Tournament ID and transaction signature are required'
+      });
+    }
+
+    if (tokenType === undefined || tokenType === null) {
+      return res.status(400).json({
+        success: false,
+        message: 'Token type is required'
+      });
+    }
+
+    const tt = Number(tokenType);
+    if (tt !== TokenType.SPL && tt !== TokenType.SOL) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'tokenType must be 0 (SPL) or 1 (SOL)' 
       });
     }
 
@@ -662,7 +694,7 @@ export const confirmPrizeDistributionController = async (req: Request, res: Resp
 
     // Update tournament status in Firebase
     console.log("Updating tournament prize distribution status in Firebase...");
-    const tournamentRef = ref(db, `tournaments/${tournamentId}`);
+    const tournamentRef = ref(db, `tournaments/${tt as TokenType}/${tournamentId}`);
 
     // Check if tournament exists
     const tournamentSnapshot = await get(tournamentRef);
