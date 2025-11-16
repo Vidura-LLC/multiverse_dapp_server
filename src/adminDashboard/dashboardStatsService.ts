@@ -237,12 +237,23 @@ export const getRewardPoolStatsService = async (adminPublicKey: PublicKey, token
                     rewardPoolPublicKey
                 )) as RewardPoolAccount;
         
-                    console.log("✅ Raw Reward Pool Data:", rewardPoolData);
+                console.log("✅ Raw Reward Pool Data:", rewardPoolData);
+
+                // Convert data to readable format
+                const tokenDecimals = 9; // Adjust based on your token decimals
+                const readableTotalFunds = rewardPoolData.totalFunds.toNumber() / (10 ** tokenDecimals);
+
+                // Convert timestamps to readable dates
+                const lastDistributionTimestamp = rewardPoolData.lastDistribution.toNumber();
+                const lastDistributionDate = lastDistributionTimestamp > 0
+                    ? new Date(lastDistributionTimestamp * 1000).toISOString()
+                    : null;
 
                 return {
                     success: true,
-                    totalFunds: rewardPoolData.totalFunds.toNumber(),
-                    lastDistribution: rewardPoolData.lastDistribution.toNumber(),
+                    totalFunds: readableTotalFunds,
+                    lastDistribution: lastDistributionTimestamp,
+                    lastDistributionDate: lastDistributionDate,
                     rewardPoolAddress: rewardPoolPublicKey.toString(),
                     rewardEscrowAddress: rewardEscrowPublicKey.toString(),
                     tokenType: tokenType
