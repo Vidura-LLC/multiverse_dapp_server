@@ -131,9 +131,13 @@ export const getTournamentPool = async (tournamentId: string, adminPublicKey: Pu
         tokenType: tokenType,
       }
     };
-  } catch (err) {
+  } catch (err: any) {
     console.error("❌ Error fetching tournament pool:", err);
-    return { success: false, message: "Error fetching tournament data" };
+    const errorMessage = err.message || err.toString() || "Unknown error";
+    return { 
+      success: false, 
+      message: `Error fetching tournament data: ${errorMessage}` 
+    };
   }
 };
 
