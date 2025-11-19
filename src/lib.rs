@@ -735,10 +735,19 @@ pub mod multiversed_dapp {
             }
             TokenType::SPL => {
                 // Transfer SPL tokens from reward escrow
-                let decimals = ctx.accounts.mint.decimals;
+                let mint_data = ctx.accounts.mint.try_borrow_data()?;
+                let mint = Mint::try_deserialize(&mut &mint_data[..])?;
+                let decimals = mint.decimals;
+
                 let reward_admin = reward_pool.admin;
+                let token_type_seed = [reward_pool.token_type as u8];
                 let reward_bump = reward_pool.bump;
-                let reward_pool_seeds = &[SEED_REWARD_POOL, reward_admin.as_ref(), &[reward_bump]];
+                let reward_pool_seeds = &[
+                    SEED_REWARD_POOL,
+                    reward_admin.as_ref(),
+                    token_type_seed.as_ref(),
+                    &[reward_bump],
+                ];
                 let signer_seeds: &[&[&[u8]]] = &[reward_pool_seeds];
 
                 token_2022::transfer_checked(
@@ -777,7 +786,6 @@ pub mod multiversed_dapp {
 
         Ok(())
     }
-
     // ==============================
     // TOURNAMENT FUNCTIONS
     // ==============================
@@ -1230,6 +1238,17 @@ pub mod multiversed_dapp {
                         .to_account_info()
                         .try_borrow_mut_lamports()? += staking_amount;
                     ctx.accounts.reward_pool.total_funds += staking_amount;
+
+                    // ✅ ADD THIS: Update staking pool accumulator for SOL
+                    let staking_pool = &mut ctx.accounts.staking_pool;
+                    if staking_pool.total_weight > 0 {
+                        let delta: u128 = (staking_amount as u128)
+                            .saturating_mul(ACC_PRECISION)
+                            .checked_div(staking_pool.total_weight)
+                            .unwrap_or(0);
+                        staking_pool.acc_reward_per_weight =
+                            staking_pool.acc_reward_per_weight.saturating_add(delta);
+                    }
                 }
 
                 msg!("✅ SOL tournament revenue distributed");
@@ -1656,8 +1675,12 @@ pub struct ClaimRewards<'info> {
     #[account(mut)]
     pub reward_escrow_account: UncheckedAccount<'info>,
 
-    pub mint: InterfaceAccount<'info, Mint>,
-    pub token_program: Program<'info, Token2022>,
+    /// CHECK: For SPL, must be valid mint. For SOL, we pass SystemProgram.programId
+    pub mint: UncheckedAccount<'info>, // ✅ Change from InterfaceAccount to UncheckedAccount
+
+    /// CHECK: Token program - only used for SPL
+    pub token_program: UncheckedAccount<'info>, // ✅ Change from Program to UncheckedAccount
+
     pub system_program: Program<'info, System>,
 }
 
