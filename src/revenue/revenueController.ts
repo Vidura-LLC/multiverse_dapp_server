@@ -4,8 +4,11 @@ import { ref, get, update } from "firebase/database";
 import { db } from "../config/firebase";
 import { Request, Response } from 'express';
 import { PublicKey } from '@solana/web3.js';
-import { distributeTournamentRevenueService, distributeTournamentPrizesService } from './services';
+import { distributeTournamentRevenueService, distributeTournamentPrizesService, DEFAULT_SPLITS } from './services';
 import { getProgram } from "../staking/services";
+import { TokenType } from "../utils/getPDAs";
+import { getRevenuePoolStatsService } from "../adminDashboard/dashboardStatsService";
+
 
 /**
  * Controller function to distribute tournament revenue according to the updated percentages
@@ -18,10 +21,9 @@ export const distributeTournamentRevenueController = async (req: Request, res: R
       revenuePercentage, 
       stakingPercentage,
       burnPercentage,
-      adminPublicKey
+      adminPublicKey,
+      tokenType
     } = req.body;
-
-    const adminPubKey = new PublicKey(adminPublicKey);
 
     // Validate tournament ID
     if (!tournamentId) {
@@ -31,12 +33,51 @@ export const distributeTournamentRevenueController = async (req: Request, res: R
       });
     }
 
+    // Validate admin public key
+    if (!adminPublicKey) {
+      return res.status(400).json({
+        success: false,
+        message: 'Admin public key is required'
+      });
+    }
+
+    let adminPubKey: PublicKey;
+    try {
+      adminPubKey = new PublicKey(adminPublicKey);
+    } catch (err) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid admin public key format'
+      });
+    }
+
+    // Validate token type
+    if (tokenType === undefined || tokenType === null) {
+      return res.status(400).json({
+        success: false,
+        message: "Token type is required"
+      });
+    }
+
+    const tt = Number(tokenType);
+    if (tt !== TokenType.SPL && tt !== TokenType.SOL) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'tokenType must be 0 (SPL) or 1 (SOL)' 
+      });
+    }
+
     // Validate custom percentages if provided
     const useCustomPercentages = prizePercentage !== undefined || 
                                revenuePercentage !== undefined || 
                                stakingPercentage !== undefined ||
                                burnPercentage !== undefined;
-    
+     
+    let finalPrizePercentage = DEFAULT_SPLITS.PRIZE_POOL;
+    let finalRevenuePercentage = DEFAULT_SPLITS.REVENUE_POOL;
+    let finalStakingPercentage = DEFAULT_SPLITS.STAKING_REWARD_POOL;
+    let finalBurnPercentage = DEFAULT_SPLITS.BURN;
+
     if (useCustomPercentages) {
       // Ensure all percentages are provided if any are provided
       if (prizePercentage === undefined || 
@@ -53,11 +94,11 @@ export const distributeTournamentRevenueController = async (req: Request, res: R
       if (prizePercentage + revenuePercentage + stakingPercentage + burnPercentage !== 100) {
         return res.status(400).json({
           success: false,
-          message: "Percentages must add up to 100%"
+          message: `Percentages must add up to 100%. Current total: ${prizePercentage + revenuePercentage + stakingPercentage + burnPercentage}%`
         });
       }
       
-      // Validate individual percentages are within reasonable ranges
+      // Validate individual percentages are within valid ranges
       if (prizePercentage < 0 || prizePercentage > 100 ||
           revenuePercentage < 0 || revenuePercentage > 100 ||
           stakingPercentage < 0 || stakingPercentage > 100 ||
@@ -67,16 +108,31 @@ export const distributeTournamentRevenueController = async (req: Request, res: R
           message: "All percentages must be between 0 and 100"
         });
       }
+
+      finalPrizePercentage = prizePercentage;
+      finalRevenuePercentage = revenuePercentage;
+      finalStakingPercentage = stakingPercentage;
+      finalBurnPercentage = burnPercentage;
+
+      console.log("✅ Using custom distribution percentages:");
+    } else {
+      console.log("✅ Using default distribution percentages:");
     }
 
-    // Call the service function to distribute revenue with burn functionality
+    console.log(`   Prize: ${finalPrizePercentage}%`);
+    console.log(`   Revenue: ${finalRevenuePercentage}%`);
+    console.log(`   Staking: ${finalStakingPercentage}%`);
+    console.log(`   Burn: ${finalBurnPercentage}%`);
+
+    // Call the service function
     const result = await distributeTournamentRevenueService(
       tournamentId,
-      prizePercentage,
-      revenuePercentage,
-      stakingPercentage,
-      burnPercentage,
-      adminPubKey
+      finalPrizePercentage,
+      finalRevenuePercentage,
+      finalStakingPercentage,
+      finalBurnPercentage,
+      adminPubKey,
+      tt as TokenType
     );
 
     // Return the result
@@ -86,7 +142,7 @@ export const distributeTournamentRevenueController = async (req: Request, res: R
       return res.status(400).json(result);
     }
   } catch (err) {
-    console.error('Error in distribute tournament revenue controller:', err);
+    console.error('❌ Error in distribute tournament revenue controller:', err);
     return res.status(500).json({ 
       success: false, 
       message: 'Failed to distribute tournament revenue',
@@ -162,7 +218,7 @@ export const getTournamentDistributionController = async (req: Request, res: Res
  */
 export const distributeTournamentPrizesController = async (req: Request, res: Response) => {
   try {
-    const { tournamentId, firstPlacePublicKey, secondPlacePublicKey, thirdPlacePublicKey, adminPublicKey } = req.body;
+    const { tournamentId, firstPlacePublicKey, secondPlacePublicKey, thirdPlacePublicKey, adminPublicKey, tokenType } = req.body;
 
     // Validate tournament ID
     if (!tournamentId) {
@@ -180,8 +236,18 @@ export const distributeTournamentPrizesController = async (req: Request, res: Re
       });
     }
 
+    if (tokenType === undefined || tokenType === null) {
+      return res.status(400).json({
+        success: false,
+        message: "Token type is required"
+      });
+    }
+    const tt = Number(tokenType);
+    if (tt !== TokenType.SPL && tt !== TokenType.SOL) {
+      return res.status(400).json({ success: false, message: 'tokenType must be 0 (SPL) or 1 (SOL)' });
+    }
     // Verify tournament exists
-    const tournamentRef = ref(db, `tournaments/${tournamentId}`);
+    const tournamentRef = ref(db, `tournaments/${tt as TokenType}/${tournamentId}`);
     const tournamentSnapshot = await get(tournamentRef);
     
     if (!tournamentSnapshot.exists()) {
@@ -220,7 +286,8 @@ export const distributeTournamentPrizesController = async (req: Request, res: Re
       firstPlacePubkey,
       secondPlacePubkey,
       thirdPlacePubkey,
-      adminPubKey
+      adminPubKey,
+      tt as TokenType
     );
 
     // Return the result
@@ -245,6 +312,7 @@ export const distributeTournamentPrizesController = async (req: Request, res: Re
 export const getTournamentPrizesDistributionController = async (req: Request, res: Response) => {
   try {
     const { tournamentId } = req.params;
+    const { tokenType } = req.query;
 
     // Validate tournament ID
     if (!tournamentId) {
@@ -254,8 +322,23 @@ export const getTournamentPrizesDistributionController = async (req: Request, re
       });
     }
 
+    if (tokenType === undefined || tokenType === null) {
+      return res.status(400).json({
+        success: false,
+        message: 'Token type is required'
+      });
+    }
+
+    const tt = Number(tokenType);
+    if (tt !== TokenType.SPL && tt !== TokenType.SOL) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'tokenType must be 0 (SPL) or 1 (SOL)' 
+      });
+    }
+
     // Get tournament data from Firebase
-    const tournamentRef = ref(db, `tournaments/${tournamentId}`);
+    const tournamentRef = ref(db, `tournaments/${tt as TokenType}/${tournamentId}`);
     const tournamentSnapshot = await get(tournamentRef);
     
     if (!tournamentSnapshot.exists()) {
@@ -366,22 +449,32 @@ export const getAdminPrizesDistributedController = async (req: Request, res: Res
 export const getAdminDistributionTotalsController = async (req: Request, res: Response) => {
   try {
     const { adminPubKey } = req.params as { adminPubKey?: string };
+    const { tokenType } = req.query;
 
-    if (!adminPubKey) {
-      return res.status(400).json({ success: false, message: 'adminPubKey is required' });
+    if (!adminPubKey || (tokenType === undefined || tokenType === null)) {
+      return res.status(400).json({ success: false, message: 'adminPubKey and tokenType are required' });
+    }
+
+    const tt = Number(tokenType);
+    if (tt !== TokenType.SPL && tt !== TokenType.SOL) {
+      return res.status(400).json({ success: false, message: 'tokenType must be 0 (SPL) or 1 (SOL)' });
     }
 
     // Fetch all tournaments
-    const tournamentsRef = ref(db, 'tournaments');
+    const tournamentsRef = ref(db, `tournaments/${tt as TokenType}`);
     const tournamentsSnapshot = await get(tournamentsRef);
 
+    // Fetch revenue pool information (even if no tournaments exist)
+    const revenuePoolStats = await getRevenuePoolStatsService(new PublicKey(adminPubKey), tt as TokenType);
+    
     if (!tournamentsSnapshot.exists()) {
       return res.status(200).json({
         success: true,
         data: {
           prizeAmountRaw: '0', revenueAmountRaw: '0', stakingAmountRaw: '0', burnAmountRaw: '0',
           prizeAmount: 0, revenueAmount: 0, stakingAmount: 0, burnAmount: 0,
-          tokenDecimals: 9, tournamentCount: 0
+          tokenDecimals: 9, tournamentCount: 0,
+          revenue: revenuePoolStats, // Include revenue pool information
         }
       });
     }
@@ -412,6 +505,7 @@ export const getAdminDistributionTotalsController = async (req: Request, res: Re
     const burnAmountRaw = burn.toString();
 
     const divisor = Math.pow(10, tokenDecimals);
+    
     return res.status(200).json({
       success: true,
       data: {
@@ -420,6 +514,7 @@ export const getAdminDistributionTotalsController = async (req: Request, res: Re
         stakingAmount: Number(stakingAmountRaw) / divisor,
         burnAmount: Number(burnAmountRaw) / divisor,
         tournamentCount: adminTournaments.length,
+        revenue: revenuePoolStats, // Include revenue pool information
       }
     });
   } catch (err) {
@@ -436,7 +531,8 @@ export const confirmDistributionController = async (req: Request, res: Response)
     const {
       tournamentId,
       transactionSignature,
-      distribution
+      distribution,
+      tokenType
     } = req.body;
 
     // Validate required fields
@@ -447,14 +543,41 @@ export const confirmDistributionController = async (req: Request, res: Response)
       });
     }
 
+    if (tokenType === undefined || tokenType === null) {
+      return res.status(400).json({
+        success: false,
+        message: 'Token type is required'
+      });
+    }
+
+    const tt = Number(tokenType);
+    if (tt !== TokenType.SPL && tt !== TokenType.SOL) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'tokenType must be 0 (SPL) or 1 (SOL)' 
+      });
+    }
+
     // Verify transaction exists on blockchain (optional but recommended)
     const { connection } = getProgram();
     try {
-      const txInfo = await connection.getTransaction(transactionSignature);
+      const txInfo = await connection.getTransaction(transactionSignature, {
+        maxSupportedTransactionVersion: 0
+      });
+      
       if (!txInfo) {
         return res.status(400).json({
           success: false,
           message: 'Transaction not found on blockchain'
+        });
+      }
+
+      // Check if transaction was successful
+      if (txInfo.meta?.err) {
+        return res.status(400).json({
+          success: false,
+          message: 'Transaction failed on blockchain',
+          error: txInfo.meta.err
         });
       }
     } catch (err) {
@@ -464,7 +587,7 @@ export const confirmDistributionController = async (req: Request, res: Response)
 
     // Update tournament status in Firebase
     console.log("Updating tournament status in Firebase...");
-    const tournamentRef = ref(db, `tournaments/${tournamentId}`);
+    const tournamentRef = ref(db, `tournaments/${tt as TokenType}/${tournamentId}`);
 
     // Check if tournament exists
     const tournamentSnapshot = await get(tournamentRef);
@@ -477,7 +600,7 @@ export const confirmDistributionController = async (req: Request, res: Response)
 
     const tournament = tournamentSnapshot.val();
 
-    // Check if already distributed
+    // Prevent double distribution
     if (tournament.distributionCompleted) {
       return res.status(400).json({
         success: false,
@@ -485,34 +608,35 @@ export const confirmDistributionController = async (req: Request, res: Response)
       });
     }
 
-    // Update tournament with distribution details
+    // Update tournament with distribution info
     await update(tournamentRef, {
-      status: "Distributed",
+      status: 'Distributed',
       distributionCompleted: true,
-      distributionTimestamp: Date.now(),
-      distributionDetails: {
-        totalDistributed: distribution.totalFunds,
-        prizeAmount: distribution.prizeAmount,
-        revenueAmount: distribution.revenueAmount,
-        stakingAmount: distribution.stakingAmount,
-        burnAmount: distribution.burnAmount,
-        transactionSignature: transactionSignature
+      distributionTimestamp: new Date().toISOString(),
+      distributionTransaction: transactionSignature,
+      distribution: distribution || {
+        prizeAmount: 0,
+        revenueAmount: 0,
+        stakingAmount: 0,
+        burnAmount: 0
       }
     });
 
+    console.log(`✅ Tournament ${tournamentId} distribution confirmed`);
+
     return res.status(200).json({
       success: true,
-      message: 'Tournament distribution confirmed successfully',
+      message: 'Tournament revenue distribution confirmed successfully',
       tournamentId,
       transactionSignature,
       distribution
     });
 
   } catch (err) {
-    console.error('Error in confirm distribution controller:', err);
+    console.error('Error confirming distribution:', err);
     return res.status(500).json({
       success: false,
-      message: 'Failed to confirm tournament distribution',
+      message: 'Failed to confirm distribution',
       error: err.message || err
     });
   }
@@ -526,7 +650,8 @@ export const confirmPrizeDistributionController = async (req: Request, res: Resp
     const {
       tournamentId,
       transactionSignature,
-      winnerData
+      winnerData,
+      tokenType
     } = req.body;
 
     // Validate required fields
@@ -534,6 +659,21 @@ export const confirmPrizeDistributionController = async (req: Request, res: Resp
       return res.status(400).json({
         success: false,
         message: 'Tournament ID and transaction signature are required'
+      });
+    }
+
+    if (tokenType === undefined || tokenType === null) {
+      return res.status(400).json({
+        success: false,
+        message: 'Token type is required'
+      });
+    }
+
+    const tt = Number(tokenType);
+    if (tt !== TokenType.SPL && tt !== TokenType.SOL) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'tokenType must be 0 (SPL) or 1 (SOL)' 
       });
     }
 
@@ -554,7 +694,7 @@ export const confirmPrizeDistributionController = async (req: Request, res: Resp
 
     // Update tournament status in Firebase
     console.log("Updating tournament prize distribution status in Firebase...");
-    const tournamentRef = ref(db, `tournaments/${tournamentId}`);
+    const tournamentRef = ref(db, `tournaments/${tt as TokenType}/${tournamentId}`);
 
     // Check if tournament exists
     const tournamentSnapshot = await get(tournamentRef);

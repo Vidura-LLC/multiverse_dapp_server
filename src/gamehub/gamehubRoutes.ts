@@ -2,7 +2,7 @@
 
 import { Router, RequestHandler, Request, Response } from 'express';
 import { verifyUser } from './middleware';  // Import the verifyUser middleware
-import { getActiveTournament, getAllGames, getTournamentById, getTournamentPoolController, getTournaments, registerForTournamentController, createTournament, getTournamentLeaderboardController, updateParticipantScoreController, getTournamentsByGameController, updateTournamentStatus, getPrizePoolController, getTotalPrizePoolsFundsController, getTotalTournamentPoolsFundsController, getTotalTournamentEntryFeesController, getTournamentsByAdmin, getTournamentLeaderboardAgainstAdminController, getAdminTournamentsLeaderboardsController } from './gamehubController';
+import { getActiveTournament, getAllGames, getTournamentById, getTournamentPoolController, getTournaments, registerForTournamentController, confirmParticipationController, createTournament, getTournamentLeaderboardController, updateParticipantScoreController, getTournamentsByGameController, updateTournamentStatus, getPrizePoolController, getTotalPrizePoolsFundsController, getTotalTournamentPoolsFundsController, getTotalTournamentEntryFeesController, getTournamentsByAdmin, getTournamentLeaderboardAgainstAdminController, getAdminTournamentsLeaderboardsController } from './gamehubController';
 
 
 const router = Router();
@@ -45,8 +45,11 @@ router.get('/tournament/:id', getTournamentById as unknown as RequestHandler);
 // Route to get active tournament
 router.get('/active-tournament', getActiveTournament as unknown as RequestHandler);
 
-// Route to register for tournament
+// Route to register for tournament (creates transaction)
 router.post('/user-participation', registerForTournamentController as unknown as RequestHandler);
+
+// Route to confirm participation after transaction is verified
+router.post('/confirm-participation', confirmParticipationController as unknown as RequestHandler);
 
 // Route to get all games
 router.get('/all-games', getAllGames as unknown as RequestHandler);
@@ -65,7 +68,7 @@ router.get('/admin-leaderboards/:adminPublicKey', getAdminTournamentsLeaderboard
 router.post('/score/update', verifyUser as unknown as RequestHandler, updateParticipantScoreController as unknown as RequestHandler);
 
 // Route to get tournaments by game
-router.get('/get-tournaments-by-game/:gameId', getTournamentsByGameController as unknown as RequestHandler);
+router.get('/get-tournaments-by-game/:gameId/:tokenType', getTournamentsByGameController as unknown as RequestHandler);
 
 // Define the route to fetch active tournament data
 router.get("/active-tournament", verifyUser as unknown as RequestHandler, getActiveTournament as unknown as RequestHandler);

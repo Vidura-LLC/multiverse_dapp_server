@@ -32,8 +32,10 @@ router.get('/tournaments/:adminPublicKey', gamehubController_1.getTournamentsByA
 router.get('/tournament/:id', gamehubController_1.getTournamentById);
 // Route to get active tournament
 router.get('/active-tournament', gamehubController_1.getActiveTournament);
-// Route to register for tournament
+// Route to register for tournament (creates transaction)
 router.post('/user-participation', gamehubController_1.registerForTournamentController);
+// Route to confirm participation after transaction is verified
+router.post('/confirm-participation', gamehubController_1.confirmParticipationController);
 // Route to get all games
 router.get('/all-games', gamehubController_1.getAllGames);
 //Leaderboard Routes
@@ -46,7 +48,7 @@ router.get('/admin-leaderboards/:adminPublicKey', gamehubController_1.getAdminTo
 // Route to update participant score (protected)
 router.post('/score/update', middleware_1.verifyUser, gamehubController_1.updateParticipantScoreController);
 // Route to get tournaments by game
-router.get('/get-tournaments-by-game/:gameId', gamehubController_1.getTournamentsByGameController);
+router.get('/get-tournaments-by-game/:gameId/:tokenType', gamehubController_1.getTournamentsByGameController);
 // Define the route to fetch active tournament data
 router.get("/active-tournament", middleware_1.verifyUser, gamehubController_1.getActiveTournament);
 exports.default = router;

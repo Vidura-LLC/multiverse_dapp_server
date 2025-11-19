@@ -1,6 +1,7 @@
 // src/gamehub/adminLeaderboardService.ts
 import { ref, get } from "firebase/database";
 import { db } from "../config/firebase";
+import { TokenType } from "../utils/getPDAs";
 
 // Interface for leaderboard entry
 interface LeaderboardEntry {
@@ -171,21 +172,43 @@ export const getAdminTournamentsLeaderboards = async (adminPublicKey: string): P
 };
 
 // Get single tournament leaderboard against admin (keeping for backward compatibility)
-export const getTournamentLeaderboardAgainstAdmin = async (tournamentId: string): Promise<{
+export const getTournamentLeaderboardAgainstAdmin = async (tournamentId: string, tokenType?: TokenType): Promise<{
   success: boolean;
   data?: TournamentLeaderboardData;
   message?: string;
 }> => {
   try {
-    // Get tournament data
-    const tournamentRef = ref(db, `tournaments/${tournamentId}`);
-    const tournamentSnapshot = await get(tournamentRef);
+    let tournament: any = null;
     
-    if (!tournamentSnapshot.exists()) {
+    // If tokenType is provided, search directly in that path
+    if (tokenType !== undefined && tokenType !== null) {
+      const tt = Number(tokenType);
+      if (tt !== TokenType.SPL && tt !== TokenType.SOL) {
+        return { success: false, message: "tokenType must be 0 (SPL) or 1 (SOL)" };
+      }
+      const tournamentRef = ref(db, `tournaments/${tt}/${tournamentId}`);
+      const tournamentSnapshot = await get(tournamentRef);
+      
+      if (tournamentSnapshot.exists()) {
+        tournament = tournamentSnapshot.val();
+      }
+    } else {
+      // If tokenType is not provided, search in both token types
+      for (const tt of [TokenType.SPL, TokenType.SOL]) {
+        const tournamentRef = ref(db, `tournaments/${tt}/${tournamentId}`);
+        const tournamentSnapshot = await get(tournamentRef);
+        
+        if (tournamentSnapshot.exists()) {
+          tournament = tournamentSnapshot.val();
+          break;
+        }
+      }
+    }
+    
+    if (!tournament) {
       return { success: false, message: "Tournament not found" };
     }
     
-    const tournament = tournamentSnapshot.val();
     const participants = tournament.participants || {};
     const adminId = tournament.createdBy;
     

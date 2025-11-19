@@ -10,9 +10,11 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getDashboardStatsController = exports.getRevenuePoolStatsController = exports.getTournamentStatsController = exports.getDetailedStakersController = exports.getAPYController = exports.getActiveStakersController = exports.getStakingPoolController = exports.getStakingStatsController = exports.initializeRewardPoolController = exports.initializePrizePoolController = exports.initializeRevenuePoolController = exports.initializeStakingPoolController = exports.checkPoolStatusController = void 0;
+exports.getDashboardStatsController = exports.getRevenuePoolStatsController = exports.getTournamentStatsController = exports.getDetailedStakersController = exports.getAPYController = exports.getActiveStakersController = exports.getStakingPoolController = exports.getStakingStatsController = exports.initializeRewardPoolController = exports.confirmPrizePoolController = exports.initializePrizePoolController = exports.initializeRevenuePoolController = exports.initializeStakingPoolController = exports.checkPoolStatusController = void 0;
 const web3_js_1 = require("@solana/web3.js");
 const services_1 = require("./services");
+const getPDAs_1 = require("../utils/getPDAs");
+const services_2 = require("../staking/services");
 const stakingStatsService_1 = require("./stakingStatsService");
 const dashboardStatsService_1 = require("./dashboardStatsService");
 const database_1 = require("firebase/database");
@@ -20,11 +22,12 @@ const firebase_1 = require("../config/firebase");
 const checkPoolStatusController = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { adminPublicKey } = req.params;
+        const { tokenType } = req.query;
         // Validate the admin public key
-        if (!adminPublicKey) {
+        if (!adminPublicKey || !tokenType) {
             return res.status(400).json({
                 success: false,
-                error: 'Admin public key is required'
+                error: 'Admin public key and token type are required'
             });
         }
         // Validate public key format
@@ -37,8 +40,12 @@ const checkPoolStatusController = (req, res) => __awaiter(void 0, void 0, void 0
                 error: 'Invalid admin public key format'
             });
         }
-        // Check staking pool status
-        const result = yield (0, services_1.checkPoolStatus)(new web3_js_1.PublicKey(adminPublicKey));
+        // Check staking pool status (expect 0 or 1)
+        const tt = Number(tokenType);
+        if (tt !== getPDAs_1.TokenType.SPL && tt !== getPDAs_1.TokenType.SOL) {
+            return res.status(400).json({ success: false, error: 'tokenType must be 0 (SPL) or 1 (SOL)' });
+        }
+        const result = yield (0, services_1.checkPoolStatus)(new web3_js_1.PublicKey(adminPublicKey), tt);
         if (result.success) {
             return res.status(200).json({
                 data: result
@@ -58,13 +65,17 @@ exports.checkPoolStatusController = checkPoolStatusController;
 // Controller function for initializing the staking pool
 const initializeStakingPoolController = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const { mintPublicKey, adminPublicKey } = req.body; // Get mint address from request body
+        const { mintPublicKey, adminPublicKey, tokenType } = req.body; // Get mint address and token type from request body
         // Validate the mint address
-        if (!mintPublicKey || !adminPublicKey) {
-            return res.status(400).json({ error: 'Mint public key is required' });
+        if (!mintPublicKey || !adminPublicKey || tokenType === undefined || tokenType === null) {
+            return res.status(400).json({ error: 'Mint public key, admin public key and token type are required' });
         }
-        // Call the staking pool initialization service
-        const result = yield (0, services_1.initializeStakingPoolService)(new web3_js_1.PublicKey(mintPublicKey), new web3_js_1.PublicKey(adminPublicKey));
+        // Call the staking pool initialization service (expect 0 or 1)
+        const tt = Number(tokenType);
+        if (tt !== getPDAs_1.TokenType.SPL && tt !== getPDAs_1.TokenType.SOL) {
+            return res.status(400).json({ error: 'tokenType must be 0 (SPL) or 1 (SOL)' });
+        }
+        const result = yield (0, services_1.initializeStakingPoolService)(new web3_js_1.PublicKey(mintPublicKey), tt, new web3_js_1.PublicKey(adminPublicKey));
         // Return the result
         if (result.success) {
             return res.status(200).json({ data: result });
@@ -84,16 +95,20 @@ exports.initializeStakingPoolController = initializeStakingPoolController;
  */
 const initializeRevenuePoolController = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const { mintPublicKey, adminPublicKey } = req.body;
+        const { mintPublicKey, adminPublicKey, tokenType } = req.body;
         // Validate the mint address
-        if (!mintPublicKey || !adminPublicKey) {
+        if (!mintPublicKey || !adminPublicKey || tokenType === undefined || tokenType === null) {
             return res.status(400).json({
                 success: false,
-                message: 'Mint and Admin public key is required'
+                message: 'Mint, Admin public key and token type are required'
             });
         }
         // Call the service function to initialize revenue pool
-        const result = yield (0, services_1.initializeRevenuePoolService)(new web3_js_1.PublicKey(mintPublicKey), new web3_js_1.PublicKey(adminPublicKey));
+        const tt = Number(tokenType);
+        if (tt !== getPDAs_1.TokenType.SPL && tt !== getPDAs_1.TokenType.SOL) {
+            return res.status(400).json({ success: false, message: 'tokenType must be 0 (SPL) or 1 (SOL)' });
+        }
+        const result = yield (0, services_1.initializeRevenuePoolService)(new web3_js_1.PublicKey(mintPublicKey), new web3_js_1.PublicKey(adminPublicKey), tt);
         // Return the result
         if (result.success) {
             return res.status(200).json({ data: result });
@@ -117,38 +132,34 @@ exports.initializeRevenuePoolController = initializeRevenuePoolController;
  */
 const initializePrizePoolController = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const { tournamentId, mintPublicKey, adminPublicKey } = req.body;
+        const { tournamentId, mintPublicKey, adminPublicKey, tokenType } = req.body;
         // Validate required fields
-        if (!tournamentId) {
+        if (!tournamentId || !adminPublicKey || tokenType === undefined) {
             return res.status(400).json({
                 success: false,
-                message: 'Tournament ID is required'
+                message: 'Tournament ID, Admin public key, and token type are required'
             });
         }
-        if (!mintPublicKey || !adminPublicKey) {
+        const tt = Number(tokenType);
+        if (tt !== getPDAs_1.TokenType.SPL && tt !== getPDAs_1.TokenType.SOL) {
             return res.status(400).json({
                 success: false,
-                message: 'Mint public key and Admin Public Key is required'
+                message: 'tokenType must be 0 (SPL) or 1 (SOL)'
             });
         }
-        // Convert string public key to PublicKey object
-        const mintPubkey = new web3_js_1.PublicKey(mintPublicKey);
+        // For SPL, mint is required
+        if (tt === getPDAs_1.TokenType.SPL && !mintPublicKey) {
+            return res.status(400).json({
+                success: false,
+                message: 'Mint public key is required for SPL tournaments'
+            });
+        }
         const adminPubKey = new web3_js_1.PublicKey(adminPublicKey);
-        // Call the service function to initialize prize pool for the tournament
-        const result = yield (0, services_1.initializePrizePoolService)(tournamentId, mintPubkey, adminPubKey);
+        const mintPubkey = mintPublicKey ? new web3_js_1.PublicKey(mintPublicKey) : web3_js_1.SystemProgram.programId;
+        // Call the service function to create transaction
+        const result = yield (0, services_1.initializePrizePoolService)(tournamentId, mintPubkey, adminPubKey, tt);
+        // Return transaction - prize pool will be updated in Firebase after transaction is confirmed
         if (result.success) {
-            const tournamentRef = (0, database_1.ref)(firebase_1.db, `tournaments/${tournamentId}`);
-            const tournamentSnapshot = yield (0, database_1.get)(tournamentRef);
-            if (!tournamentSnapshot.exists()) {
-                return res.status(404).json({
-                    success: false,
-                    message: 'Tournament not found'
-                });
-            }
-            const tournament = tournamentSnapshot.val();
-            tournament.prizePool = result.prizePool;
-            // Save the updated tournament data back to Firebase
-            yield (0, database_1.set)(tournamentRef, tournament);
             return res.status(200).json(result);
         }
         else {
@@ -165,21 +176,135 @@ const initializePrizePoolController = (req, res) => __awaiter(void 0, void 0, vo
     }
 });
 exports.initializePrizePoolController = initializePrizePoolController;
+// Controller to confirm prize pool initialization after transaction is verified on blockchain
+const confirmPrizePoolController = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a;
+    try {
+        const { tournamentId, adminPublicKey, transactionSignature, prizePool, tokenType } = req.body;
+        // Validate required fields
+        if (!tournamentId || !adminPublicKey || !transactionSignature || !prizePool || tokenType === undefined || tokenType === null) {
+            return res.status(400).json({
+                success: false,
+                message: "Missing required fields: tournamentId, adminPublicKey, transactionSignature, prizePool, or tokenType",
+            });
+        }
+        const tt = Number(tokenType);
+        if (tt !== getPDAs_1.TokenType.SPL && tt !== getPDAs_1.TokenType.SOL) {
+            return res.status(400).json({ message: "tokenType must be 0 (SPL) or 1 (SOL)" });
+        }
+        // Verify transaction exists on blockchain and was successful
+        const { connection, program } = (0, services_2.getProgram)();
+        try {
+            const txInfo = yield connection.getTransaction(transactionSignature, {
+                maxSupportedTransactionVersion: 0
+            });
+            if (!txInfo) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Transaction not found on blockchain'
+                });
+            }
+            // Check if transaction was successful
+            if ((_a = txInfo.meta) === null || _a === void 0 ? void 0 : _a.err) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Transaction failed on blockchain',
+                    error: txInfo.meta.err
+                });
+            }
+        }
+        catch (err) {
+            console.error('Error verifying transaction on blockchain:', err);
+            return res.status(400).json({
+                success: false,
+                message: 'Could not verify transaction on blockchain',
+                error: err.message
+            });
+        }
+        // Verify prize pool account exists on blockchain (confirms initialization was successful)
+        try {
+            const adminPubKey = new web3_js_1.PublicKey(adminPublicKey);
+            const tournamentPoolPublicKey = (0, getPDAs_1.getTournamentPoolPDA)(adminPubKey, tournamentId, tt);
+            const prizePoolPublicKey = (0, getPDAs_1.getPrizePoolPDA)(tournamentPoolPublicKey);
+            // Verify the prize pool address matches
+            if (prizePoolPublicKey.toBase58() !== prizePool) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Prize pool address mismatch'
+                });
+            }
+            // Try to fetch the prize pool account - if it exists, initialization was successful
+            const prizePoolAccount = yield program.account.prizePool.fetchNullable(prizePoolPublicKey);
+            if (!prizePoolAccount) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Prize pool account not found on blockchain - initialization may have failed'
+                });
+            }
+        }
+        catch (err) {
+            console.error('Error verifying prize pool account:', err);
+            return res.status(400).json({
+                success: false,
+                message: 'Could not verify prize pool on blockchain - prize pool account does not exist',
+                error: err.message
+            });
+        }
+        // Transaction verified and prize pool confirmed - now update Firebase
+        const tournamentRef = (0, database_1.ref)(firebase_1.db, `tournaments/${tt}/${tournamentId}`);
+        const tournamentSnapshot = yield (0, database_1.get)(tournamentRef);
+        if (!tournamentSnapshot.exists()) {
+            return res.status(404).json({
+                success: false,
+                message: 'Tournament not found'
+            });
+        }
+        const tournament = tournamentSnapshot.val();
+        // Check if prize pool already exists (idempotency)
+        if (tournament.prizePool) {
+            return res.status(200).json({
+                success: true,
+                message: "Prize pool already initialized",
+            });
+        }
+        // Update tournament with prize pool address
+        tournament.prizePool = prizePool;
+        yield (0, database_1.update)(tournamentRef, tournament);
+        return res.status(200).json({
+            success: true,
+            message: "Prize pool confirmed and tournament updated",
+            prizePool: prizePool
+        });
+    }
+    catch (error) {
+        console.error("❌ Error in confirmPrizePool controller:", error);
+        return res.status(500).json({
+            success: false,
+            message: "Internal server error",
+            error: error.message,
+        });
+    }
+});
+exports.confirmPrizePoolController = confirmPrizePoolController;
 /**
  * Controller function for initializing the global revenue pool
  */
 const initializeRewardPoolController = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const { mintPublicKey, adminPublicKey } = req.body;
+        const { mintPublicKey, adminPublicKey, tokenType } = req.body;
         // Validate the mint address
-        if (!mintPublicKey || !adminPublicKey) {
+        if (!mintPublicKey || !adminPublicKey || tokenType === undefined || tokenType === null) {
             return res.status(400).json({
                 success: false,
-                message: 'Mint and Admin public key is required'
+                message: 'Mint, Admin public key and token type are required'
             });
         }
-        // Call the service function to initialize revenue pool
-        const result = yield (0, services_1.initializeRewardPoolService)(new web3_js_1.PublicKey(mintPublicKey), new web3_js_1.PublicKey(adminPublicKey));
+        // Call the service function to initialize reward pool
+        const tt = Number(tokenType);
+        if (tt !== getPDAs_1.TokenType.SPL && tt !== getPDAs_1.TokenType.SOL) {
+            return res.status(400).json({ success: false, message: 'tokenType must be 0 (SPL) or 1 (SOL)' });
+        }
+        const result = yield (0, services_1.initializeRewardPoolService)(new web3_js_1.PublicKey(mintPublicKey), new web3_js_1.PublicKey(adminPublicKey), tt);
         // Return the result
         if (result.success) {
             return res.status(200).json({ data: result });
@@ -205,15 +330,20 @@ exports.initializeRewardPoolController = initializeRewardPoolController;
 const getStakingStatsController = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { adminPublicKey } = req.params;
+        const { tokenType } = req.query;
         console.log('📊 Fetching staking statistics...');
         // Validate the admin address
-        if (!adminPublicKey) {
+        if (!adminPublicKey || !tokenType || tokenType === undefined || tokenType === null) {
             return res.status(400).json({
                 success: false,
-                message: 'Admin public key is required'
+                message: 'Admin public key and token type are required'
             });
         }
-        const result = yield (0, dashboardStatsService_1.getStakingStats)(new web3_js_1.PublicKey(adminPublicKey));
+        const tt = Number(tokenType);
+        if (tt !== getPDAs_1.TokenType.SPL && tt !== getPDAs_1.TokenType.SOL) {
+            return res.status(400).json({ success: false, message: 'tokenType must be 0 (SPL) or 1 (SOL)' });
+        }
+        const result = yield (0, dashboardStatsService_1.getStakingStats)(new web3_js_1.PublicKey(adminPublicKey), tt);
         if (result.success) {
             return res.status(200).json({
                 message: "Staking statistics retrieved successfully",
@@ -242,8 +372,9 @@ exports.getStakingStatsController = getStakingStatsController;
 const getStakingPoolController = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { adminPublicKey } = req.params;
+        const { tokenType } = req.query;
         console.log('🏦 Fetching staking pool data...');
-        const result = yield (0, stakingStatsService_1.getStakingPoolData)(new web3_js_1.PublicKey(adminPublicKey));
+        const result = yield (0, stakingStatsService_1.getStakingPoolData)(new web3_js_1.PublicKey(adminPublicKey), Number(tokenType));
         if (result.success) {
             return res.status(200).json({
                 success: true,
@@ -273,7 +404,23 @@ exports.getStakingPoolController = getStakingPoolController;
 const getActiveStakersController = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         console.log('👥 Fetching active stakers...');
-        const result = yield (0, stakingStatsService_1.getActiveStakers)();
+        const { adminPublicKey, tokenType } = req.query;
+        // If both params provided, filter by tokenType
+        let result;
+        if (adminPublicKey && tokenType !== undefined) {
+            const tt = Number(tokenType);
+            if (tt !== getPDAs_1.TokenType.SPL && tt !== getPDAs_1.TokenType.SOL) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'tokenType must be 0 (SPL) or 1 (SOL)'
+                });
+            }
+            result = yield (0, stakingStatsService_1.getActiveStakers)(new web3_js_1.PublicKey(adminPublicKey), tt);
+        }
+        else {
+            // Backward compatibility: get all stakers if params not provided
+            result = yield (0, stakingStatsService_1.getActiveStakers)();
+        }
         if (result.success) {
             return res.status(200).json({
                 success: true,
@@ -399,8 +546,23 @@ exports.getDetailedStakersController = getDetailedStakersController;
 const getTournamentStatsController = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         console.log('📊 Fetching tournament statistics...');
-        // Call the service to get tournament stats
-        const result = yield (0, dashboardStatsService_1.getTournamentStats)();
+        const { tokenType } = req.query;
+        // Validate tokenType
+        if (!tokenType || tokenType === undefined || tokenType === null) {
+            return res.status(400).json({
+                success: false,
+                message: 'tokenType is required'
+            });
+        }
+        const tt = Number(tokenType);
+        if (tt !== getPDAs_1.TokenType.SPL && tt !== getPDAs_1.TokenType.SOL) {
+            return res.status(400).json({
+                success: false,
+                message: 'tokenType must be 0 (SPL) or 1 (SOL)'
+            });
+        }
+        // Call the service to get tournament stats filtered by tokenType
+        const result = yield (0, dashboardStatsService_1.getTournamentStats)(tt);
         if (result !== null && result !== undefined) {
             return res.status(200).json({
                 success: true,
@@ -430,8 +592,9 @@ exports.getTournamentStatsController = getTournamentStatsController;
 const getRevenuePoolStatsController = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { adminPublicKey } = req.params;
+        const { tokenType } = req.query;
         // Call the service function
-        const result = yield (0, dashboardStatsService_1.getRevenuePoolStatsService)(new web3_js_1.PublicKey(adminPublicKey));
+        const result = yield (0, dashboardStatsService_1.getRevenuePoolStatsService)(new web3_js_1.PublicKey(adminPublicKey), Number(tokenType));
         if (result.success) {
             return res.status(200).json({
                 success: true,
@@ -466,6 +629,7 @@ const getDashboardStatsController = (req, res) => __awaiter(void 0, void 0, void
     try {
         console.log('📊 Fetching all dashboard statistics...');
         const { adminPublicKey } = req.params;
+        const { tokenType } = req.query;
         // Validate the admin public key
         if (!adminPublicKey) {
             return res.status(400).json({
@@ -474,7 +638,7 @@ const getDashboardStatsController = (req, res) => __awaiter(void 0, void 0, void
             });
         }
         // Call the service to get all stats
-        const result = yield (0, dashboardStatsService_1.getDashboardData)(new web3_js_1.PublicKey(adminPublicKey));
+        const result = yield (0, dashboardStatsService_1.getDashboardData)(new web3_js_1.PublicKey(adminPublicKey), Number(tokenType));
         if (result) {
             return res.status(200).json({
                 success: true,

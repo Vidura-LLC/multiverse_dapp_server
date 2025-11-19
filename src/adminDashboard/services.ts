@@ -4,6 +4,7 @@
 import {
     PublicKey,
     SystemProgram,
+    Transaction,
   } from "@solana/web3.js";
   import {
     TOKEN_2022_PROGRAM_ID,
@@ -12,6 +13,8 @@ import {
   import { getProgram } from "../staking/services";
   dotenv.config();
 import * as anchor from "@project-serum/anchor";
+import { getStakingPoolPDA, getStakingEscrowPDA, getRevenuePoolPDA, getRevenueEscrowPDA, getRewardPoolPDA, getRewardEscrowPDA, getTournamentPoolPDA, getPrizePoolPDA, getPrizeEscrowPDA, TokenType } from "../utils/getPDAs";
+
 
 export interface StakingPoolAccount {
     admin: PublicKey;
@@ -20,6 +23,7 @@ export interface StakingPoolAccount {
     totalWeight: anchor.BN;
     accRewardPerWeight: anchor.BN;
     epochIndex: anchor.BN;
+    tokenType: {spl?: {} | {sol?: {}}}
     bump: number;
 }
 
@@ -28,6 +32,7 @@ export interface RewardPoolAccount {
   mint: PublicKey;
   totalFunds: anchor.BN;
   lastDistribution: anchor.BN;
+  tokenType: {spl?: {} | {sol?: {}}}
   bump: number;
 }
 
@@ -36,100 +41,96 @@ export interface RevenuePoolAccount {
     mint: PublicKey;
     totalFunds: anchor.BN;
     lastDistribution: anchor.BN;
+    tokenType: {spl?: {} | {sol?: {}}}
     bump: number;
 }
       
 
   // ✅ Function to initialize the staking pool and escrow account
-  export const initializeStakingPoolService = async (mintPublicKey: PublicKey, adminPublicKey: PublicKey) => {
-      try {
-          const { program, connection } = getProgram();
+  export const initializeStakingPoolService = async (
+    mintPublicKey: PublicKey,
+    tokenType: TokenType = TokenType.SPL,
+    adminPublicKey?: PublicKey
+  ) => {
+    try {
+      const { program, connection } = getProgram();
   
-          // ✅ Staking pool doesn't exist - create initialization transaction
-          console.log("🔄 Creating staking pool initialization transaction...");
-          
-          console.log("Admin PublicKey:", adminPublicKey.toBase58());
+      console.log("\n🔄 Creating staking pool initialization transaction...");
+      console.log("Token Type:", tokenType === TokenType.SPL ? "SPL" : "SOL");
+      console.log("Admin PublicKey:", adminPublicKey.toBase58());
   
-          const [stakingPoolPublicKey] = PublicKey.findProgramAddressSync(
-              [Buffer.from("staking_pool"), adminPublicKey.toBuffer()],
-              program.programId
-          );
+      // Get staking pool PDA
+      const stakingPoolPublicKey = getStakingPoolPDA(adminPublicKey, tokenType);
+      console.log("🔹 Staking Pool PDA Address:", stakingPoolPublicKey.toBase58());
   
-          const [poolEscrowAccountPublicKey] = PublicKey.findProgramAddressSync(
-              [Buffer.from("escrow"), stakingPoolPublicKey.toBuffer()],
-              program.programId
-          );
+      // Get escrow PDA
+      const poolEscrowAccountPublicKey = getStakingEscrowPDA(stakingPoolPublicKey);
+      console.log("🔹 Pool Escrow Account Address:", poolEscrowAccountPublicKey.toBase58());
   
-          console.log("🔹 Staking Pool PDA Address:", stakingPoolPublicKey.toString());
-          console.log("🔹 Pool Escrow Account Address:", poolEscrowAccountPublicKey.toString());
+      const { blockhash } = await connection.getLatestBlockhash("finalized");
+      console.log("Latest Blockhash:", blockhash);
   
+      // ✅ KEY FIX: For SOL, use SystemProgram as mint
+      const actualMint = tokenType === TokenType.SOL 
+        ? SystemProgram.programId  // Dummy mint for SOL
+        : mintPublicKey;
   
+      // Build the transaction
+      const tokenTypeArg = tokenType === TokenType.SPL ? {spl: {}} : {sol: {}};
+      const transaction = await program.methods
+        .initializeAccounts(tokenTypeArg)
+        .accounts({
+          stakingPool: stakingPoolPublicKey,
+          poolEscrowAccount: poolEscrowAccountPublicKey,
+          mint: actualMint,  // ✅ Use SystemProgram for SOL
+          admin: adminPublicKey,
+          systemProgram: SystemProgram.programId,
+          tokenProgram: TOKEN_2022_PROGRAM_ID,
+        })
+        .transaction();
   
+      transaction.recentBlockhash = blockhash;
+      transaction.feePayer = adminPublicKey;
   
-          
-          // Get the latest blockhash
-          const { blockhash } = await connection.getLatestBlockhash("finalized");
-          console.log("Latest Blockhash:", blockhash);
-  
-          // Create the transaction
-          const transaction = await program.methods
-              .initializeAccounts()
-              .accounts({
-                  admin: adminPublicKey,
-                  stakingPool: stakingPoolPublicKey,
-                  mint: mintPublicKey,
-                  poolEscrowAccount: poolEscrowAccountPublicKey,
-                  systemProgram: SystemProgram.programId,
-                  tokenProgram: TOKEN_2022_PROGRAM_ID,
-              })
-              .transaction();
-  
-          // Set recent blockhash and fee payer
-          transaction.recentBlockhash = blockhash;
-          transaction.feePayer = adminPublicKey;
-  
-          // Serialize transaction and send it to the frontend
-          return {
-              success: true,
-              message: "Transaction created successfully!",
-              stakingPoolPublicKey: stakingPoolPublicKey.toBase58(),
-              poolEscrowAccountPublicKey: poolEscrowAccountPublicKey.toBase58(),
-              transaction: transaction.serialize({ requireAllSignatures: false }).toString("base64"),
-          };
-      } catch (err) {
-          console.error("❌ Error initializing staking pool:", err);
-          return {
-              success: false,
-              message: `Error initializing staking pool: ${err.message || err}`
-          };
-      }
+      return {
+        success: true,
+        message: "Transaction created successfully!",
+        stakingPoolPublicKey: stakingPoolPublicKey.toBase58(),
+        poolEscrowAccountPublicKey: poolEscrowAccountPublicKey.toBase58(),
+        tokenType: tokenType === TokenType.SPL ? "SPL" : "SOL",
+        transaction: transaction.serialize({ requireAllSignatures: false }).toString('base64'),
+      };
+    } catch (err: any) {
+      console.error("❌ Error creating staking pool initialization transaction:", err);
+      return {
+        success: false,
+        message: `Error creating transaction: ${err.message || err}`,
+      };
+    }
   };
   
   /**
    * Initialize the global revenue pool
    * @param mintPublicKey - The token mint address
+   * @param tokenType - The token type
+   * @param adminPublicKey - The admin public key
    * @returns Result object with transaction details and addresses
    */
-  export const initializeRevenuePoolService = async (mintPublicKey: PublicKey, adminPublicKey: PublicKey) => {
+  export const initializeRevenuePoolService = async (mintPublicKey: PublicKey, adminPublicKey: PublicKey, tokenType: TokenType = TokenType.SPL) => {
       try {
           const { program, connection } = getProgram();
   
           // Log initial parameters for clarity
           console.log("Initializing Revenue Pool:");
           console.log("Admin PublicKey:", adminPublicKey.toBase58());
+          console.log("Token Type:", tokenType === TokenType.SPL ? "SPL" : "SOL");
           console.log("Mint PublicKey:", mintPublicKey.toBase58());
   
           // Derive the PDA for the revenue pool
-          const [revenuePoolPublicKey] = PublicKey.findProgramAddressSync(
-              [Buffer.from("revenue_pool"), adminPublicKey.toBuffer()],
-              program.programId
-          );
+          const revenuePoolPublicKey = getRevenuePoolPDA(adminPublicKey, tokenType);
   
           // Derive the PDA for the revenue escrow account
-          const [revenueEscrowPublicKey] = PublicKey.findProgramAddressSync(
-              [Buffer.from("revenue_escrow"), revenuePoolPublicKey.toBuffer()],
-              program.programId
-          );
+          const revenueEscrowPublicKey = getRevenueEscrowPDA(revenuePoolPublicKey);
   
           console.log("🔹 Revenue Pool PDA Address:", revenuePoolPublicKey.toString());
           console.log("🔹 Revenue Escrow PDA Address:", revenueEscrowPublicKey.toString());
@@ -137,14 +138,19 @@ export interface RevenuePoolAccount {
           // Get the latest blockhash
           const { blockhash } = await connection.getLatestBlockhash("finalized");
           console.log("Latest Blockhash:", blockhash);
+          
+          const actualMint = tokenType === TokenType.SOL 
+            ? SystemProgram.programId  // Dummy mint for SOL
+            : mintPublicKey;
   
+          const tokenTypeArg = tokenType === TokenType.SPL ? {spl: {}} : {sol: {}};
           // Create the transaction
           const transaction = await program.methods
-              .initializeRevenuePool()
+              .initializeRevenuePool(tokenTypeArg)
               .accounts({
                   revenuePool: revenuePoolPublicKey,
                   revenueEscrowAccount: revenueEscrowPublicKey,
-                  mint: mintPublicKey,
+                  mint: actualMint,
                   admin: adminPublicKey,
                   systemProgram: anchor.web3.SystemProgram.programId,
                   tokenProgram: TOKEN_2022_PROGRAM_ID,
@@ -159,6 +165,9 @@ export interface RevenuePoolAccount {
           return {
               success: true,
               message: "Transaction created successfully!",
+              revenuePoolPublicKey: revenuePoolPublicKey.toBase58(),
+              revenueEscrowAccountPublicKey: revenueEscrowPublicKey.toBase58(),
+              tokenType: tokenType === TokenType.SPL ? "SPL" : "SOL",
               transaction: transaction.serialize({ requireAllSignatures: false }).toString('base64'),
           };
       } catch (err) {
@@ -174,113 +183,131 @@ export interface RevenuePoolAccount {
    * Initialize a prize pool for a specific tournament
    * @param tournamentId - The tournament ID
    * @param mintPublicKey - The token mint address
+   * @param tokenType - The token type
+   * @param adminPublicKey - The admin public key
    * @returns Result object with transaction details and addresses
    */
-    export const initializePrizePoolService = async (tournamentId: string, mintPublicKey: PublicKey, adminPublicKey: PublicKey) => {
-        try {
-          const { program, connection } = getProgram();
-      
-          // Log initial parameters for clarity
-          console.log("Initializing Prize Pool for Tournament:");
-          console.log("Tournament ID:", tournamentId);
-          console.log("Admin PublicKey:", adminPublicKey.toBase58());
-          console.log("Mint PublicKey:", mintPublicKey.toBase58());
-      
-          // First, derive the tournament pool PDA to ensure it exists
-          const tournamentIdBytes = Buffer.from(tournamentId, "utf8");
-          const [tournamentPoolPublicKey] = PublicKey.findProgramAddressSync(
-            [Buffer.from("tournament_pool"), adminPublicKey.toBuffer(), tournamentIdBytes],
-            program.programId
-          );
-          
-          console.log("🔹 Tournament Pool PDA Address:", tournamentPoolPublicKey.toString());
-          
-          // Add this to initializePrizePoolService
-          console.log("Full tournament pool key:", tournamentPoolPublicKey.toString());
-          console.log("Tournament ID bytes:", tournamentIdBytes);
-          console.log("Admin pubkey:", adminPublicKey.toString());
-      
-          // Derive the PDA for the prize pool (now derived from tournament pool)
-          const [prizePoolPublicKey] = PublicKey.findProgramAddressSync(
-            [Buffer.from("prize_pool"), tournamentPoolPublicKey.toBuffer()],
-            program.programId
-          );
-      
-          // Derive the PDA for the prize escrow account
-          const [prizeEscrowPublicKey] = PublicKey.findProgramAddressSync(
-            [Buffer.from("prize_escrow"), prizePoolPublicKey.toBuffer()],
-            program.programId
-          );
-      
-          console.log("🔹 Prize Pool PDA Address:", prizePoolPublicKey.toString());
-          console.log("🔹 Prize Escrow PDA Address:", prizeEscrowPublicKey.toString());
-      
-          // Get the latest blockhash
-          const { blockhash } = await connection.getLatestBlockhash("finalized");
-          console.log("Latest Blockhash:", blockhash);
-      
-          // Create the transaction
-          const transaction = await program.methods
-            .initializePrizePool(tournamentId)
-            .accounts({
-              prizePool: prizePoolPublicKey,
-              tournamentPool: tournamentPoolPublicKey,
-              prizeEscrowAccount: prizeEscrowPublicKey,
-              mint: mintPublicKey,
-              admin: adminPublicKey,
-              systemProgram: anchor.web3.SystemProgram.programId,
-              tokenProgram: TOKEN_2022_PROGRAM_ID,
-            })
-            .transaction();
-      
-          // Set recent blockhash and fee payer
-          transaction.recentBlockhash = blockhash;
-          transaction.feePayer = adminPublicKey;
-          // Serialize transaction and send it to the frontend
-        return {
-          success: true,
-          message: "Transaction created successfully!",
-          transaction: transaction.serialize({ requireAllSignatures: false }).toString('base64'),
-          prizePool: prizePoolPublicKey.toString(),
-        };
-      } catch (err) {
-          console.error("❌ Error initializing prize pool:", err);
-          return {
-            success: false,
-            message: `Error initializing prize pool: ${err.message || err}`
-          };
-        }
-      };
-      
+/**
+ * Initialize a prize pool for a specific tournament
+ */
+export const initializePrizePoolService = async (
+  tournamentId: string, 
+  mintPublicKey: PublicKey, 
+  adminPublicKey: PublicKey, 
+  tokenType: TokenType
+) => {
+  try {
+    const { program, connection } = getProgram();
+
+    console.log("Initializing Prize Pool for Tournament:");
+    console.log("Tournament ID:", tournamentId);
+    console.log("Admin PublicKey:", adminPublicKey.toBase58());
+    console.log("Token Type:", tokenType === TokenType.SPL ? "SPL" : "SOL");
+
+    const tournamentPoolPublicKey = getTournamentPoolPDA(adminPublicKey, tournamentId, tokenType);
+    console.log("🔹 Tournament Pool PDA Address:", tournamentPoolPublicKey.toString());
+
+    const prizePoolPublicKey = getPrizePoolPDA(tournamentPoolPublicKey);
+    console.log("🔹 Prize Pool PDA Address:", prizePoolPublicKey.toString());
+
+    let prizeEscrowPublicKey: PublicKey;
+    let finalMintPublicKey: PublicKey;
+
+    if (tokenType === TokenType.SOL) {
+      prizeEscrowPublicKey = SystemProgram.programId;
+      finalMintPublicKey = SystemProgram.programId;
+      console.log("🔹 SOL Prize Pool (no escrow needed)");
+    } else {
+      prizeEscrowPublicKey = getPrizeEscrowPDA(prizePoolPublicKey);
+      finalMintPublicKey = mintPublicKey;
+      console.log("🔹 Prize Escrow PDA Address:", prizeEscrowPublicKey.toString());
+      console.log("🔹 Mint PublicKey:", mintPublicKey.toBase58());
+    }
+
+    const { blockhash } = await connection.getLatestBlockhash("finalized");
+
+    // ✅ Build instruction first, then modify account metas
+    const instruction = await program.methods
+      .initializePrizePool(tournamentId)
+      .accounts({
+        prizePool: prizePoolPublicKey,
+        tournamentPool: tournamentPoolPublicKey,
+        prizeEscrowAccount: prizeEscrowPublicKey,
+        mint: finalMintPublicKey,
+        creator: adminPublicKey,
+        systemProgram: SystemProgram.programId,
+        tokenProgram: tokenType === TokenType.SPL ? TOKEN_2022_PROGRAM_ID : SystemProgram.programId,
+      })
+      .instruction();
+
+    // ✅ For SPL tournaments, ensure prize_escrow_account and mint are writable
+    if (tokenType === TokenType.SPL) {
+      const escrowAccountIndex = instruction.keys.findIndex(
+        key => key.pubkey.equals(prizeEscrowPublicKey)
+      );
+      if (escrowAccountIndex !== -1) {
+        instruction.keys[escrowAccountIndex].isWritable = true;
+        console.log("✅ Marked prize_escrow_account as writable");
+      }
+
+      const mintAccountIndex = instruction.keys.findIndex(
+        key => key.pubkey.equals(finalMintPublicKey)
+      );
+      if (mintAccountIndex !== -1) {
+        instruction.keys[mintAccountIndex].isWritable = true;
+        console.log("✅ Marked mint as writable");
+      }
+    }
+
+    const transaction = new Transaction().add(instruction);
+
+    transaction.recentBlockhash = blockhash;
+    transaction.feePayer = adminPublicKey;
+
+    return {
+      success: true,
+      message: "Transaction created successfully!",
+      transaction: transaction.serialize({ requireAllSignatures: false }).toString('base64'),
+      prizePool: prizePoolPublicKey.toString(),
+      prizeEscrowAccountPublicKey: prizeEscrowPublicKey.toString(),
+      tokenType: tokenType === TokenType.SPL ? "SPL" : "SOL",
+    };
+  } catch (err) {
+    console.error("❌ Error initializing prize pool:", err);
+    return {
+      success: false,
+      message: `Error initializing prize pool: ${err.message || err}`
+    };
+  }
+};
 
 
   // ✅ Initialize Reward Pool (admin-only)
 export const initializeRewardPoolService = async (
   mintPublicKey: PublicKey,
-  adminPublicKey: PublicKey
+  adminPublicKey: PublicKey,
+  tokenType: TokenType = TokenType.SPL
 ) => {
   try {
     const { program, connection } = getProgram();
 
     // Derive PDAs
-    const [rewardPoolPublicKey] = PublicKey.findProgramAddressSync(
-      [Buffer.from("reward_pool"), adminPublicKey.toBuffer()],
-      program.programId
-    );
+    const rewardPoolPublicKey = getRewardPoolPDA(adminPublicKey, tokenType);
 
-    const [rewardEscrowPublicKey] = PublicKey.findProgramAddressSync(
-      [Buffer.from("reward_escrow"), rewardPoolPublicKey.toBuffer()],
-      program.programId
-    );
+    const rewardEscrowPublicKey = getRewardEscrowPDA(rewardPoolPublicKey);
+    const actualMint = tokenType === TokenType.SOL 
+      ? SystemProgram.programId  // Dummy mint for SOL
+      : mintPublicKey;
 
+    const tokenTypeArg = tokenType === TokenType.SPL ? {spl: {}} : {sol: {}};
     // Build unsigned tx
     const { blockhash } = await connection.getLatestBlockhash("finalized");
     const transaction = await program.methods
-      .initializeRewardPool()
+      .initializeRewardPool(tokenTypeArg)
       .accounts({
         rewardPool: rewardPoolPublicKey,
         rewardEscrowAccount: rewardEscrowPublicKey,
-        mint: mintPublicKey,
+        mint: actualMint,
         admin: adminPublicKey,
         systemProgram: SystemProgram.programId,
         tokenProgram: TOKEN_2022_PROGRAM_ID,
@@ -296,6 +323,7 @@ export const initializeRewardPoolService = async (
       rewardPool: rewardPoolPublicKey.toBase58(),
       rewardEscrow: rewardEscrowPublicKey.toBase58(),
       transaction: transaction.serialize({ requireAllSignatures: false }).toString("base64"),
+      tokenType: tokenType === TokenType.SPL ? "SPL" : "SOL",
     };
   } catch (err: any) {
     console.error("❌ Error creating initializeRewardPool tx:", err);
@@ -304,90 +332,80 @@ export const initializeRewardPoolService = async (
 };
 
   
-  // ✅ Function to check pool status for staking, revenue, and prize pools
-  export const checkPoolStatus = async (adminPublicKey: PublicKey, tournamentId?: string) => {
-      try {
-          const { program } = getProgram();
-  
-          const result = {
-              success: true,
-              stakingPool: {
-                  status: false, // false = needs initialization, true = exists
-              },
-              revenuePool: {
-                  status: false, // false = needs initialization, true = exists
-              },
-              rewardPool: {
-                status: false, // false = needs initialization, true = exists
-            },
-              adminAddress: adminPublicKey.toString()
-          };
-  
-          // ✅ 1. Check Staking Pool
-          const [stakingPoolPublicKey] = PublicKey.findProgramAddressSync(
-              [Buffer.from("staking_pool"), adminPublicKey.toBuffer()],
-              program.programId
-          );
-  
-          const [stakingEscrowAccountPublicKey] = PublicKey.findProgramAddressSync(
-              [Buffer.from("escrow"), stakingPoolPublicKey.toBuffer()],
-              program.programId
-          );
-  
-          console.log("🔹 Checking Staking Pool PDA:", stakingPoolPublicKey.toString());
-  
-          const stakingPoolAccount = await program.account.stakingPool.fetchNullable(stakingPoolPublicKey) as StakingPoolAccount;
-  
-          result.stakingPool = {
-              status: stakingPoolAccount !== null,
-          };
-  
-          // ✅ 2. Check Revenue Pool
-          const [revenuePoolPublicKey] = PublicKey.findProgramAddressSync(
-              [Buffer.from("revenue_pool"), adminPublicKey.toBuffer()],
-              program.programId
-          );
-  
-          const [revenueEscrowAccountPublicKey] = PublicKey.findProgramAddressSync(
-              [Buffer.from("revenue_escrow"), revenuePoolPublicKey.toBuffer()],
-              program.programId
-          );
-  
-          console.log("🔹 Checking Revenue Pool PDA:", revenuePoolPublicKey.toString());
-  
-          const revenuePoolAccount = await program.account.revenuePool.fetchNullable(revenuePoolPublicKey) as RevenuePoolAccount;
-  
-          result.revenuePool = {
-              status: revenuePoolAccount !== null,
-          }
+ // ✅ Function to check pool status for staking, revenue, and prize pools
+ export const checkPoolStatus = async (adminPublicKey: PublicKey, tokenType: TokenType) => {
+  try {
+      const { program } = getProgram();
 
- 
-          // ✅ 3. Check Reward Pool
-          const [rewardPoolPublicKey] = PublicKey.findProgramAddressSync(
-            [Buffer.from("reward_pool"), adminPublicKey.toBuffer()],
-            program.programId
-        );
+      const result = {
+          success: true,
+          stakingPool: {
+              status: false, // false = needs initialization, true = exists
+              tokenType: null as string | null,
+          },
+          revenuePool: {
+              status: false, // false = needs initialization, true = exists
+              tokenType: null as string | null,
+          },
+          rewardPool: {
+            status: false, // false = needs initialization, true = exists
+            tokenType: null as string | null,
+        },
+          adminAddress: adminPublicKey.toString()
+      };
 
-        const [rewardEscrowAccountPublicKey] = PublicKey.findProgramAddressSync(
-            [Buffer.from("reward_escrow"), rewardPoolPublicKey.toBuffer()],
-            program.programId
-        );
+      // ✅ 1. Check Staking Pool
+      const stakingPoolPublicKey = getStakingPoolPDA(adminPublicKey, tokenType);
+      console.log("🔹 Checking Staking Pool PDA:", stakingPoolPublicKey.toString());
 
-        console.log("🔹 Checking Reward Pool PDA:", rewardPoolPublicKey.toString());
+      const stakingPoolAccount = await program.account.stakingPool.fetchNullable(stakingPoolPublicKey) as StakingPoolAccount | null;
 
-        const rewardPoolAccount = await program.account.rewardPool.fetchNullable(rewardPoolPublicKey) as RewardPoolAccount;
+      result.stakingPool = {
+          status: stakingPoolAccount !== null,
+          tokenType: stakingPoolAccount ? 
+            (stakingPoolAccount.tokenType.hasOwnProperty('spl') ? 'SPL' : 'SOL') : 
+            null,
+      };
 
-        result.rewardPool = {
-            status: rewardPoolAccount !== null,
-        }
-  
-          return result;
-  
-      } catch (err) {
-          console.error("❌ Error checking pool status:", err);
-          return {
-              success: false,
-              message: `Error checking pool status: ${err.message || err}`
-          };
+      // ✅ 2. Check Revenue Pool
+      const revenuePoolPublicKey = getRevenuePoolPDA(adminPublicKey, tokenType);
+
+      console.log("🔹 Checking Revenue Pool PDA:", revenuePoolPublicKey.toString());
+
+      const revenuePoolAccount = await program.account.revenuePool.fetchNullable(revenuePoolPublicKey) as RevenuePoolAccount | null;
+
+      result.revenuePool = {
+          status: revenuePoolAccount !== null,
+          tokenType: revenuePoolAccount ? 
+            (revenuePoolAccount.tokenType.hasOwnProperty('spl') ? 'SPL' : 'SOL') : 
+            null,
       }
-  };
+
+
+      // ✅ 3. Check Reward Pool
+      const rewardPoolPublicKey = getRewardPoolPDA(adminPublicKey, tokenType);
+
+
+    console.log("🔹 Checking Reward Pool PDA:", rewardPoolPublicKey.toString());
+
+    const rewardPoolAccount = await program.account.rewardPool.fetchNullable(rewardPoolPublicKey) as RewardPoolAccount | null;
+
+    result.rewardPool = {
+        status: rewardPoolAccount !== null,
+        tokenType: rewardPoolAccount ? 
+          (rewardPoolAccount.tokenType.hasOwnProperty('spl') ? 'SPL' : 'SOL') : 
+          null,
+    }
+
+      return result;
+
+  } catch (err: any) {
+      console.error("❌ Error checking pool status:", err);
+      return {
+          success: false,
+          message: `Error checking pool status: ${err.message || err}`
+      };
+  }
+};
+
+
