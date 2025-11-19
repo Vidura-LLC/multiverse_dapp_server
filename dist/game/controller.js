@@ -17,6 +17,7 @@ exports.updateGame = updateGame;
 const database_1 = require("firebase/database");
 const firebase_1 = require("../config/firebase"); // Adjust import path
 const s3Service_1 = require("./s3Service");
+const getPDAs_1 = require("../utils/getPDAs");
 function createGame(req, res) {
     return __awaiter(this, void 0, void 0, function* () {
         try {
@@ -123,13 +124,22 @@ function getGameById(req, res) {
 function getGamePerformanceMetrics(req, res) {
     return __awaiter(this, void 0, void 0, function* () {
         try {
+            const { tokenType } = req.query;
+            if (!tokenType || tokenType === undefined || tokenType === null) {
+                res.status(400).json({ message: "tokenType is required" });
+                return;
+            }
+            const tt = Number(tokenType);
+            if (tt !== getPDAs_1.TokenType.SPL && tt !== getPDAs_1.TokenType.SOL) {
+                res.status(400).json({ message: "tokenType must be 0 (SPL) or 1 (SOL)" });
+            }
             // Get all games
-            const gamesRef = (0, database_1.ref)(firebase_1.db, "games");
+            const gamesRef = (0, database_1.ref)(firebase_1.db, `games`);
             const gamesSnapshot = yield (0, database_1.get)(gamesRef);
             const gamesData = gamesSnapshot.val();
             const games = gamesData ? Object.values(gamesData) : [];
             // Get all tournaments
-            const tournamentsRef = (0, database_1.ref)(firebase_1.db, "tournaments");
+            const tournamentsRef = (0, database_1.ref)(firebase_1.db, `tournaments/${tt}`);
             const tournamentsSnapshot = yield (0, database_1.get)(tournamentsRef);
             const tournamentsData = tournamentsSnapshot.val();
             const tournaments = tournamentsData ? Object.values(tournamentsData) : [];
@@ -160,7 +170,8 @@ function getGamePerformanceMetrics(req, res) {
             });
             res.status(200).json({
                 success: true,
-                data: gamePerformanceMetrics
+                data: gamePerformanceMetrics,
+                tokenType: tt
             });
             return;
         }

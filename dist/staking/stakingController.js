@@ -13,16 +13,17 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.accrueRewardsController = exports.fetchUserStakingAccountController = exports.unstakeTokensController = exports.claimRewardsController = exports.stakeTokensController = void 0;
 const services_1 = require("./services");
 const web3_js_1 = require("@solana/web3.js");
+const getPDAs_1 = require("../utils/getPDAs");
 // Controller to handle staking requests
 const stakeTokensController = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     console.log('Staking invoked');
     try {
-        const { mintPublicKey, userPublicKey, amount, lockDuration, adminPublicKey } = req.body;
+        const { mintPublicKey, userPublicKey, amount, lockDuration, adminPublicKey, tokenType } = req.body;
         // Validate required fields
-        if (!mintPublicKey || !userPublicKey || !amount || !lockDuration || !adminPublicKey) {
+        if (!mintPublicKey || !userPublicKey || !amount || !lockDuration || !adminPublicKey || tokenType === undefined || tokenType === null) {
             return res.status(400).json({
                 success: false,
-                message: "Missing required fields: mintPublicKey, userPublicKey, amount, lockDuration, and adminPublicKey are required"
+                message: "Missing required fields: mintPublicKey, userPublicKey, amount, lockDuration, adminPublicKey, and tokenType are required"
             });
         }
         // Validate types
@@ -44,7 +45,8 @@ const stakeTokensController = (req, res) => __awaiter(void 0, void 0, void 0, fu
             userPublicKey,
             amount,
             lockDuration,
-            adminPublicKey
+            adminPublicKey,
+            tokenType
         });
         // Validate PublicKey formats
         try {
@@ -58,8 +60,12 @@ const stakeTokensController = (req, res) => __awaiter(void 0, void 0, void 0, fu
                 message: "Invalid PublicKey format provided"
             });
         }
+        const tt = Number(tokenType);
+        if (tt !== getPDAs_1.TokenType.SPL && tt !== getPDAs_1.TokenType.SOL) {
+            return res.status(400).json({ success: false, message: 'tokenType must be 0 (SPL) or 1 (SOL)' });
+        }
         // Call the service function to create an unsigned transaction
-        const result = yield (0, services_1.stakeTokenService)(new web3_js_1.PublicKey(mintPublicKey), new web3_js_1.PublicKey(userPublicKey), amount, lockDuration, new web3_js_1.PublicKey(adminPublicKey));
+        const result = yield (0, services_1.stakeTokenService)(new web3_js_1.PublicKey(mintPublicKey), new web3_js_1.PublicKey(userPublicKey), amount, lockDuration, new web3_js_1.PublicKey(adminPublicKey), tt);
         if (result.success) {
             return res.status(200).json(result);
         }
@@ -79,11 +85,11 @@ exports.stakeTokensController = stakeTokensController;
 // ✅ Controller to claim staking rewards
 const claimRewardsController = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const { userPublicKey, adminPublicKey } = req.body;
-        if (!userPublicKey || !adminPublicKey) {
-            return res.status(400).json({ success: false, message: 'userPublicKey and adminPublicKey are required' });
+        const { userPublicKey, adminPublicKey, tokenType } = req.body;
+        if (!userPublicKey || !adminPublicKey || (tokenType === undefined || tokenType === null)) {
+            return res.status(400).json({ success: false, message: 'userPublicKey, adminPublicKey, and tokenType are required' });
         }
-        const result = yield (0, services_1.claimRewardsService)(new web3_js_1.PublicKey(userPublicKey), new web3_js_1.PublicKey(adminPublicKey));
+        const result = yield (0, services_1.claimRewardsService)(new web3_js_1.PublicKey(userPublicKey), new web3_js_1.PublicKey(adminPublicKey), tokenType);
         if (result.success) {
             return res.status(200).json(result);
         }
@@ -99,18 +105,19 @@ const claimRewardsController = (req, res) => __awaiter(void 0, void 0, void 0, f
 exports.claimRewardsController = claimRewardsController;
 const unstakeTokensController = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const { userPublicKey, adminPublicKey } = req.body;
+        const { userPublicKey, adminPublicKey, tokenType, mintPublicKey } = req.body;
         // Validate required fields
-        if (!userPublicKey || !adminPublicKey) {
+        if (!userPublicKey || !adminPublicKey || tokenType === undefined || tokenType === null || !mintPublicKey) {
             return res.status(400).json({
                 success: false,
-                message: "Missing required fields: userPublicKey and adminPublicKey are required"
+                message: "Missing required fields: userPublicKey, adminPublicKey, tokenType and mintPublicKey are required"
             });
         }
         // Validate PublicKey formats
         try {
             new web3_js_1.PublicKey(userPublicKey);
             new web3_js_1.PublicKey(adminPublicKey);
+            new web3_js_1.PublicKey(mintPublicKey);
         }
         catch (pubkeyError) {
             return res.status(400).json({
@@ -118,13 +125,11 @@ const unstakeTokensController = (req, res) => __awaiter(void 0, void 0, void 0, 
                 message: "Invalid PublicKey format provided"
             });
         }
-        // Get the mint public key from the staking pool
-        const { program } = (0, services_1.getProgram)();
-        const [stakingPoolPublicKey] = web3_js_1.PublicKey.findProgramAddressSync([Buffer.from("staking_pool"), new web3_js_1.PublicKey(adminPublicKey).toBuffer()], program.programId);
-        // Fetch the staking pool data to get the mint public key
-        const stakingPoolData = yield program.account.stakingPool.fetch(stakingPoolPublicKey);
-        const mintPublicKey = stakingPoolData.mint;
-        const result = yield (0, services_1.unstakeTokenService)(mintPublicKey, new web3_js_1.PublicKey(userPublicKey), new web3_js_1.PublicKey(adminPublicKey));
+        const tt = Number(tokenType);
+        if (tt !== getPDAs_1.TokenType.SPL && tt !== getPDAs_1.TokenType.SOL) {
+            return res.status(400).json({ success: false, message: 'tokenType must be 0 (SPL) or 1 (SOL)' });
+        }
+        const result = yield (0, services_1.unstakeTokenService)(new web3_js_1.PublicKey(mintPublicKey), new web3_js_1.PublicKey(userPublicKey), new web3_js_1.PublicKey(adminPublicKey), tt);
         if (result.success) {
             return res.status(200).json(result);
         }
@@ -142,11 +147,16 @@ exports.unstakeTokensController = unstakeTokensController;
 const fetchUserStakingAccountController = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { userPublicKey } = req.params;
-        if (!userPublicKey) {
+        const { tokenType, adminPublicKey } = req.query;
+        if (!userPublicKey || tokenType === undefined || tokenType === null || !adminPublicKey) {
             return res.status(400).json({ success: false, message: "User public key is required" });
         }
+        const tt = Number(tokenType);
+        if (tt !== getPDAs_1.TokenType.SPL && tt !== getPDAs_1.TokenType.SOL) {
+            return res.status(400).json({ success: false, message: 'tokenType must be 0 (SPL) or 1 (SOL)' });
+        }
         const userPubkey = new web3_js_1.PublicKey(userPublicKey);
-        const result = yield (0, services_1.getUserStakingAccount)(userPubkey);
+        const result = yield (0, services_1.getUserStakingAccount)(userPubkey, new web3_js_1.PublicKey(adminPublicKey), tt);
         if (result.success) {
             return res.status(200).json(result);
         }
@@ -163,16 +173,16 @@ exports.fetchUserStakingAccountController = fetchUserStakingAccountController;
 // Controller function to accrue rewards for a specific user
 const accrueRewardsController = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const { userPublicKey, adminPublicKey } = req.body;
-        if (!userPublicKey || !adminPublicKey) {
+        const { userPublicKey, adminPublicKey, tokenType } = req.body;
+        if (!userPublicKey || !adminPublicKey || (tokenType === undefined || tokenType === null)) {
             return res.status(400).json({
                 success: false,
-                message: "userPublicKey and adminPublicKey are required."
+                message: "userPublicKey, adminPublicKey, and tokenType are required."
             });
         }
         const userPubkey = new web3_js_1.PublicKey(userPublicKey);
         const adminPubkey = new web3_js_1.PublicKey(adminPublicKey);
-        const result = yield (0, services_1.accrueRewardsService)(userPubkey, adminPubkey);
+        const result = yield (0, services_1.accrueRewardsService)(userPubkey, adminPubkey, tokenType);
         if (result.success) {
             return res.status(200).json(result);
         }
