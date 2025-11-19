@@ -92,7 +92,7 @@ export const claimRewardsController = async (req: Request, res: Response) => {
   try {
     const { userPublicKey, adminPublicKey, tokenType } = req.body;
 
-    if (!userPublicKey || !adminPublicKey || !tokenType) {
+    if (!userPublicKey || !adminPublicKey || (tokenType === undefined || tokenType === null)) {
       return res.status(400).json({ success: false, message: 'userPublicKey, adminPublicKey, and tokenType are required' });
     }
 
@@ -185,7 +185,7 @@ export const accrueRewardsController = async (req: Request, res: Response) => {
   try {
     const { userPublicKey, adminPublicKey, tokenType } = req.body;
 
-    if (!userPublicKey || !adminPublicKey || !tokenType) {
+    if (!userPublicKey || !adminPublicKey || (tokenType === undefined || tokenType === null)) {
       return res.status(400).json({
         success: false,
         message: "userPublicKey, adminPublicKey, and tokenType are required."
