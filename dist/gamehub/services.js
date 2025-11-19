@@ -54,43 +54,56 @@ const bn_js_1 = require("bn.js");
 const services_1 = require("../staking/services");
 const database_1 = require("firebase/database");
 const firebase_1 = require("../config/firebase");
+const getPDAs_1 = require("../utils/getPDAs");
+const getPDAs_2 = require("../utils/getPDAs");
 dotenv_1.default.config();
 // Function to initialize the tournament pool
-const initializeTournamentPoolService = (adminPublicKey, tournamentId, entryFee, maxParticipants, endTime, mintPublicKey) => __awaiter(void 0, void 0, void 0, function* () {
+const initializeTournamentPoolService = (adminPublicKey, tournamentId, entryFee, maxParticipants, endTime, mintPublicKey, tokenType) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { program, connection } = (0, services_1.getProgram)();
-        // Convert tournamentId correctly
-        const tournamentIdBytes = Buffer.from(tournamentId, "utf8"); // Ensure UTF-8 encoding
-        // Derive the correct PDA for the tournament pool
-        const [tournamentPoolPublicKey] = web3_js_1.PublicKey.findProgramAddressSync([Buffer.from("tournament_pool"), adminPublicKey.toBuffer(), tournamentIdBytes], program.programId);
-        // Derive the escrow PDA correctly
-        const [poolEscrowAccountPublicKey] = web3_js_1.PublicKey.findProgramAddressSync([Buffer.from("escrow"), tournamentPoolPublicKey.toBuffer()], program.programId);
-        console.log("✅ Tournament Pool PDA:", tournamentPoolPublicKey.toString());
-        console.log("✅ Pool Escrow PDA:", poolEscrowAccountPublicKey.toString());
+        const tournamentPoolPublicKey = (0, getPDAs_2.getTournamentPoolPDA)(adminPublicKey, tournamentId, tokenType);
+        const poolEscrowAccountPublicKey = tokenType === getPDAs_1.TokenType.SOL
+            ? web3_js_1.SystemProgram.programId
+            : (0, getPDAs_1.getTournamentEscrowPDA)(tournamentPoolPublicKey);
         const { blockhash } = yield connection.getLatestBlockhash("finalized");
-        // Convert entry fee from CRD (user input) to base units (smart contract format)
-        // CRD token has 9 decimals, so multiply by 10^9
         const CRD_DECIMALS = 9;
         const entryFeeInBaseUnits = Math.round(entryFee * Math.pow(10, CRD_DECIMALS));
         const entryFeeBN = new bn_js_1.BN(entryFeeInBaseUnits);
-        console.log(`✅ Entry fee conversion: ${entryFee} CRD → ${entryFeeInBaseUnits} base units`);
+        console.log(`✅ Entry fee conversion: ${entryFee} → ${entryFeeInBaseUnits} base units`);
+        console.log(`✅ Token Type: ${tokenType === getPDAs_1.TokenType.SOL ? 'SOL' : 'SPL'}`);
         const maxParticipantsBN = new bn_js_1.BN(maxParticipants);
         const endTimeBN = new bn_js_1.BN(endTime);
-        // Create the transaction without signing it
-        const transaction = yield program.methods
-            .createTournamentPool(tournamentId, entryFeeBN, maxParticipantsBN, endTimeBN)
+        const tokenTypeArg = tokenType === getPDAs_1.TokenType.SPL ? { spl: {} } : { sol: {} };
+        // Build instruction
+        const instruction = yield program.methods
+            .createTournamentPool(tournamentId, entryFeeBN, maxParticipantsBN, endTimeBN, tokenTypeArg)
             .accounts({
-            admin: adminPublicKey,
+            creator: adminPublicKey,
             tournamentPool: tournamentPoolPublicKey,
             poolEscrowAccount: poolEscrowAccountPublicKey,
             mint: mintPublicKey,
             systemProgram: web3_js_1.SystemProgram.programId,
             tokenProgram: spl_token_1.TOKEN_2022_PROGRAM_ID,
         })
-            .transaction();
+            .instruction();
+        // ✅ For SPL tokens, mark pool_escrow_account as writable
+        if (tokenType === getPDAs_1.TokenType.SPL) {
+            const escrowAccountIndex = instruction.keys.findIndex(key => key.pubkey.equals(poolEscrowAccountPublicKey));
+            if (escrowAccountIndex !== -1) {
+                instruction.keys[escrowAccountIndex].isWritable = true;
+                console.log(`✅ Marked pool_escrow_account as writable for SPL: ${poolEscrowAccountPublicKey.toString()}`);
+            }
+            else {
+                console.warn(`⚠️ Could not find pool_escrow_account in instruction keys`);
+            }
+        }
+        else {
+            console.log(`✅ SOL tournament - no escrow account write needed`);
+        }
+        // Create transaction
+        const transaction = new web3_js_1.Transaction().add(instruction);
         transaction.recentBlockhash = blockhash;
         transaction.feePayer = adminPublicKey;
-        // Return the unsigned transaction for frontend to sign
         return {
             success: true,
             message: "Tournament pool transaction created successfully",
@@ -107,11 +120,10 @@ const initializeTournamentPoolService = (adminPublicKey, tournamentId, entryFee,
 });
 exports.initializeTournamentPoolService = initializeTournamentPoolService;
 // Get tournament pool data
-const getTournamentPool = (tournamentId, adminPublicKey) => __awaiter(void 0, void 0, void 0, function* () {
+const getTournamentPool = (tournamentId, adminPublicKey, tokenType) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { program } = (0, services_1.getProgram)();
-        const tournamentIdBytes = Buffer.from(tournamentId, "utf8");
-        const [tournamentPoolPublicKey] = web3_js_1.PublicKey.findProgramAddressSync([Buffer.from("tournament_pool"), adminPublicKey.toBuffer(), tournamentIdBytes], program.programId);
+        const tournamentPoolPublicKey = (0, getPDAs_2.getTournamentPoolPDA)(adminPublicKey, tournamentId, tokenType);
         // Fetch the tournament pool data
         const tournamentPoolData = (yield program.account.tournamentPool.fetch(tournamentPoolPublicKey));
         return {
@@ -126,29 +138,33 @@ const getTournamentPool = (tournamentId, adminPublicKey) => __awaiter(void 0, vo
                 maxParticipants: tournamentPoolData.maxParticipants,
                 endTime: new Date(tournamentPoolData.endTime * 1000).toISOString(),
                 isActive: tournamentPoolData.isActive,
+                tokenType: tokenType,
             }
         };
     }
     catch (err) {
         console.error("❌ Error fetching tournament pool:", err);
-        return { success: false, message: "Error fetching tournament data" };
+        const errorMessage = err.message || err.toString() || "Unknown error";
+        return {
+            success: false,
+            message: `Error fetching tournament data: ${errorMessage}`
+        };
     }
 });
 exports.getTournamentPool = getTournamentPool;
 // Get prize pool data for a tournament
-const getPrizePoolService = (tournamentId, adminPublicKey) => __awaiter(void 0, void 0, void 0, function* () {
+const getPrizePoolService = (tournamentId, adminPublicKey, tokenType) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { program, connection } = (0, services_1.getProgram)();
         // Derive Tournament Pool PDA (same derivation as on-chain)
-        const tournamentIdBytes = Buffer.from(tournamentId, "utf8");
-        const [tournamentPoolPublicKey] = web3_js_1.PublicKey.findProgramAddressSync([Buffer.from("tournament_pool"), adminPublicKey.toBuffer(), tournamentIdBytes], program.programId);
+        const tournamentPoolPublicKey = (0, getPDAs_2.getTournamentPoolPDA)(adminPublicKey, tournamentId, tokenType);
         // Ensure tournament pool account exists before proceeding
         const tournamentPoolAccountInfo = yield connection.getAccountInfo(tournamentPoolPublicKey);
         if (!tournamentPoolAccountInfo) {
             return { success: false, message: "Tournament pool has not been initialized yet." };
         }
         // Derive Prize Pool PDA: seeds = [b"prize_pool", tournament_pool.key().as_ref()]
-        const [prizePoolPublicKey] = web3_js_1.PublicKey.findProgramAddressSync([Buffer.from("prize_pool"), tournamentPoolPublicKey.toBuffer()], program.programId);
+        const prizePoolPublicKey = (0, getPDAs_1.getPrizePoolPDA)(tournamentPoolPublicKey);
         // Check existence
         const prizePoolAccountInfo = yield connection.getAccountInfo(prizePoolPublicKey);
         if (!prizePoolAccountInfo) {
@@ -157,7 +173,7 @@ const getPrizePoolService = (tournamentId, adminPublicKey) => __awaiter(void 0, 
         // Fetch prize pool account
         const prizePoolData = (yield program.account.prizePool.fetch(prizePoolPublicKey));
         // Derive Prize Escrow PDA: seeds = [b"prize_escrow", prize_pool.key().as_ref()]
-        const [prizeEscrowPublicKey] = web3_js_1.PublicKey.findProgramAddressSync([Buffer.from("prize_escrow"), prizePoolPublicKey.toBuffer()], program.programId);
+        const prizeEscrowPublicKey = (0, getPDAs_1.getPrizeEscrowPDA)(prizePoolPublicKey);
         return {
             success: true,
             data: {
@@ -279,29 +295,32 @@ const getTotalTournamentEntryFeesService = (adminPublicKey) => __awaiter(void 0,
     }
 });
 exports.getTotalTournamentEntryFeesService = getTotalTournamentEntryFeesService;
-// Register for tournament
-const registerForTournamentService = (tournamentId, userPublicKey, adminPublicKey) => __awaiter(void 0, void 0, void 0, function* () {
+const registerForTournamentService = (tournamentId, userPublicKey, adminPublicKey, tokenType) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { program, connection } = (0, services_1.getProgram)();
-        const tournamentIdBytes = Buffer.from(tournamentId, "utf8");
-        // Get tournament pool PDA
-        const [tournamentPoolPublicKey] = web3_js_1.PublicKey.findProgramAddressSync([Buffer.from("tournament_pool"), adminPublicKey.toBuffer(), tournamentIdBytes], program.programId);
-        // Fetch the tournament pool data
+        const tournamentPoolPublicKey = (0, getPDAs_2.getTournamentPoolPDA)(adminPublicKey, tournamentId, tokenType);
         const tournamentPoolData = (yield program.account.tournamentPool.fetch(tournamentPoolPublicKey));
         const mintPublicKey = tournamentPoolData.mint;
-        // Get escrow PDA
-        const [poolEscrowAccountPublicKey] = web3_js_1.PublicKey.findProgramAddressSync([Buffer.from("escrow"), tournamentPoolPublicKey.toBuffer()], program.programId);
-        // Get registration PDA
-        const [registrationAccountPublicKey] = web3_js_1.PublicKey.findProgramAddressSync([Buffer.from("registration"), tournamentPoolPublicKey.toBuffer(), userPublicKey.toBuffer()], program.programId);
-        let userTokenAccountPublicKey = yield (0, spl_token_1.getAssociatedTokenAddressSync)(mintPublicKey, userPublicKey, false, spl_token_1.TOKEN_2022_PROGRAM_ID);
-        console.log("User Token Account PublicKey:", userTokenAccountPublicKey.toBase58());
-        if (!userTokenAccountPublicKey) {
-            console.log("User Token Account PublicKey does not exist. Creating ATA...");
-            const createATAResponse = yield (0, services_1.createAssociatedTokenAccount)(mintPublicKey, userPublicKey);
-            console.log("Create ATA Response:", createATAResponse);
-            userTokenAccountPublicKey = createATAResponse.associatedTokenAddress;
+        let userTokenAccountPublicKey;
+        let poolEscrowAccountPublicKey;
+        if (tokenType === getPDAs_1.TokenType.SOL) {
+            userTokenAccountPublicKey = web3_js_1.SystemProgram.programId;
+            poolEscrowAccountPublicKey = web3_js_1.SystemProgram.programId;
         }
-        const transaction = yield program.methods
+        else {
+            poolEscrowAccountPublicKey = (0, getPDAs_1.getTournamentEscrowPDA)(tournamentPoolPublicKey);
+            userTokenAccountPublicKey = yield (0, spl_token_1.getAssociatedTokenAddressSync)(mintPublicKey, userPublicKey, false, spl_token_1.TOKEN_2022_PROGRAM_ID);
+            const userTokenAccountInfo = yield connection.getAccountInfo(userTokenAccountPublicKey);
+            if (!userTokenAccountInfo) {
+                console.log("User Token Account does not exist. Creating ATA...");
+                const createATAResponse = yield (0, services_1.createAssociatedTokenAccount)(mintPublicKey, userPublicKey);
+                console.log("Create ATA Response:", createATAResponse);
+                userTokenAccountPublicKey = createATAResponse.associatedTokenAddress;
+            }
+        }
+        const registrationAccountPublicKey = (0, getPDAs_1.getRegistrationPDA)(tournamentPoolPublicKey, userPublicKey);
+        // ✅ Build instruction with explicit account metas for proper mutability
+        const instruction = yield program.methods
             .registerForTournament(tournamentId)
             .accounts({
             user: userPublicKey,
@@ -310,10 +329,24 @@ const registerForTournamentService = (tournamentId, userPublicKey, adminPublicKe
             userTokenAccount: userTokenAccountPublicKey,
             poolEscrowAccount: poolEscrowAccountPublicKey,
             mint: mintPublicKey,
-            tokenProgram: spl_token_1.TOKEN_2022_PROGRAM_ID,
+            tokenProgram: tokenType === getPDAs_1.TokenType.SPL ? spl_token_1.TOKEN_2022_PROGRAM_ID : web3_js_1.SystemProgram.programId,
             systemProgram: web3_js_1.SystemProgram.programId,
         })
-            .transaction();
+            .instruction();
+        // ✅ For SPL tournaments, ensure pool_escrow_account is writable
+        if (tokenType === getPDAs_1.TokenType.SPL) {
+            // Find the pool_escrow_account in the instruction and ensure it's writable
+            const escrowAccountIndex = instruction.keys.findIndex(key => key.pubkey.equals(poolEscrowAccountPublicKey));
+            if (escrowAccountIndex !== -1) {
+                instruction.keys[escrowAccountIndex].isWritable = true;
+            }
+            // Also ensure user_token_account is writable for SPL
+            const userTokenAccountIndex = instruction.keys.findIndex(key => key.pubkey.equals(userTokenAccountPublicKey));
+            if (userTokenAccountIndex !== -1) {
+                instruction.keys[userTokenAccountIndex].isWritable = true;
+            }
+        }
+        const transaction = new web3_js_1.Transaction().add(instruction);
         const { blockhash } = yield connection.getLatestBlockhash("finalized");
         transaction.recentBlockhash = blockhash;
         transaction.feePayer = userPublicKey;

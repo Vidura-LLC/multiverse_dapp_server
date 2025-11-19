@@ -3,7 +3,7 @@
 import { Request, Response } from 'express';
 import { unstakeTokenService, getUserStakingAccount, stakeTokenService, getProgram, claimRewardsService, accrueRewardsService } from './services';
 import { PublicKey } from '@solana/web3.js';
-import { StakingPoolAccount } from "../adminDashboard/services";
+import {TokenType } from "../utils/getPDAs";
 
 
 
@@ -11,13 +11,13 @@ import { StakingPoolAccount } from "../adminDashboard/services";
 export const stakeTokensController = async (req: Request, res: Response) => {
   console.log('Staking invoked');
   try {
-    const { mintPublicKey, userPublicKey, amount, lockDuration, adminPublicKey } = req.body;
+    const { mintPublicKey, userPublicKey, amount, lockDuration, adminPublicKey, tokenType } = req.body;
 
     // Validate required fields
-    if (!mintPublicKey || !userPublicKey || !amount || !lockDuration || !adminPublicKey) {
+    if (!mintPublicKey || !userPublicKey || !amount || !lockDuration || !adminPublicKey || tokenType === undefined || tokenType === null) {
       return res.status(400).json({
         success: false,
-        message: "Missing required fields: mintPublicKey, userPublicKey, amount, lockDuration, and adminPublicKey are required"
+        message: "Missing required fields: mintPublicKey, userPublicKey, amount, lockDuration, adminPublicKey, and tokenType are required"
       });
     }
 
@@ -42,7 +42,8 @@ export const stakeTokensController = async (req: Request, res: Response) => {
       userPublicKey,
       amount,
       lockDuration,
-      adminPublicKey
+      adminPublicKey,
+      tokenType
     });
 
     // Validate PublicKey formats
@@ -57,13 +58,19 @@ export const stakeTokensController = async (req: Request, res: Response) => {
       });
     }
 
+    const tt = Number(tokenType);
+    if (tt !== TokenType.SPL && tt !== TokenType.SOL) {
+      return res.status(400).json({ success: false, message: 'tokenType must be 0 (SPL) or 1 (SOL)' });
+    }
+
     // Call the service function to create an unsigned transaction
     const result = await stakeTokenService(
       new PublicKey(mintPublicKey),
       new PublicKey(userPublicKey),
       amount,
       lockDuration,
-      new PublicKey(adminPublicKey)
+      new PublicKey(adminPublicKey),
+      tt as TokenType
     );
 
     if (result.success) {
@@ -83,13 +90,13 @@ export const stakeTokensController = async (req: Request, res: Response) => {
 // ✅ Controller to claim staking rewards
 export const claimRewardsController = async (req: Request, res: Response) => {
   try {
-    const { userPublicKey, adminPublicKey } = req.body;
+    const { userPublicKey, adminPublicKey, tokenType } = req.body;
 
-    if (!userPublicKey || !adminPublicKey) {
-      return res.status(400).json({ success: false, message: 'userPublicKey and adminPublicKey are required' });
+    if (!userPublicKey || !adminPublicKey || (tokenType === undefined || tokenType === null)) {
+      return res.status(400).json({ success: false, message: 'userPublicKey, adminPublicKey, and tokenType are required' });
     }
 
-    const result = await claimRewardsService(new PublicKey(userPublicKey), new PublicKey(adminPublicKey));
+    const result = await claimRewardsService(new PublicKey(userPublicKey), new PublicKey(adminPublicKey), tokenType as unknown as TokenType);
     if (result.success) {
       return res.status(200).json(result);
     } else {
@@ -103,13 +110,13 @@ export const claimRewardsController = async (req: Request, res: Response) => {
 
 export const unstakeTokensController = async (req: Request, res: Response) => {
   try {
-    const { userPublicKey, adminPublicKey } = req.body;
+    const { userPublicKey, adminPublicKey, tokenType, mintPublicKey } = req.body;
 
     // Validate required fields
-    if (!userPublicKey || !adminPublicKey) {
+    if (!userPublicKey || !adminPublicKey || tokenType === undefined || tokenType === null || !mintPublicKey) {
       return res.status(400).json({
         success: false,
-        message: "Missing required fields: userPublicKey and adminPublicKey are required"
+        message: "Missing required fields: userPublicKey, adminPublicKey, tokenType and mintPublicKey are required"
       });
     }
 
@@ -117,6 +124,7 @@ export const unstakeTokensController = async (req: Request, res: Response) => {
     try {
       new PublicKey(userPublicKey);
       new PublicKey(adminPublicKey);
+      new PublicKey(mintPublicKey);
     } catch (pubkeyError) {
       return res.status(400).json({
         success: false,
@@ -124,18 +132,12 @@ export const unstakeTokensController = async (req: Request, res: Response) => {
       });
     }
 
-    // Get the mint public key from the staking pool
-    const { program } = getProgram();
-    const [stakingPoolPublicKey] = PublicKey.findProgramAddressSync(
-      [Buffer.from("staking_pool"), new PublicKey(adminPublicKey).toBuffer()],
-      program.programId
-    );
+    const tt = Number(tokenType);
+    if (tt !== TokenType.SPL && tt !== TokenType.SOL) {
+      return res.status(400).json({ success: false, message: 'tokenType must be 0 (SPL) or 1 (SOL)' });
+    }
 
-    // Fetch the staking pool data to get the mint public key
-    const stakingPoolData = await program.account.stakingPool.fetch(stakingPoolPublicKey) as StakingPoolAccount;
-    const mintPublicKey = stakingPoolData.mint;
-
-    const result = await unstakeTokenService(mintPublicKey, new PublicKey(userPublicKey), new PublicKey(adminPublicKey));
+    const result = await unstakeTokenService(new PublicKey(mintPublicKey), new PublicKey(userPublicKey), new PublicKey(adminPublicKey), tt as TokenType);
 
     if (result.success) {
       return res.status(200).json(result);
@@ -154,13 +156,18 @@ export const unstakeTokensController = async (req: Request, res: Response) => {
 export const fetchUserStakingAccountController = async (req: Request, res: Response) => {
   try {
     const { userPublicKey } = req.params;
+    const { tokenType, adminPublicKey } = req.query;
 
-    if (!userPublicKey) {
+    if (!userPublicKey || tokenType === undefined || tokenType === null || !adminPublicKey) {
       return res.status(400).json({ success: false, message: "User public key is required" });
+    }
+    const tt = Number(tokenType);
+    if (tt !== TokenType.SPL && tt !== TokenType.SOL) {
+      return res.status(400).json({ success: false, message: 'tokenType must be 0 (SPL) or 1 (SOL)' });
     }
 
     const userPubkey = new PublicKey(userPublicKey);
-    const result = await getUserStakingAccount(userPubkey);
+    const result = await getUserStakingAccount(userPubkey, new PublicKey(adminPublicKey), tt as TokenType);
 
     if (result.success) {
       return res.status(200).json(result);
@@ -176,19 +183,19 @@ export const fetchUserStakingAccountController = async (req: Request, res: Respo
 // Controller function to accrue rewards for a specific user
 export const accrueRewardsController = async (req: Request, res: Response) => {
   try {
-    const { userPublicKey, adminPublicKey } = req.body;
+    const { userPublicKey, adminPublicKey, tokenType } = req.body;
 
-    if (!userPublicKey || !adminPublicKey) {
+    if (!userPublicKey || !adminPublicKey || (tokenType === undefined || tokenType === null)) {
       return res.status(400).json({
         success: false,
-        message: "userPublicKey and adminPublicKey are required."
+        message: "userPublicKey, adminPublicKey, and tokenType are required."
       });
     }
 
     const userPubkey = new PublicKey(userPublicKey);
     const adminPubkey = new PublicKey(adminPublicKey);
 
-    const result = await accrueRewardsService(userPubkey, adminPubkey);
+    const result = await accrueRewardsService(userPubkey, adminPubkey, tokenType as unknown as TokenType);
 
     if (result.success) {
       return res.status(200).json(result);

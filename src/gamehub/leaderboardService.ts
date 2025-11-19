@@ -1,6 +1,7 @@
 // src/gamehub/leaderboardService.ts
 import { ref, get, set, query, orderByChild, limitToLast, startAt, endAt } from "firebase/database";
 import { db } from "../config/firebase";
+import { TokenType } from "../utils/getPDAs";
 
 // Interface for leaderboard entry
 interface LeaderboardEntry {
@@ -25,17 +26,39 @@ interface LeaderboardData {
 }
 
 // Get tournament leaderboard
-export const getTournamentLeaderboard = async (tournamentId: string) => {
+export const getTournamentLeaderboard = async (tournamentId: string, tokenType?: TokenType) => {
   try {
-    // Get tournament data
-    const tournamentRef = ref(db, `tournaments/${tournamentId}`);
-    const tournamentSnapshot = await get(tournamentRef);
+    let tournament: any = null;
     
-    if (!tournamentSnapshot.exists()) {
+    // If tokenType is provided, search directly in that path
+    if (tokenType !== undefined && tokenType !== null) {
+      const tt = Number(tokenType);
+      if (tt !== TokenType.SPL && tt !== TokenType.SOL) {
+        return { success: false, message: "tokenType must be 0 (SPL) or 1 (SOL)" };
+      }
+      const tournamentRef = ref(db, `tournaments/${tt}/${tournamentId}`);
+      const tournamentSnapshot = await get(tournamentRef);
+      
+      if (tournamentSnapshot.exists()) {
+        tournament = tournamentSnapshot.val();
+      }
+    } else {
+      // If tokenType is not provided, search in both token types
+      for (const tt of [TokenType.SPL, TokenType.SOL]) {
+        const tournamentRef = ref(db, `tournaments/${tt}/${tournamentId}`);
+        const tournamentSnapshot = await get(tournamentRef);
+        
+        if (tournamentSnapshot.exists()) {
+          tournament = tournamentSnapshot.val();
+          break;
+        }
+      }
+    }
+    
+    if (!tournament) {
       return { success: false, message: "Tournament not found" };
     }
     
-    const tournament = tournamentSnapshot.val();
     const participants = tournament.participants || {};
     
     // Transform participants into array
@@ -69,16 +92,41 @@ export const getTournamentLeaderboard = async (tournamentId: string) => {
 };
 
 // Update participant score - Firebase only
-export const updateParticipantScore = async (tournamentId: string, participantId: string, score: number) => {
+export const updateParticipantScore = async (tournamentId: string, participantId: string, score: number, tokenType?: TokenType) => {
   try {
-    const tournamentRef = ref(db, `tournaments/${tournamentId}`);
-    const tournamentSnapshot = await get(tournamentRef);
+    let tournamentPath: string = '';
+    let tournament: any = null;
     
-    if (!tournamentSnapshot.exists()) {
-      return { success: false, message: "Tournament not found" };
+    // If tokenType is provided, search directly in that path
+    if (tokenType !== undefined && tokenType !== null) {
+      const tt = Number(tokenType);
+      if (tt !== TokenType.SPL && tt !== TokenType.SOL) {
+        return { success: false, message: "tokenType must be 0 (SPL) or 1 (SOL)" };
+      }
+      tournamentPath = `tournaments/${tt}/${tournamentId}`;
+      const tournamentRef = ref(db, tournamentPath);
+      const tournamentSnapshot = await get(tournamentRef);
+      
+      if (tournamentSnapshot.exists()) {
+        tournament = tournamentSnapshot.val();
+      }
+    } else {
+      // If tokenType is not provided, search in both token types
+      for (const tt of [TokenType.SPL, TokenType.SOL]) {
+        tournamentPath = `tournaments/${tt}/${tournamentId}`;
+        const tournamentRef = ref(db, tournamentPath);
+        const tournamentSnapshot = await get(tournamentRef);
+        
+        if (tournamentSnapshot.exists()) {
+          tournament = tournamentSnapshot.val();
+          break;
+        }
+      }
     }
     
-    const tournament = tournamentSnapshot.val();
+    if (!tournament || !tournamentPath) {
+      return { success: false, message: "Tournament not found" };
+    }
     
     // Check if participant exists
     if (!tournament.participants || !tournament.participants[participantId]) {
@@ -86,7 +134,7 @@ export const updateParticipantScore = async (tournamentId: string, participantId
     }
     
     // Update participant score in Firebase only
-    const participantRef = ref(db, `tournaments/${tournamentId}/participants/${participantId}`);
+    const participantRef = ref(db, `${tournamentPath}/participants/${participantId}`);
     await set(participantRef, { score });
     
     return { success: true, message: "Score updated successfully" };
@@ -97,9 +145,9 @@ export const updateParticipantScore = async (tournamentId: string, participantId
 };
 
 // Get tournaments by game
-export const getTournamentsByGame = async (gameId: string) => {
+export const getTournamentsByGame = async (gameId: string, tokenType: TokenType) => {
   try {
-    const tournamentsRef = ref(db, 'tournaments');
+    const tournamentsRef = ref(db, `tournaments/${tokenType}`);
     const snapshot = await get(tournamentsRef);
     
     if (!snapshot.exists()) {

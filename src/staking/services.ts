@@ -16,9 +16,9 @@ import {
   TOKEN_2022_PROGRAM_ID,
 } from "@solana/spl-token";
 import dotenv from "dotenv";
-
-
+import { getStakingPoolPDA, getStakingEscrowPDA, getUserStakingPDA, getRewardPoolPDA, getRewardEscrowPDA, TokenType, getSOLVaultPDA } from "../utils/getPDAs";
 dotenv.config();
+
 
 export interface UserStakingAccount {
   owner: PublicKey;
@@ -31,10 +31,11 @@ export interface UserStakingAccount {
 }
 
 
+
   // Helper function to get the program
 export const getProgram = () => {
-  const idl = require("../staking/epoch-staking-reward_idl.json");
-  const walletKeypair = require("../staking/multiverse_dapp-keypair.json");
+  const idl = require("../staking/idl-solxspl.json");
+  const walletKeypair = require("../staking/SOLxSPL-Admin-wallet-keypair.json");
 
   const adminKeypair = Keypair.fromSecretKey(new Uint8Array(walletKeypair));
   const adminPublicKey = adminKeypair.publicKey;
@@ -43,7 +44,7 @@ export const getProgram = () => {
   const connection = new Connection("https://api.devnet.solana.com", "confirmed");
 
   const programId = new PublicKey(
-    "Dz4rTCCmWrK9Ky6kzVqNK1GPeqjAecrZzKoyXvtue4Pr"
+    "A5sbJW4hgVtaYU8TvfJc8bxeWsvFgapc88qX1VruTfq4"
   );
 
   const provider = new anchor.AnchorProvider(
@@ -68,77 +69,104 @@ export const stakeTokenService = async (
   mintPublicKey: PublicKey,
   userPublicKey: PublicKey,
   amount: number,
-  lockDuration: number, // Lock duration in seconds
-  adminPublicKey: PublicKey // Admin public key from client
+  lockDuration: number,
+  adminPublicKey: PublicKey,
+  tokenType: TokenType
 ) => {
   try {
     const { program, connection } = getProgram();
 
-    // Log initial parameters for clarity
     console.log("Staking Details:");
     console.log("User PublicKey:", userPublicKey.toBase58());
     console.log("Admin PublicKey:", adminPublicKey.toBase58());
-    console.log("Mint PublicKey:", mintPublicKey.toBase58());
     console.log("Amount to stake:", amount);
     console.log("Lock Duration (in seconds):", lockDuration);
+    console.log("Token Type:", tokenType === TokenType.SPL ? "SPL" : "SOL");
 
-    // Validate lockDuration
     if (!lockDuration || typeof lockDuration !== 'number') {
       throw new Error('Invalid lock duration provided');
     }
 
-    const [stakingPoolPublicKey] = PublicKey.findProgramAddressSync(
-      [Buffer.from("staking_pool"), adminPublicKey.toBuffer()],
-      program.programId
-    );
+    const stakingPoolPublicKey = getStakingPoolPDA(adminPublicKey, tokenType);
+    const userStakingAccountPublicKey = getUserStakingPDA(stakingPoolPublicKey, userPublicKey);
 
-    const [userStakingAccountPublicKey] = PublicKey.findProgramAddressSync(
-      [Buffer.from("user_stake"), userPublicKey.toBuffer()],
-      program.programId
-    );
+    // ✅ FIX: Use actual SOL vault PDA
+    const poolEscrowAccountPublicKey = tokenType === TokenType.SOL 
+      ? getSOLVaultPDA(stakingPoolPublicKey)  // ✅ Use actual SOL vault
+      : getStakingEscrowPDA(stakingPoolPublicKey);
 
-    const [poolEscrowAccountPublicKey] = PublicKey.findProgramAddressSync(
-      [Buffer.from("escrow"), stakingPoolPublicKey.toBuffer()],
-      program.programId
-    );
+    const actualMint = tokenType === TokenType.SOL 
+      ? SystemProgram.programId
+      : mintPublicKey;
 
-    // Check if the user already has a staking account
-    const userStakingAccountResponse = await getUserStakingAccount(userPublicKey);
-    console.log("User Staking Account Response:", userStakingAccountResponse);
+    let userTokenAccountPublicKey: PublicKey;
+    
+    if (tokenType === TokenType.SPL) {
+      userTokenAccountPublicKey = getAssociatedTokenAddressSync(
+        mintPublicKey, 
+        userPublicKey, 
+        false, 
+        TOKEN_2022_PROGRAM_ID
+      );
+      console.log("User Token Account PublicKey:", userTokenAccountPublicKey.toBase58());
 
-    let userTokenAccountPublicKey = await getAssociatedTokenAddressSync(mintPublicKey, userPublicKey, false, TOKEN_2022_PROGRAM_ID);
-    console.log("User Token Account PublicKey:", userTokenAccountPublicKey.toBase58());
-
-    if (!userTokenAccountPublicKey) {
-      console.log("User Token Account PublicKey does not exist. Creating ATA...");
-      const createATAResponse = await createAssociatedTokenAccount(mintPublicKey, userPublicKey);
-      console.log("Create ATA Response:", createATAResponse);
-      userTokenAccountPublicKey = createATAResponse.associatedTokenAddress;
+      const ataInfo = await connection.getAccountInfo(userTokenAccountPublicKey);
+      if (!ataInfo) {
+        console.log("⚠️ User Token Account does not exist. User needs to create ATA first.");
+      }
+    } else {
+      userTokenAccountPublicKey = SystemProgram.programId;
     }
 
-
     const { blockhash } = await connection.getLatestBlockhash("finalized");
-    console.log("Latest Blockhash:", blockhash);
 
-    // Create an unsigned transaction for staking
-    const transaction = await program.methods
-      .stake(new anchor.BN(amount), new anchor.BN(lockDuration))
+    const tokenDecimals = 9;
+    const amountInBaseUnits = Math.floor(amount * Math.pow(10, tokenDecimals));
+    console.log(`Converting ${amount} tokens to ${amountInBaseUnits} base units`);
+
+    console.log("Pool Escrow Account:", poolEscrowAccountPublicKey.toBase58());
+
+    // Build instruction
+    const instruction = await program.methods
+      .stake(new anchor.BN(amountInBaseUnits), new anchor.BN(lockDuration))
       .accounts({
         user: userPublicKey,
         stakingPool: stakingPoolPublicKey,
         userStakingAccount: userStakingAccountPublicKey,
         userTokenAccount: userTokenAccountPublicKey,
         poolEscrowAccount: poolEscrowAccountPublicKey,
-        mint: mintPublicKey,
+        mint: actualMint,
         tokenProgram: TOKEN_2022_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
       })
-      .transaction();
+      .instruction();
 
+    // ✅ Mark pool_escrow_account as writable for BOTH token types
+    const escrowIndex = instruction.keys.findIndex(k => k.pubkey.equals(poolEscrowAccountPublicKey));
+    if (escrowIndex !== -1) {
+      instruction.keys[escrowIndex].isWritable = true;
+      console.log(`✅ Marked pool_escrow_account as writable`);
+    }
+    
+    // ✅ For SPL, also mark user_token_account as writable
+    if (tokenType === TokenType.SPL) {
+      const userTokenIndex = instruction.keys.findIndex(k => k.pubkey.equals(userTokenAccountPublicKey));
+      if (userTokenIndex !== -1) {
+        instruction.keys[userTokenIndex].isWritable = true;
+        console.log(`✅ Marked user_token_account as writable for SPL`);
+      }
+    }
+
+    const transaction = new Transaction();
+    transaction.add(instruction);
     transaction.recentBlockhash = blockhash;
     transaction.feePayer = userPublicKey;
 
-    // Serialize transaction and send it to the frontend
+    console.log("✅ Transaction accounts:");
+    instruction.keys.forEach((key, idx) => {
+      console.log(`  ${idx}: ${key.pubkey.toBase58()} - Signer: ${key.isSigner}, Writable: ${key.isWritable}`);
+    });
+
     return {
       success: true,
       message: "Transaction created successfully!",
@@ -153,80 +181,118 @@ export const stakeTokenService = async (
   }
 };
 
-
-
-
-
-
+// Function to unstake tokens from the staking pool
 export const unstakeTokenService = async (
   mintPublicKey: PublicKey,
   userPublicKey: PublicKey,
-  adminPublicKey: PublicKey
+  adminPublicKey: PublicKey,
+  tokenType: TokenType
 ) => {
   try {
-    const { program, connection } = getProgram(); // Assuming getProgram() initializes necessary context
+    const { program, connection } = getProgram();
 
-    // Find the staking pool, user staking account, and escrow account
-    const [stakingPoolPublicKey] = PublicKey.findProgramAddressSync(
-      [Buffer.from('staking_pool'), adminPublicKey.toBuffer()],
-      program.programId
-    );
+    console.log("Unstaking Details:");
+    console.log("User PublicKey:", userPublicKey.toBase58());
+    console.log("Admin PublicKey:", adminPublicKey.toBase58());
+    console.log("Token Type:", tokenType === TokenType.SPL ? "SPL" : "SOL");
 
-    const [userStakingAccountPublicKey] = PublicKey.findProgramAddressSync(
-      [Buffer.from('user_stake'), userPublicKey.toBuffer()],
-      program.programId
-    );
+    const stakingPoolPublicKey = getStakingPoolPDA(adminPublicKey, tokenType);
+    const userStakingAccountPublicKey = getUserStakingPDA(stakingPoolPublicKey, userPublicKey);
 
-    const [poolEscrowAccountPublicKey] = PublicKey.findProgramAddressSync(
-      [Buffer.from('escrow'), stakingPoolPublicKey.toBuffer()],
-      program.programId
-    );
+    // ✅ FIX: Use actual SOL vault PDA, not SystemProgram
+    const poolEscrowAccountPublicKey = tokenType === TokenType.SOL
+      ? getSOLVaultPDA(stakingPoolPublicKey)  // ✅ Use actual SOL vault
+      : getStakingEscrowPDA(stakingPoolPublicKey);
 
-    // Check if the user already has a staking account
-    const userStakingAccountResponse = await getUserStakingAccount(userPublicKey);
+    const userStakingAccountResponse = await getUserStakingAccount(userPublicKey, adminPublicKey, tokenType);
     console.log("User Staking Account Response:", userStakingAccountResponse);
-
-    let userTokenAccountPublicKey = await getAssociatedTokenAddressSync(mintPublicKey, userPublicKey, false, TOKEN_2022_PROGRAM_ID);
-    console.log("User Token Account PublicKey:", userTokenAccountPublicKey.toBase58());
-
-    if (!userTokenAccountPublicKey) {
-      console.log("User Token Account PublicKey does not exist. Creating ATA...");
-      const createATAResponse = await createAssociatedTokenAccount(mintPublicKey, userPublicKey);
-      console.log("Create ATA Response:", createATAResponse);
-      userTokenAccountPublicKey = createATAResponse.associatedTokenAddress;
+    
+    if (userStakingAccountResponse.success && userStakingAccountResponse.data) {
+      const stakedAmount = userStakingAccountResponse.data.stakedAmount;
+      const stakedAmountRaw = userStakingAccountResponse.data.stakedAmountRaw || '0';
+      console.log(`Unstaking ${stakedAmount} tokens (${stakedAmountRaw} base units)`);
     }
 
+    const actualMint = tokenType === TokenType.SOL 
+      ? SystemProgram.programId
+      : mintPublicKey;
 
-    // Get the latest blockhash
+    let userTokenAccountPublicKey: PublicKey;
+    
+    if (tokenType === TokenType.SPL) {
+      userTokenAccountPublicKey = getAssociatedTokenAddressSync(
+        mintPublicKey, 
+        userPublicKey, 
+        false, 
+        TOKEN_2022_PROGRAM_ID
+      );
+      console.log("User Token Account PublicKey:", userTokenAccountPublicKey.toBase58());
+
+      const ataInfo = await connection.getAccountInfo(userTokenAccountPublicKey);
+      if (!ataInfo) {
+        console.log("⚠️ User Token Account does not exist. User needs to create ATA first.");
+      }
+    } else {
+      userTokenAccountPublicKey = SystemProgram.programId;
+    }
+
     const { blockhash } = await connection.getLatestBlockhash('finalized');
 
-    // Create an unsigned transaction to unstake all tokens
-    const transaction = await program.methods
-      .unstake() // No need to pass amount, as unstake now operates on the full staked amount
+    console.log("Pool Escrow Account:", poolEscrowAccountPublicKey.toBase58());
+
+    // Build instruction
+    const instruction = await program.methods
+      .unstake()
       .accounts({
         user: userPublicKey,
         stakingPool: stakingPoolPublicKey,
         userStakingAccount: userStakingAccountPublicKey,
         userTokenAccount: userTokenAccountPublicKey,
         poolEscrowAccount: poolEscrowAccountPublicKey,
-        mint: mintPublicKey,
+        mint: actualMint,
         tokenProgram: TOKEN_2022_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
       })
-      .transaction(); // Create transaction, don't sign
-
+      .instruction();
+    
+    // ✅ Mark pool_escrow_account as writable for BOTH token types
+    const escrowIndex = instruction.keys.findIndex(k => k.pubkey.equals(poolEscrowAccountPublicKey));
+    if (escrowIndex !== -1) {
+      instruction.keys[escrowIndex].isWritable = true;
+      console.log(`✅ Marked pool_escrow_account as writable`);
+    }
+    
+    // ✅ For SPL, also mark user_token_account as writable
+    if (tokenType === TokenType.SPL) {
+      const userTokenIndex = instruction.keys.findIndex(k => k.pubkey.equals(userTokenAccountPublicKey));
+      if (userTokenIndex !== -1) {
+        instruction.keys[userTokenIndex].isWritable = true;
+        console.log(`✅ Marked user_token_account as writable for SPL`);
+      }
+    }
+    
+    const transaction = new Transaction();
+    transaction.add(instruction);
     transaction.recentBlockhash = blockhash;
     transaction.feePayer = userPublicKey;
 
-    // Serialize transaction and send it to the frontend
+    console.log("✅ Transaction accounts:");
+    instruction.keys.forEach((key, idx) => {
+      console.log(`  ${idx}: ${key.pubkey.toBase58()} - Signer: ${key.isSigner}, Writable: ${key.isWritable}`);
+    });
+
     return {
       success: true,
       message: "Transaction created successfully!",
+      tokenType: tokenType === TokenType.SPL ? "SPL" : "SOL",
       transaction: transaction.serialize({ requireAllSignatures: false }).toString('base64'),
     };
   } catch (err) {
     console.error("❌ Error creating unstake transaction:", err);
-    return { success: false, message: "Error creating unstake transaction" };
+    return { 
+      success: false, 
+      message: `Error creating unstake transaction: ${err.message || err}` 
+    };
   }
 };
 
@@ -234,30 +300,19 @@ export const unstakeTokenService = async (
 // Function to claim staking rewards
 export const claimRewardsService = async (
   userPublicKey: PublicKey,
-  adminPublicKey: PublicKey
+  adminPublicKey: PublicKey,
+  tokenType: TokenType
 ) => {
   try {
     const { program, connection } = getProgram();
 
-    const [stakingPoolPublicKey] = PublicKey.findProgramAddressSync(
-      [Buffer.from('staking_pool'), adminPublicKey.toBuffer()],
-      program.programId
-    );
+    const stakingPoolPublicKey = getStakingPoolPDA(adminPublicKey, tokenType);
 
-    const [userStakingAccountPublicKey] = PublicKey.findProgramAddressSync(
-      [Buffer.from('user_stake'), userPublicKey.toBuffer()],
-      program.programId
-    );
+    const userStakingAccountPublicKey = getUserStakingPDA(stakingPoolPublicKey, userPublicKey);
 
-    const [rewardPoolPublicKey] = PublicKey.findProgramAddressSync(
-      [Buffer.from('reward_pool'), adminPublicKey.toBuffer()],
-      program.programId
-    );
+    const rewardPoolPublicKey = getRewardPoolPDA(adminPublicKey, tokenType);
 
-    const [rewardEscrowPublicKey] = PublicKey.findProgramAddressSync(
-      [Buffer.from('reward_escrow'), rewardPoolPublicKey.toBuffer()],
-      program.programId
-    );
+    const rewardEscrowPublicKey = getRewardEscrowPDA(rewardPoolPublicKey);
 
     // Fetch staking pool to obtain mint
     const stakingPoolAccount: any = await program.account.stakingPool.fetch(stakingPoolPublicKey);
@@ -307,15 +362,20 @@ export const claimRewardsService = async (
 
 
 
-export const getUserStakingAccount = async (userPublicKey: PublicKey) => {
+export const getUserStakingAccount = async (userPublicKey: PublicKey, adminPublicKey: PublicKey, tokenType: TokenType) => {
   try {
     const { program, connection } = getProgram();
 
+
+    const stakingPoolPublicKey = getStakingPoolPDA(adminPublicKey, tokenType);
+
+    console.log("Token Type:", tokenType === TokenType.SPL ? "SPL" : "SOL");
+    console.log("Staking Pool PublicKey:", stakingPoolPublicKey.toBase58());
+    console.log("User PublicKey:", userPublicKey.toBase58());
+    console.log("Admin PublicKey:", adminPublicKey.toBase58());
+
     // Derive the public key for the user staking account
-    const [userStakingAccountPublicKey] = PublicKey.findProgramAddressSync(
-      [Buffer.from("user_stake"), userPublicKey.toBuffer()],
-      program.programId
-    );
+    const userStakingAccountPublicKey = getUserStakingPDA(stakingPoolPublicKey, userPublicKey);
 
     console.log(userStakingAccountPublicKey);
 
@@ -331,26 +391,75 @@ export const getUserStakingAccount = async (userPublicKey: PublicKey) => {
       userStakingAccountPublicKey
     ) as UserStakingAccount;
 
-    console.log(userStakingAccount);
+    console.log("Raw userStakingAccount:", userStakingAccount);
+    console.log("Raw stakedAmount (base units):", userStakingAccount.stakedAmount.toString());
+    console.log("Raw stakedAmount as number:", userStakingAccount.stakedAmount.toNumber());
 
+    // Helper function to convert BN to decimal with proper precision
+    // This avoids JavaScript floating point precision issues by using string manipulation
+    const convertBaseUnitsToReadable = (amountBN: anchor.BN, decimals: number): number => {
+      const amountStr = amountBN.toString();
+      
+      // Handle zero case
+      if (amountStr === '0') {
+        return 0;
+      }
+      
+      // Pad the string with leading zeros if needed to ensure we have enough digits
+      const paddedAmount = amountStr.padStart(decimals, '0');
+      
+      // Split into integer and decimal parts
+      let integerPart: string;
+      let decimalPart: string;
+      
+      if (paddedAmount.length <= decimals) {
+        // Amount is smaller than 1 full unit
+        integerPart = '0';
+        decimalPart = paddedAmount;
+      } else {
+        // Split at the decimal point
+        integerPart = paddedAmount.slice(0, -decimals) || '0';
+        decimalPart = paddedAmount.slice(-decimals);
+      }
+      
+      // Remove trailing zeros from decimal part for cleaner output
+      const trimmedDecimal = decimalPart.replace(/0+$/, '');
+      
+      // Construct the final number string
+      let numberString: string;
+      if (trimmedDecimal === '') {
+        numberString = integerPart;
+      } else {
+        numberString = integerPart + '.' + trimmedDecimal;
+      }
+      
+      // Convert to number - this preserves precision better than simple division
+      const result = Number(numberString);
+      console.log(`Converting ${amountStr} base units: ${numberString} -> ${result}`);
+      
+      return result;
+    };
 
-
-    // Convert stakedAmount from base units
-    const tokenDecimals = 9;  // Adjust token decimals as needed
-    const readableStakedAmount = userStakingAccount.stakedAmount.toNumber() / (10 ** tokenDecimals);
+    // Convert amounts from base units to human-readable tokens
+    const tokenDecimals = 9;  // SOL and most tokens use 9 decimals
+    const readableStakedAmount = convertBaseUnitsToReadable(userStakingAccount.stakedAmount, tokenDecimals);
+    const readableRewardDebt = convertBaseUnitsToReadable(userStakingAccount.rewardDebt, tokenDecimals);
+    const readablePendingRewards = convertBaseUnitsToReadable(userStakingAccount.pendingRewards, tokenDecimals);
 
     // Ensure that the fields are defined and use safe .toString() calls
     const rawData = {
       owner: userStakingAccount.owner.toBase58(),
       stakedAmount: readableStakedAmount,
+      stakedAmountRaw: userStakingAccount.stakedAmount.toString(), // Raw base units for debugging
       stakeTimestamp: userStakingAccount.stakeTimestamp.toString(),
       stakeDuration: userStakingAccount.lockDuration.toString(),
       weight: userStakingAccount.weight.toString(),
-      rewardDebt: userStakingAccount.rewardDebt.toNumber() / (10 ** tokenDecimals),
-      pendingRewards: userStakingAccount.pendingRewards.toNumber() / (10 ** tokenDecimals),
+      rewardDebt: readableRewardDebt,
+      pendingRewards: readablePendingRewards,
     };
 
-    console.log("Raw User Staking Account Data:", rawData);
+    console.log("Converted User Staking Account Data:", rawData);
+    console.log(`Staked Amount: ${readableStakedAmount} tokens (${userStakingAccount.stakedAmount.toString()} base units)`);
 
     return { success: true, data: rawData };
   } catch (err) {
@@ -368,7 +477,8 @@ export const getUserStakingAccount = async (userPublicKey: PublicKey) => {
 // Function to accrue pending rewards for a specific staker
 export const accrueRewardsService = async (
   userPublicKey: PublicKey,
-  adminPublicKey: PublicKey
+  adminPublicKey: PublicKey,
+  tokenType: TokenType
 ) => {
   try {
     const { program, connection } = getProgram();
@@ -376,16 +486,10 @@ export const accrueRewardsService = async (
     console.log("Accruing rewards for user:", userPublicKey.toBase58());
 
     // Get the staking pool PDA
-    const [stakingPoolPublicKey] = PublicKey.findProgramAddressSync(
-      [Buffer.from("staking_pool"), adminPublicKey.toBuffer()],
-      program.programId
-    );
+    const stakingPoolPublicKey = getStakingPoolPDA(adminPublicKey, tokenType);
 
     // Get the user staking account PDA
-    const [userStakingPublicKey] = PublicKey.findProgramAddressSync(
-      [Buffer.from("user_stake"), userPublicKey.toBuffer()],
-      program.programId
-    );
+    const userStakingPublicKey = getUserStakingPDA(stakingPoolPublicKey, userPublicKey);
 
     // Build an unsigned transaction for the user to sign
     const { blockhash } = await connection.getLatestBlockhash('finalized');

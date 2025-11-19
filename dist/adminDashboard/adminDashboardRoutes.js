@@ -10,8 +10,10 @@ router.get('/check-pool-status/:adminPublicKey', adminDashboardController_1.chec
 router.post('/initialize-staking-pool', adminDashboardController_1.initializeStakingPoolController);
 // Route for initializing the reward pool
 router.post('/initialize-reward-pool', adminDashboardController_1.initializeRewardPoolController);
-// Route for initializing the prize pool
+// Route for initializing the prize pool (creates transaction)
 router.post('/initialize-prize-pool', adminDashboardController_1.initializePrizePoolController);
+// Route to confirm prize pool initialization after transaction is verified
+router.post('/confirm-prize-pool', adminDashboardController_1.confirmPrizePoolController);
 // Route for initializing the global revenue pool
 router.post('/initialize-revenue-pool', adminDashboardController_1.initializeRevenuePoolController);
 // Main route to get comprehensive staking statistics (for your dashboard)

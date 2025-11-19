@@ -9,14 +9,8 @@ import { getUserStakingAccount } from "../staking/services";
 import { Tournament } from "../gamehub/gamehubController";
 import { calculateAPY, formatTokenAmount, getActiveStakers, getStakingPoolData } from "./stakingStatsService";
 import { getProgram } from "../staking/services";
-
-export interface RewardPoolAccount {
-    admin: PublicKey;
-    mint: PublicKey;
-    totalFunds: anchor.BN;
-    lastDistribution: anchor.BN;
-    bump: number;
-  }
+import { getRevenueEscrowPDA, getRevenuePoolPDA, getRewardEscrowPDA, getRewardPoolPDA, TokenType } from "../utils/getPDAs";
+import { RevenuePoolAccount, RewardPoolAccount } from "./services";
   
   export interface TournamentStats {
       activeTournaments: number;
@@ -29,24 +23,17 @@ export interface RewardPoolAccount {
   }
   
   
-  // Interface for the RevenuePool account structure
-  export interface RevenuePoolAccount {
-      admin: PublicKey;
-      mint: PublicKey;
-      totalFunds: anchor.BN;
-      lastDistribution: anchor.BN;
-      bump: number;
-  }
-
-
+  // Interface for the RevenuePool account structur
 
 
 /**
  * Get comprehensive tournament statistics from Firebase
+ * @param tokenType - Token type to filter tournaments (0 for SPL, 1 for SOL)
  */
-export async function getTournamentStats(): Promise<any> {
+export async function getTournamentStats(tokenType: TokenType): Promise<any> {
     try {
-        const tournamentsRef = ref(db, 'tournaments');
+        // Read from tournaments/{tokenType} path
+        const tournamentsRef = ref(db, `tournaments/${tokenType}`);
         const snapshot = await get(tournamentsRef);
 
         const stats: TournamentStats = {
@@ -66,6 +53,7 @@ export async function getTournamentStats(): Promise<any> {
         const tournaments = snapshot.val();
         const currentTime = new Date().getTime();
 
+        // tournaments is an object with tournament IDs as keys
         Object.values(tournaments).forEach((tournamentData: any) => {
             const tournament = tournamentData;
 
@@ -81,6 +69,7 @@ export async function getTournamentStats(): Promise<any> {
                     stats.activeTournaments++;
                     break;
 
+                case "Not Started":
                 case "Upcoming":
                 case "Draft":
                     stats.upcomingTournaments++;
@@ -147,7 +136,7 @@ export async function getTournamentStats(): Promise<any> {
  * @param adminPublicKey - Optional admin public key, defaults to program admin
  * @returns Result object with revenue pool stats
  */
-export const getRevenuePoolStatsService = async (adminPublicKey: PublicKey) => {
+export const getRevenuePoolStatsService = async (adminPublicKey: PublicKey, tokenType: TokenType) => {
     try {
         const { program, connection } = getProgram();
 
@@ -158,16 +147,10 @@ export const getRevenuePoolStatsService = async (adminPublicKey: PublicKey) => {
         console.log("Admin PublicKey:", adminPubkey.toBase58());
 
         // Derive the revenue pool PDA
-        const [revenuePoolPublicKey] = PublicKey.findProgramAddressSync(
-            [Buffer.from("revenue_pool"), adminPubkey.toBuffer()],
-            program.programId
-        );
+        const revenuePoolPublicKey = getRevenuePoolPDA(adminPublicKey, tokenType);
 
         // Derive the revenue pool escrow account
-        const [revenueEscrowPublicKey] = PublicKey.findProgramAddressSync(
-            [Buffer.from("revenue_escrow"), revenuePoolPublicKey.toBuffer()],
-            program.programId
-        );
+        const revenueEscrowPublicKey = getRevenueEscrowPDA(revenuePoolPublicKey);
 
         console.log("🔹 Revenue Pool PDA:", revenuePoolPublicKey.toString());
 
@@ -210,7 +193,8 @@ export const getRevenuePoolStatsService = async (adminPublicKey: PublicKey) => {
             totalFunds: readableTotalFunds,
             revenuePoolAddress: revenuePoolPublicKey.toString(),
             revenueEscrowAddress: revenueEscrowPublicKey.toString(),
-            lastDistribution: lastDistributionDate
+            lastDistribution: lastDistributionDate,
+            tokenType: tokenType
         };
 
     } catch (err) {
@@ -223,7 +207,7 @@ export const getRevenuePoolStatsService = async (adminPublicKey: PublicKey) => {
 };
 
 
-export const getRewardPoolStatsService = async (adminPublicKey: PublicKey) => {
+export const getRewardPoolStatsService = async (adminPublicKey: PublicKey, tokenType: TokenType) => {
     try {
         const { program, connection } = getProgram();
 
@@ -234,15 +218,9 @@ export const getRewardPoolStatsService = async (adminPublicKey: PublicKey) => {
         console.log("Admin PublicKey:", adminPubkey.toBase58());
 
         // Derive the reward pool PDA
-        const [rewardPoolPublicKey] = PublicKey.findProgramAddressSync(
-            [Buffer.from("reward_pool"), adminPubkey.toBuffer()],
-            program.programId
-        );
+        const rewardPoolPublicKey = getRewardPoolPDA(adminPublicKey, tokenType);
         // Derive the reward pool escrow account
-        const [rewardEscrowPublicKey] = PublicKey.findProgramAddressSync(
-            [Buffer.from("reward_escrow"), rewardPoolPublicKey.toBuffer()],
-            program.programId
-        );
+        const rewardEscrowPublicKey = getRewardEscrowPDA(rewardPoolPublicKey);
 
                 // Check if the reward account exists
                 const accountExists = await connection.getAccountInfo(rewardPoolPublicKey);
@@ -259,14 +237,26 @@ export const getRewardPoolStatsService = async (adminPublicKey: PublicKey) => {
                     rewardPoolPublicKey
                 )) as RewardPoolAccount;
         
-                    console.log("✅ Raw Reward Pool Data:", rewardPoolData);
+                console.log("✅ Raw Reward Pool Data:", rewardPoolData);
+
+                // Convert data to readable format
+                const tokenDecimals = 9; // Adjust based on your token decimals
+                const readableTotalFunds = rewardPoolData.totalFunds.toNumber() / (10 ** tokenDecimals);
+
+                // Convert timestamps to readable dates
+                const lastDistributionTimestamp = rewardPoolData.lastDistribution.toNumber();
+                const lastDistributionDate = lastDistributionTimestamp > 0
+                    ? new Date(lastDistributionTimestamp * 1000).toISOString()
+                    : null;
 
                 return {
                     success: true,
-                    totalFunds: rewardPoolData.totalFunds.toNumber(),
-                    lastDistribution: rewardPoolData.lastDistribution.toNumber(),
+                    totalFunds: readableTotalFunds,
+                    lastDistribution: lastDistributionTimestamp,
+                    lastDistributionDate: lastDistributionDate,
                     rewardPoolAddress: rewardPoolPublicKey.toString(),
-                    rewardEscrowAddress: rewardEscrowPublicKey.toString()
+                    rewardEscrowAddress: rewardEscrowPublicKey.toString(),
+                    tokenType: tokenType
                 };
     } catch (err) {
         console.error("❌ Error fetching reward pool stats:", err);
@@ -281,14 +271,14 @@ export const getRewardPoolStatsService = async (adminPublicKey: PublicKey) => {
 /**
 * Get comprehensive staking statistics
 */
-export const getStakingStats = async (adminPublicKey: PublicKey) => {
+export const getStakingStats = async (adminPublicKey: PublicKey, tokenType: TokenType) => {
     try {
         console.log("📊 Fetching comprehensive staking statistics...");
 
         // Fetch all data in parallel
         const [poolResult, stakersResult, apyResult] = await Promise.all([
-            getStakingPoolData(adminPublicKey),
-            getActiveStakers(),
+            getStakingPoolData(adminPublicKey, tokenType),
+            getActiveStakers(adminPublicKey, tokenType),
             calculateAPY()
         ]);
 
@@ -334,7 +324,8 @@ export const getStakingStats = async (adminPublicKey: PublicKey) => {
             stakingPoolEscrowAddress: poolResult.data.stakingEscrowPublicKey,
             totalWeight: poolResult.data.totalWeight,
             accRewardPerWeight: poolResult.data.accRewardPerWeight,
-            epochIndex: poolResult.data.epochIndex
+            epochIndex: poolResult.data.epochIndex,
+            tokenType: poolResult.data.tokenType
         };
     } catch (err) {
         console.error("❌ Error fetching staking statistics:", err);
@@ -353,21 +344,21 @@ export const getStakingStats = async (adminPublicKey: PublicKey) => {
  * Get comprehensive dashboard data including tournament, revenue, and staking stats
  */
 
-export const getDashboardData = async (adminPublicKey: PublicKey): Promise<any> => {
+export const getDashboardData = async (adminPublicKey: PublicKey, tokenType: TokenType): Promise<any> => {
     try {
         console.log("📊 Fetching comprehensive dashboard data...");
 
-        // Fetch tournament stats
-        const tournamentStats = await getTournamentStats();
+        // Fetch tournament stats filtered by tokenType
+        const tournamentStats = await getTournamentStats(tokenType);
 
         // Fetch revenue pool stats
-        const revenuePoolStats = await getRevenuePoolStatsService(adminPublicKey);
+        const revenuePoolStats = await getRevenuePoolStatsService(adminPublicKey, tokenType);
 
         // Fetch reward pool stats
-        const rewardPoolStats = await getRewardPoolStatsService(adminPublicKey);
+        const rewardPoolStats = await getRewardPoolStatsService(adminPublicKey, tokenType);
 
         // Fetch staking stats
-        const stakingStats = await getStakingStats(adminPublicKey);
+        const stakingStats = await getStakingStats(adminPublicKey, tokenType);
 
         return {
             tournament: tournamentStats,

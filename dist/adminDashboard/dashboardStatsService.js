@@ -45,19 +45,22 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.getDashboardData = exports.getStakingStats = exports.getRewardPoolStatsService = exports.getRevenuePoolStatsService = void 0;
 exports.getTournamentStats = getTournamentStats;
-const web3_js_1 = require("@solana/web3.js");
 const anchor = __importStar(require("@project-serum/anchor"));
 const database_1 = require("firebase/database");
 const firebase_1 = require("../config/firebase");
 const stakingStatsService_1 = require("./stakingStatsService");
 const services_1 = require("../staking/services");
+const getPDAs_1 = require("../utils/getPDAs");
+// Interface for the RevenuePool account structur
 /**
  * Get comprehensive tournament statistics from Firebase
+ * @param tokenType - Token type to filter tournaments (0 for SPL, 1 for SOL)
  */
-function getTournamentStats() {
+function getTournamentStats(tokenType) {
     return __awaiter(this, void 0, void 0, function* () {
         try {
-            const tournamentsRef = (0, database_1.ref)(firebase_1.db, 'tournaments');
+            // Read from tournaments/{tokenType} path
+            const tournamentsRef = (0, database_1.ref)(firebase_1.db, `tournaments/${tokenType}`);
             const snapshot = yield (0, database_1.get)(tournamentsRef);
             const stats = {
                 activeTournaments: 0,
@@ -73,6 +76,7 @@ function getTournamentStats() {
             }
             const tournaments = snapshot.val();
             const currentTime = new Date().getTime();
+            // tournaments is an object with tournament IDs as keys
             Object.values(tournaments).forEach((tournamentData) => {
                 var _a, _b;
                 const tournament = tournamentData;
@@ -85,6 +89,7 @@ function getTournamentStats() {
                     case "Active":
                         stats.activeTournaments++;
                         break;
+                    case "Not Started":
                     case "Upcoming":
                     case "Draft":
                         stats.upcomingTournaments++;
@@ -141,7 +146,7 @@ function getTournamentStats() {
  * @param adminPublicKey - Optional admin public key, defaults to program admin
  * @returns Result object with revenue pool stats
  */
-const getRevenuePoolStatsService = (adminPublicKey) => __awaiter(void 0, void 0, void 0, function* () {
+const getRevenuePoolStatsService = (adminPublicKey, tokenType) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { program, connection } = (0, services_1.getProgram)();
         // Use provided admin public key or default to program admin
@@ -149,9 +154,9 @@ const getRevenuePoolStatsService = (adminPublicKey) => __awaiter(void 0, void 0,
         console.log("Fetching Revenue Pool Stats:");
         console.log("Admin PublicKey:", adminPubkey.toBase58());
         // Derive the revenue pool PDA
-        const [revenuePoolPublicKey] = web3_js_1.PublicKey.findProgramAddressSync([Buffer.from("revenue_pool"), adminPubkey.toBuffer()], program.programId);
+        const revenuePoolPublicKey = (0, getPDAs_1.getRevenuePoolPDA)(adminPublicKey, tokenType);
         // Derive the revenue pool escrow account
-        const [revenueEscrowPublicKey] = web3_js_1.PublicKey.findProgramAddressSync([Buffer.from("revenue_escrow"), revenuePoolPublicKey.toBuffer()], program.programId);
+        const revenueEscrowPublicKey = (0, getPDAs_1.getRevenueEscrowPDA)(revenuePoolPublicKey);
         console.log("🔹 Revenue Pool PDA:", revenuePoolPublicKey.toString());
         // Check if the revenue pool account exists
         const accountExists = yield connection.getAccountInfo(revenuePoolPublicKey);
@@ -182,7 +187,8 @@ const getRevenuePoolStatsService = (adminPublicKey) => __awaiter(void 0, void 0,
             totalFunds: readableTotalFunds,
             revenuePoolAddress: revenuePoolPublicKey.toString(),
             revenueEscrowAddress: revenueEscrowPublicKey.toString(),
-            lastDistribution: lastDistributionDate
+            lastDistribution: lastDistributionDate,
+            tokenType: tokenType
         };
     }
     catch (err) {
@@ -194,7 +200,7 @@ const getRevenuePoolStatsService = (adminPublicKey) => __awaiter(void 0, void 0,
     }
 });
 exports.getRevenuePoolStatsService = getRevenuePoolStatsService;
-const getRewardPoolStatsService = (adminPublicKey) => __awaiter(void 0, void 0, void 0, function* () {
+const getRewardPoolStatsService = (adminPublicKey, tokenType) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { program, connection } = (0, services_1.getProgram)();
         // Use provided admin public key or default to program admin
@@ -202,9 +208,9 @@ const getRewardPoolStatsService = (adminPublicKey) => __awaiter(void 0, void 0, 
         console.log("Fetching Reward Pool Stats:");
         console.log("Admin PublicKey:", adminPubkey.toBase58());
         // Derive the reward pool PDA
-        const [rewardPoolPublicKey] = web3_js_1.PublicKey.findProgramAddressSync([Buffer.from("reward_pool"), adminPubkey.toBuffer()], program.programId);
+        const rewardPoolPublicKey = (0, getPDAs_1.getRewardPoolPDA)(adminPublicKey, tokenType);
         // Derive the reward pool escrow account
-        const [rewardEscrowPublicKey] = web3_js_1.PublicKey.findProgramAddressSync([Buffer.from("reward_escrow"), rewardPoolPublicKey.toBuffer()], program.programId);
+        const rewardEscrowPublicKey = (0, getPDAs_1.getRewardEscrowPDA)(rewardPoolPublicKey);
         // Check if the reward account exists
         const accountExists = yield connection.getAccountInfo(rewardPoolPublicKey);
         if (!accountExists) {
@@ -216,12 +222,22 @@ const getRewardPoolStatsService = (adminPublicKey) => __awaiter(void 0, void 0, 
         // Fetch the reward pool data
         const rewardPoolData = (yield program.account.rewardPool.fetch(rewardPoolPublicKey));
         console.log("✅ Raw Reward Pool Data:", rewardPoolData);
+        // Convert data to readable format
+        const tokenDecimals = 9; // Adjust based on your token decimals
+        const readableTotalFunds = rewardPoolData.totalFunds.toNumber() / (Math.pow(10, tokenDecimals));
+        // Convert timestamps to readable dates
+        const lastDistributionTimestamp = rewardPoolData.lastDistribution.toNumber();
+        const lastDistributionDate = lastDistributionTimestamp > 0
+            ? new Date(lastDistributionTimestamp * 1000).toISOString()
+            : null;
         return {
             success: true,
-            totalFunds: rewardPoolData.totalFunds.toNumber(),
-            lastDistribution: rewardPoolData.lastDistribution.toNumber(),
+            totalFunds: readableTotalFunds,
+            lastDistribution: lastDistributionTimestamp,
+            lastDistributionDate: lastDistributionDate,
             rewardPoolAddress: rewardPoolPublicKey.toString(),
-            rewardEscrowAddress: rewardEscrowPublicKey.toString()
+            rewardEscrowAddress: rewardEscrowPublicKey.toString(),
+            tokenType: tokenType
         };
     }
     catch (err) {
@@ -236,13 +252,13 @@ exports.getRewardPoolStatsService = getRewardPoolStatsService;
 /**
 * Get comprehensive staking statistics
 */
-const getStakingStats = (adminPublicKey) => __awaiter(void 0, void 0, void 0, function* () {
+const getStakingStats = (adminPublicKey, tokenType) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         console.log("📊 Fetching comprehensive staking statistics...");
         // Fetch all data in parallel
         const [poolResult, stakersResult, apyResult] = yield Promise.all([
-            (0, stakingStatsService_1.getStakingPoolData)(adminPublicKey),
-            (0, stakingStatsService_1.getActiveStakers)(),
+            (0, stakingStatsService_1.getStakingPoolData)(adminPublicKey, tokenType),
+            (0, stakingStatsService_1.getActiveStakers)(adminPublicKey, tokenType),
             (0, stakingStatsService_1.calculateAPY)()
         ]);
         // Check if any requests failed
@@ -282,7 +298,8 @@ const getStakingStats = (adminPublicKey) => __awaiter(void 0, void 0, void 0, fu
             stakingPoolEscrowAddress: poolResult.data.stakingEscrowPublicKey,
             totalWeight: poolResult.data.totalWeight,
             accRewardPerWeight: poolResult.data.accRewardPerWeight,
-            epochIndex: poolResult.data.epochIndex
+            epochIndex: poolResult.data.epochIndex,
+            tokenType: poolResult.data.tokenType
         };
     }
     catch (err) {
@@ -297,17 +314,17 @@ exports.getStakingStats = getStakingStats;
 /**
  * Get comprehensive dashboard data including tournament, revenue, and staking stats
  */
-const getDashboardData = (adminPublicKey) => __awaiter(void 0, void 0, void 0, function* () {
+const getDashboardData = (adminPublicKey, tokenType) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         console.log("📊 Fetching comprehensive dashboard data...");
-        // Fetch tournament stats
-        const tournamentStats = yield getTournamentStats();
+        // Fetch tournament stats filtered by tokenType
+        const tournamentStats = yield getTournamentStats(tokenType);
         // Fetch revenue pool stats
-        const revenuePoolStats = yield (0, exports.getRevenuePoolStatsService)(adminPublicKey);
+        const revenuePoolStats = yield (0, exports.getRevenuePoolStatsService)(adminPublicKey, tokenType);
         // Fetch reward pool stats
-        const rewardPoolStats = yield (0, exports.getRewardPoolStatsService)(adminPublicKey);
+        const rewardPoolStats = yield (0, exports.getRewardPoolStatsService)(adminPublicKey, tokenType);
         // Fetch staking stats
-        const stakingStats = yield (0, exports.getStakingStats)(adminPublicKey);
+        const stakingStats = yield (0, exports.getStakingStats)(adminPublicKey, tokenType);
         return {
             tournament: tournamentStats,
             revenue: revenuePoolStats,

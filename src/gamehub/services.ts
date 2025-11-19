@@ -1,6 +1,7 @@
 import {
   PublicKey,
   SystemProgram,
+  Transaction,
 } from "@solana/web3.js";
 import * as anchor from "@project-serum/anchor";
 import {
@@ -12,6 +13,8 @@ import { BN } from "bn.js";
 import { createAssociatedTokenAccount, getProgram } from "../staking/services";
 import { ref, get } from "firebase/database";
 import { db } from "../config/firebase";
+import { getPrizeEscrowPDA, getPrizePoolPDA, getRegistrationPDA, getTournamentEscrowPDA, TokenType } from "../utils/getPDAs";
+import {getTournamentPoolPDA} from "../utils/getPDAs";
 
 dotenv.config();
 
@@ -23,64 +26,72 @@ export const initializeTournamentPoolService = async (
   entryFee: number,
   maxParticipants: number,
   endTime: number,
-  mintPublicKey: PublicKey
+  mintPublicKey: PublicKey,
+  tokenType: TokenType
 ) => {
   try {
     const { program, connection } = getProgram();
 
-    // Convert tournamentId correctly
-    const tournamentIdBytes = Buffer.from(tournamentId, "utf8"); // Ensure UTF-8 encoding
-
-    // Derive the correct PDA for the tournament pool
-    const [tournamentPoolPublicKey] = PublicKey.findProgramAddressSync(
-      [Buffer.from("tournament_pool"), adminPublicKey.toBuffer(), tournamentIdBytes],
-      program.programId
-    );
-
-    // Derive the escrow PDA correctly
-    const [poolEscrowAccountPublicKey] = PublicKey.findProgramAddressSync(
-      [Buffer.from("escrow"), tournamentPoolPublicKey.toBuffer()],
-      program.programId
-    );
-
-    console.log("✅ Tournament Pool PDA:", tournamentPoolPublicKey.toString());
-    console.log("✅ Pool Escrow PDA:", poolEscrowAccountPublicKey.toString());
+    const tournamentPoolPublicKey = getTournamentPoolPDA(adminPublicKey, tournamentId, tokenType);
+    
+    const poolEscrowAccountPublicKey = tokenType === TokenType.SOL 
+      ? SystemProgram.programId 
+      : getTournamentEscrowPDA(tournamentPoolPublicKey);
 
     const { blockhash } = await connection.getLatestBlockhash("finalized");
     
-    // Convert entry fee from CRD (user input) to base units (smart contract format)
-    // CRD token has 9 decimals, so multiply by 10^9
     const CRD_DECIMALS = 9;
     const entryFeeInBaseUnits = Math.round(entryFee * Math.pow(10, CRD_DECIMALS));
     const entryFeeBN = new BN(entryFeeInBaseUnits);
     
-    console.log(`✅ Entry fee conversion: ${entryFee} CRD → ${entryFeeInBaseUnits} base units`);
+    console.log(`✅ Entry fee conversion: ${entryFee} → ${entryFeeInBaseUnits} base units`);
+    console.log(`✅ Token Type: ${tokenType === TokenType.SOL ? 'SOL' : 'SPL'}`);
     
     const maxParticipantsBN = new BN(maxParticipants);
     const endTimeBN = new BN(endTime);
 
-    // Create the transaction without signing it
-    const transaction = await program.methods
+    const tokenTypeArg = tokenType === TokenType.SPL ? {spl: {}} : {sol: {}};
+
+    // Build instruction
+    const instruction = await program.methods
       .createTournamentPool(
         tournamentId,
         entryFeeBN,
         maxParticipantsBN,
-        endTimeBN
+        endTimeBN,
+        tokenTypeArg
       )
       .accounts({
-        admin: adminPublicKey,
+        creator: adminPublicKey,
         tournamentPool: tournamentPoolPublicKey,
         poolEscrowAccount: poolEscrowAccountPublicKey,
         mint: mintPublicKey,
         systemProgram: SystemProgram.programId,
         tokenProgram: TOKEN_2022_PROGRAM_ID,
       })
-      .transaction();
+      .instruction();
 
+    // ✅ For SPL tokens, mark pool_escrow_account as writable
+    if (tokenType === TokenType.SPL) {
+      const escrowAccountIndex = instruction.keys.findIndex(
+        key => key.pubkey.equals(poolEscrowAccountPublicKey)
+      );
+      
+      if (escrowAccountIndex !== -1) {
+        instruction.keys[escrowAccountIndex].isWritable = true;
+        console.log(`✅ Marked pool_escrow_account as writable for SPL: ${poolEscrowAccountPublicKey.toString()}`);
+      } else {
+        console.warn(`⚠️ Could not find pool_escrow_account in instruction keys`);
+      }
+    } else {
+      console.log(`✅ SOL tournament - no escrow account write needed`);
+    }
+
+    // Create transaction
+    const transaction = new Transaction().add(instruction);
     transaction.recentBlockhash = blockhash;
     transaction.feePayer = adminPublicKey;
 
-    // Return the unsigned transaction for frontend to sign
     return {
       success: true,
       message: "Tournament pool transaction created successfully",
@@ -94,18 +105,12 @@ export const initializeTournamentPoolService = async (
     };
   }
 };
-
 // Get tournament pool data
-export const getTournamentPool = async (tournamentId: string, adminPublicKey: PublicKey) => {
+export const getTournamentPool = async (tournamentId: string, adminPublicKey: PublicKey, tokenType: TokenType) => {
   try {
     const { program } = getProgram();
 
-    const tournamentIdBytes = Buffer.from(tournamentId, "utf8");
-
-    const [tournamentPoolPublicKey] = PublicKey.findProgramAddressSync(
-      [Buffer.from("tournament_pool"), adminPublicKey.toBuffer(), tournamentIdBytes],
-      program.programId
-    );
+    const tournamentPoolPublicKey = getTournamentPoolPDA(adminPublicKey, tournamentId, tokenType);
     // Fetch the tournament pool data
     const tournamentPoolData = (await program.account.tournamentPool.fetch(
       tournamentPoolPublicKey
@@ -123,28 +128,30 @@ export const getTournamentPool = async (tournamentId: string, adminPublicKey: Pu
         maxParticipants: tournamentPoolData.maxParticipants,
         endTime: new Date(tournamentPoolData.endTime * 1000).toISOString(),
         isActive: tournamentPoolData.isActive,
+        tokenType: tokenType,
       }
     };
-  } catch (err) {
+  } catch (err: any) {
     console.error("❌ Error fetching tournament pool:", err);
-    return { success: false, message: "Error fetching tournament data" };
+    const errorMessage = err.message || err.toString() || "Unknown error";
+    return { 
+      success: false, 
+      message: `Error fetching tournament data: ${errorMessage}` 
+    };
   }
 };
 
 // Get prize pool data for a tournament
 export const getPrizePoolService = async (
   tournamentId: string,
-  adminPublicKey: PublicKey
+  adminPublicKey: PublicKey,
+  tokenType: TokenType
 ) => {
   try {
     const { program, connection } = getProgram();
 
     // Derive Tournament Pool PDA (same derivation as on-chain)
-    const tournamentIdBytes = Buffer.from(tournamentId, "utf8");
-    const [tournamentPoolPublicKey] = PublicKey.findProgramAddressSync(
-      [Buffer.from("tournament_pool"), adminPublicKey.toBuffer(), tournamentIdBytes],
-      program.programId
-    );
+    const tournamentPoolPublicKey = getTournamentPoolPDA(adminPublicKey, tournamentId, tokenType);
 
     // Ensure tournament pool account exists before proceeding
     const tournamentPoolAccountInfo = await connection.getAccountInfo(tournamentPoolPublicKey);
@@ -153,10 +160,7 @@ export const getPrizePoolService = async (
     }
 
     // Derive Prize Pool PDA: seeds = [b"prize_pool", tournament_pool.key().as_ref()]
-    const [prizePoolPublicKey] = PublicKey.findProgramAddressSync(
-      [Buffer.from("prize_pool"), tournamentPoolPublicKey.toBuffer()],
-      program.programId
-    );
+    const prizePoolPublicKey = getPrizePoolPDA(tournamentPoolPublicKey);
 
     // Check existence
     const prizePoolAccountInfo = await connection.getAccountInfo(prizePoolPublicKey);
@@ -170,10 +174,7 @@ export const getPrizePoolService = async (
     )) as PrizePoolAccount;
 
     // Derive Prize Escrow PDA: seeds = [b"prize_escrow", prize_pool.key().as_ref()]
-    const [prizeEscrowPublicKey] = PublicKey.findProgramAddressSync(
-      [Buffer.from("prize_escrow"), prizePoolPublicKey.toBuffer()],
-      program.programId
-    );
+    const prizeEscrowPublicKey = getPrizeEscrowPDA(prizePoolPublicKey);
 
     return {
       success: true,
@@ -318,52 +319,52 @@ export const getTotalTournamentEntryFeesService = async (
   }
 };
 
-// Register for tournament
 export const registerForTournamentService = async (
   tournamentId: string,
   userPublicKey: PublicKey,
-  adminPublicKey: PublicKey
+  adminPublicKey: PublicKey,
+  tokenType: TokenType
 ) => {
   try {
     const { program, connection } = getProgram();
 
-    const tournamentIdBytes = Buffer.from(tournamentId, "utf8");
-
-    // Get tournament pool PDA
-    const [tournamentPoolPublicKey] = PublicKey.findProgramAddressSync(
-      [Buffer.from("tournament_pool"), adminPublicKey.toBuffer(), tournamentIdBytes],
-      program.programId
-    );
-    // Fetch the tournament pool data
+    const tournamentPoolPublicKey = getTournamentPoolPDA(adminPublicKey, tournamentId, tokenType);
+    
     const tournamentPoolData = (await program.account.tournamentPool.fetch(
       tournamentPoolPublicKey
     )) as TournamentPoolAccount;
+    
     const mintPublicKey = tournamentPoolData.mint;
 
-    // Get escrow PDA
-    const [poolEscrowAccountPublicKey] = PublicKey.findProgramAddressSync(
-      [Buffer.from("escrow"), tournamentPoolPublicKey.toBuffer()],
-      program.programId
-    );
+    let userTokenAccountPublicKey: PublicKey;
+    let poolEscrowAccountPublicKey: PublicKey;
 
-    // Get registration PDA
-    const [registrationAccountPublicKey] = PublicKey.findProgramAddressSync(
-      [Buffer.from("registration"), tournamentPoolPublicKey.toBuffer(), userPublicKey.toBuffer()],
-      program.programId
-    );
+    if (tokenType === TokenType.SOL) {
+      userTokenAccountPublicKey = SystemProgram.programId;
+      poolEscrowAccountPublicKey = SystemProgram.programId;
+    } else {
+      poolEscrowAccountPublicKey = getTournamentEscrowPDA(tournamentPoolPublicKey);
+      
+      userTokenAccountPublicKey = await getAssociatedTokenAddressSync(
+        mintPublicKey, 
+        userPublicKey, 
+        false, 
+        TOKEN_2022_PROGRAM_ID
+      );
 
-    let userTokenAccountPublicKey = await getAssociatedTokenAddressSync(mintPublicKey, userPublicKey, false, TOKEN_2022_PROGRAM_ID);
-    console.log("User Token Account PublicKey:", userTokenAccountPublicKey.toBase58());
-
-    if (!userTokenAccountPublicKey) {
-      console.log("User Token Account PublicKey does not exist. Creating ATA...");
-      const createATAResponse = await createAssociatedTokenAccount(mintPublicKey, userPublicKey);
-      console.log("Create ATA Response:", createATAResponse);
-      userTokenAccountPublicKey = createATAResponse.associatedTokenAddress;
+      const userTokenAccountInfo = await connection.getAccountInfo(userTokenAccountPublicKey);
+      if (!userTokenAccountInfo) {
+        console.log("User Token Account does not exist. Creating ATA...");
+        const createATAResponse = await createAssociatedTokenAccount(mintPublicKey, userPublicKey);
+        console.log("Create ATA Response:", createATAResponse);
+        userTokenAccountPublicKey = createATAResponse.associatedTokenAddress;
+      }
     }
-  
 
-    const transaction = await program.methods
+    const registrationAccountPublicKey = getRegistrationPDA(tournamentPoolPublicKey, userPublicKey);
+
+    // ✅ Build instruction with explicit account metas for proper mutability
+    const instruction = await program.methods
       .registerForTournament(tournamentId)
       .accounts({
         user: userPublicKey,
@@ -372,16 +373,35 @@ export const registerForTournamentService = async (
         userTokenAccount: userTokenAccountPublicKey,
         poolEscrowAccount: poolEscrowAccountPublicKey,
         mint: mintPublicKey,
-        tokenProgram: TOKEN_2022_PROGRAM_ID,
+        tokenProgram: tokenType === TokenType.SPL ? TOKEN_2022_PROGRAM_ID : SystemProgram.programId,
         systemProgram: SystemProgram.programId,
       })
-      .transaction();
+      .instruction();
+
+    // ✅ For SPL tournaments, ensure pool_escrow_account is writable
+    if (tokenType === TokenType.SPL) {
+      // Find the pool_escrow_account in the instruction and ensure it's writable
+      const escrowAccountIndex = instruction.keys.findIndex(
+        key => key.pubkey.equals(poolEscrowAccountPublicKey)
+      );
+      if (escrowAccountIndex !== -1) {
+        instruction.keys[escrowAccountIndex].isWritable = true;
+      }
+
+      // Also ensure user_token_account is writable for SPL
+      const userTokenAccountIndex = instruction.keys.findIndex(
+        key => key.pubkey.equals(userTokenAccountPublicKey)
+      );
+      if (userTokenAccountIndex !== -1) {
+        instruction.keys[userTokenAccountIndex].isWritable = true;
+      }
+    }
+
+    const transaction = new Transaction().add(instruction);
 
     const { blockhash } = await connection.getLatestBlockhash("finalized");
     transaction.recentBlockhash = blockhash;
     transaction.feePayer = userPublicKey;
-
-
 
     return {
       success: true,
@@ -407,6 +427,7 @@ interface TournamentPoolAccount {
   entryFee: anchor.BN; // Entry fee in base units (e.g., lamports or token units)
   totalFunds: anchor.BN; // Total funds accumulated in the pool
   bump: number; // Bump seed for the tournament pool account
+  tokenType: TokenType;
 }
 
 interface PrizePoolAccount {

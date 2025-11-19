@@ -13,6 +13,7 @@ exports.getTournamentLeaderboardAgainstAdmin = exports.getAdminTournamentsLeader
 // src/gamehub/adminLeaderboardService.ts
 const database_1 = require("firebase/database");
 const firebase_1 = require("../config/firebase");
+const getPDAs_1 = require("../utils/getPDAs");
 // Get aggregated leaderboards for all tournaments by admin
 const getAdminTournamentsLeaderboards = (adminPublicKey) => __awaiter(void 0, void 0, void 0, function* () {
     var _a;
@@ -120,16 +121,36 @@ const getAdminTournamentsLeaderboards = (adminPublicKey) => __awaiter(void 0, vo
 });
 exports.getAdminTournamentsLeaderboards = getAdminTournamentsLeaderboards;
 // Get single tournament leaderboard against admin (keeping for backward compatibility)
-const getTournamentLeaderboardAgainstAdmin = (tournamentId) => __awaiter(void 0, void 0, void 0, function* () {
+const getTournamentLeaderboardAgainstAdmin = (tournamentId, tokenType) => __awaiter(void 0, void 0, void 0, function* () {
     var _a;
     try {
-        // Get tournament data
-        const tournamentRef = (0, database_1.ref)(firebase_1.db, `tournaments/${tournamentId}`);
-        const tournamentSnapshot = yield (0, database_1.get)(tournamentRef);
-        if (!tournamentSnapshot.exists()) {
+        let tournament = null;
+        // If tokenType is provided, search directly in that path
+        if (tokenType !== undefined && tokenType !== null) {
+            const tt = Number(tokenType);
+            if (tt !== getPDAs_1.TokenType.SPL && tt !== getPDAs_1.TokenType.SOL) {
+                return { success: false, message: "tokenType must be 0 (SPL) or 1 (SOL)" };
+            }
+            const tournamentRef = (0, database_1.ref)(firebase_1.db, `tournaments/${tt}/${tournamentId}`);
+            const tournamentSnapshot = yield (0, database_1.get)(tournamentRef);
+            if (tournamentSnapshot.exists()) {
+                tournament = tournamentSnapshot.val();
+            }
+        }
+        else {
+            // If tokenType is not provided, search in both token types
+            for (const tt of [getPDAs_1.TokenType.SPL, getPDAs_1.TokenType.SOL]) {
+                const tournamentRef = (0, database_1.ref)(firebase_1.db, `tournaments/${tt}/${tournamentId}`);
+                const tournamentSnapshot = yield (0, database_1.get)(tournamentRef);
+                if (tournamentSnapshot.exists()) {
+                    tournament = tournamentSnapshot.val();
+                    break;
+                }
+            }
+        }
+        if (!tournament) {
             return { success: false, message: "Tournament not found" };
         }
-        const tournament = tournamentSnapshot.val();
         const participants = tournament.participants || {};
         const adminId = tournament.createdBy;
         if (!adminId) {
