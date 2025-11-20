@@ -152,11 +152,14 @@ export async function getGamePerformanceMetrics(req: Request, res: Response): Pr
                 return sum + (tournament.participantsCount || 0);
             }, 0);
 
-            // Calculate total revenue generated from entry fees
+            // Calculate total revenue from distribution amounts (not entry fees)
+            // Revenue comes from the distribution.revenueAmount field after tournaments are distributed
             const totalRevenue = gameTournaments.reduce((sum: number, tournament: any) => {
-                const entryFee = parseFloat(tournament.entryFee) || 0;
-                const participants = tournament.participantsCount || 0;
-                return sum + (entryFee * participants);
+                // Check both 'distribution' and 'distributionDetails' for backward compatibility
+                const distribution = tournament.distribution || tournament.distributionDetails || {};
+                const revenueAmount = distribution.revenueAmount || 0;
+                // revenueAmount is in base units, will be converted to tokens below
+                return sum + Number(revenueAmount);
             }, 0);
 
             // Count tournaments
@@ -167,7 +170,7 @@ export async function getGamePerformanceMetrics(req: Request, res: Response): Pr
                 gameName: game.name,
                 totalPlayers,
                 tournamentCount,
-                totalRevenue: Number(totalRevenue) / 1_000_000_000, // Convert from lamports to tokens
+                totalRevenue: Number(totalRevenue) / 1_000_000_000, // Convert from base units to tokens
                 category: game.status || 'Unknown'
             };
         });
