@@ -84,8 +84,10 @@ export async function getTournamentStats(tokenType: TokenType): Promise<any> {
                     // Distributed tournaments are also ended tournaments
                     stats.endedTournaments++;
                     // ✅ Calculate burn amount for distributed tournaments
-                    if (tournament.distributionDetails?.burnAmount) {
-                        stats.totalBurnAmount += Number(tournament.distributionDetails.burnAmount) || 0;
+                    // Check both 'distribution' and 'distributionDetails' for backward compatibility
+                    const distForDistributed = tournament.distribution || tournament.distributionDetails || {};
+                    if (distForDistributed.burnAmount) {
+                        stats.totalBurnAmount += Number(distForDistributed.burnAmount) || 0;
                     }
                     break;
 
@@ -95,8 +97,10 @@ export async function getTournamentStats(tokenType: TokenType): Promise<any> {
                     stats.distributedTournaments++;
                     stats.endedTournaments++;
                     // ✅ Calculate burn amount for awarded tournaments
-                    if (tournament.distributionDetails?.burnAmount) {
-                        stats.totalBurnAmount += Number(tournament.distributionDetails.burnAmount) || 0;
+                    // Check both 'distribution' and 'distributionDetails' for backward compatibility
+                    const distForAwarded = tournament.distribution || tournament.distributionDetails || {};
+                    if (distForAwarded.burnAmount) {
+                        stats.totalBurnAmount += Number(distForAwarded.burnAmount) || 0;
                     }
                     break;
             }

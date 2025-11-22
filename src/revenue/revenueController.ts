@@ -188,6 +188,9 @@ export const getTournamentDistributionController = async (req: Request, res: Res
       });
     }
 
+    // Check both 'distribution' and 'distributionDetails' for backward compatibility
+    const distDetails = tournament.distribution || tournament.distributionDetails || {};
+    
     // Format and return distribution details including burn information
     return res.status(200).json({
       success: true,
@@ -195,12 +198,12 @@ export const getTournamentDistributionController = async (req: Request, res: Res
       tournamentName: tournament.name,
       distributionDetails: {
         completedAt: new Date(tournament.distributionTimestamp).toISOString(),
-        totalDistributed: tournament.distributionDetails.totalDistributed,
-        prizeAmount: tournament.distributionDetails.prizeAmount,
-        revenueAmount: tournament.distributionDetails.revenueAmount,
-        stakingAmount: tournament.distributionDetails.stakingAmount,
-        burnAmount: tournament.distributionDetails.burnAmount, // New field
-        transactionSignature: tournament.distributionDetails.transactionSignature,
+        totalDistributed: distDetails.totalDistributed || (distDetails.prizeAmount + distDetails.revenueAmount + distDetails.stakingAmount + distDetails.burnAmount) || 0,
+        prizeAmount: distDetails.prizeAmount || 0,
+        revenueAmount: distDetails.revenueAmount || 0,
+        stakingAmount: distDetails.stakingAmount || 0,
+        burnAmount: distDetails.burnAmount || 0,
+        transactionSignature: tournament.distributionTransaction || distDetails.transactionSignature || '',
       }
     });
   } catch (err) {
@@ -491,7 +494,8 @@ export const getAdminDistributionTotalsController = async (req: Request, res: Re
     let burn = BigInt(0);
 
     for (const t of adminTournaments) {
-      const d = t?.distributionDetails || {};
+      // Check both 'distribution' and 'distributionDetails' for backward compatibility
+      const d = t?.distribution || t?.distributionDetails || {};
       prize += BigInt(d.prizeAmount || 0);
       revenue += BigInt(d.revenueAmount || 0);
       staking += BigInt(d.stakingAmount || 0);
@@ -614,11 +618,20 @@ export const confirmDistributionController = async (req: Request, res: Response)
       distributionCompleted: true,
       distributionTimestamp: new Date().toISOString(),
       distributionTransaction: transactionSignature,
-      distribution: distribution || {
+      distributionDetails: distribution ? {
+        prizeAmount: distribution.prizeAmount || 0,
+        revenueAmount: distribution.revenueAmount || 0,
+        stakingAmount: distribution.stakingAmount || 0,
+        burnAmount: distribution.burnAmount || 0,
+        totalDistributed: (distribution.prizeAmount || 0) + (distribution.revenueAmount || 0) + (distribution.stakingAmount || 0) + (distribution.burnAmount || 0),
+        transactionSignature: transactionSignature
+      } : {
         prizeAmount: 0,
         revenueAmount: 0,
         stakingAmount: 0,
-        burnAmount: 0
+        burnAmount: 0,
+        totalDistributed: 0,
+        transactionSignature: transactionSignature
       }
     });
 

@@ -78,7 +78,6 @@ function getTournamentStats(tokenType) {
             const currentTime = new Date().getTime();
             // tournaments is an object with tournament IDs as keys
             Object.values(tournaments).forEach((tournamentData) => {
-                var _a, _b;
                 const tournament = tournamentData;
                 // Count participants using the participantsCount field or calculate from participants object
                 const participantCount = tournament.participantsCount ||
@@ -102,8 +101,10 @@ function getTournamentStats(tokenType) {
                         // Distributed tournaments are also ended tournaments
                         stats.endedTournaments++;
                         // ✅ Calculate burn amount for distributed tournaments
-                        if ((_a = tournament.distributionDetails) === null || _a === void 0 ? void 0 : _a.burnAmount) {
-                            stats.totalBurnAmount += Number(tournament.distributionDetails.burnAmount) || 0;
+                        // Check both 'distribution' and 'distributionDetails' for backward compatibility
+                        const distForDistributed = tournament.distribution || tournament.distributionDetails || {};
+                        if (distForDistributed.burnAmount) {
+                            stats.totalBurnAmount += Number(distForDistributed.burnAmount) || 0;
                         }
                         break;
                     case "Awarded":
@@ -112,8 +113,10 @@ function getTournamentStats(tokenType) {
                         stats.distributedTournaments++;
                         stats.endedTournaments++;
                         // ✅ Calculate burn amount for awarded tournaments
-                        if ((_b = tournament.distributionDetails) === null || _b === void 0 ? void 0 : _b.burnAmount) {
-                            stats.totalBurnAmount += Number(tournament.distributionDetails.burnAmount) || 0;
+                        // Check both 'distribution' and 'distributionDetails' for backward compatibility
+                        const distForAwarded = tournament.distribution || tournament.distributionDetails || {};
+                        if (distForAwarded.burnAmount) {
+                            stats.totalBurnAmount += Number(distForAwarded.burnAmount) || 0;
                         }
                         break;
                 }
