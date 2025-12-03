@@ -83,10 +83,10 @@ export const rotateGameApiKeyController = async (
   res: Response
 ): Promise<void> => {
   try {
-    const { id } = req.params;
+    const { gameId } = req.params;
     const { adminPublicKey } = req.body;
 
-    if (!id) {
+    if (!gameId) {
       res.status(400).json({
         success: false,
         message: 'Missing game id in URL params',
@@ -102,7 +102,7 @@ export const rotateGameApiKeyController = async (
       return;
     }
 
-    const credentials = await rotateApiKey(id, adminPublicKey);
+    const credentials = await rotateApiKey(gameId, adminPublicKey);
 
     res.status(200).json({
       success: true,
@@ -146,10 +146,10 @@ export const revokeGameSdkAccessController = async (
   res: Response
 ): Promise<void> => {
   try {
-    const { id } = req.params;
+    const { gameId } = req.params;
     const { adminPublicKey } = req.body;
 
-    if (!id) {
+    if (!gameId) {
       res.status(400).json({
         success: false,
         message: 'Missing game id in URL params',
@@ -165,12 +165,12 @@ export const revokeGameSdkAccessController = async (
       return;
     }
 
-    await revokeSdkAccess(id, adminPublicKey);
+    await revokeSdkAccess(gameId, adminPublicKey);
 
     res.status(200).json({
       success: true,
       message: 'SDK access revoked successfully',
-      id,
+      gameId,
     });
   } catch (error: any) {
     console.error('Error revoking SDK access:', error);
@@ -208,10 +208,10 @@ export const enableGameSdkAccessController = async (
   res: Response
 ): Promise<void> => {
   try {
-    const { id } = req.params;
+    const { gameId } = req.params;
     const { adminPublicKey } = req.body;
 
-    if (!id) {
+    if (!gameId) {
       res.status(400).json({
         success: false,
         message: 'Missing game id in URL params',
@@ -227,7 +227,7 @@ export const enableGameSdkAccessController = async (
       return;
     }
 
-    const credentials = await enableSdkAccess(id, adminPublicKey);
+    const credentials = await enableSdkAccess(gameId, adminPublicKey);
 
     res.status(200).json({
       success: true,
@@ -271,10 +271,10 @@ export const getGameSdkStatusController = async (
   res: Response
 ): Promise<void> => {
   try {
-    const { id } = req.params;
+    const { gameId } = req.params;
     const { adminPublicKey } = req.query;
 
-    if (!id) {
+    if (!gameId) {
       res.status(400).json({
         success: false,
         message: 'Missing game id in URL params',
@@ -290,7 +290,7 @@ export const getGameSdkStatusController = async (
       return;
     }
 
-    const status = await getSdkStatus(id, adminPublicKey);
+    const status = await getSdkStatus(gameId, adminPublicKey);
 
     res.status(200).json({
       success: true,
