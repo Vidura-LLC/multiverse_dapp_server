@@ -54,5 +54,5 @@ export type GameSdkStatus = {
     sdkEnabled: boolean;
     apiKeyPrefix: string | null;
     apiKeyRotatedAt: string | null;
-    createdAt: string;
+    createdAt: string | null; // Can be null for games created before createdAt tracking was added
 }
