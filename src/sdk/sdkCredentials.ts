@@ -15,6 +15,8 @@ export const createGameWithCredentials = async (
 ): Promise<{ gameId: string; credentials: GeneratedCredentials }> => {
   const { apiKey, credentialData } = generateSdkCredentials(gameData.gameId);
 
+  const now = new Date().toISOString();
+  
   const game: Game = {
     id: gameData.gameId,
     gameId: gameData.gameId,
@@ -24,15 +26,22 @@ export const createGameWithCredentials = async (
     createdBy: gameData.adminPublicKey,
     image: gameData.image || '',
     status: gameData.status || 'draft',
-    createdAt: new Date(),
-    updatedAt: new Date(),
+    createdAt: new Date(now), // Store as Date object for type compatibility, but Firebase will serialize it
+    updatedAt: new Date(now),
     apiKeyHash: credentialData.apiKeyHash,
     apiKeyPrefix: credentialData.apiKeyPrefix,
     sdkEnabled: credentialData.sdkEnabled,
   };
+  
+  // Convert Date objects to ISO strings for Firebase storage
+  const gameForFirebase = {
+    ...game,
+    createdAt: now,
+    updatedAt: now,
+  };
 
   const gameRef = ref(db, `games/${gameData.gameId}`);
-  await set(gameRef, game);
+  await set(gameRef, gameForFirebase);
 
   return {
     gameId: gameData.gameId,
@@ -171,14 +180,27 @@ export const getSdkStatus = async (
     throw new Error('Not authorized');
   }
 
+  // Handle createdAt - Firebase might store it as Date, timestamp, or undefined
+  let createdAt: string | null = null;
+  if (game.createdAt) {
+    if (game.createdAt instanceof Date) {
+      createdAt = game.createdAt.toISOString();
+    } else if (typeof game.createdAt === 'string') {
+      // If it's already a string, validate it's a valid date
+      const date = new Date(game.createdAt);
+      createdAt = isNaN(date.getTime()) ? null : date.toISOString();
+    } else if (typeof game.createdAt === 'number') {
+      // If it's a timestamp
+      createdAt = new Date(game.createdAt).toISOString();
+    }
+  }
+
   return {
     gameId: game.gameId,
     sdkEnabled: game.sdkEnabled ?? false,
     apiKeyPrefix: game.apiKeyPrefix ?? null,
     apiKeyRotatedAt: game.apiKeyRotatedAt ?? null,
-    createdAt: game.createdAt instanceof Date 
-      ? game.createdAt.toISOString() 
-      : String(game.createdAt),
+    createdAt: createdAt ?? null, // Return null if createdAt is not available
   };
 };
 
