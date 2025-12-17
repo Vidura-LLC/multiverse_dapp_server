@@ -4,7 +4,8 @@ import { db } from "../config/firebase";
 import { getTournamentPool, registerForTournamentService, initializeTournamentPoolService, getPrizePoolService, getTotalPrizePoolsFundsService, getTotalTournamentPoolsFundsService, getTotalTournamentEntryFeesService } from './services';
 import { getTournamentLeaderboard, updateParticipantScore, getTournamentsByGame } from "./leaderboardService";
 import { getTournamentLeaderboardAgainstAdmin, getAdminTournamentsLeaderboards } from "./adminLeaderboardService";
-import { PublicKey } from "@solana/web3.js";
+import { PublicKey, Transaction, VersionedTransaction } from "@solana/web3.js";
+import bs58 from "bs58";
 import schedule from 'node-schedule'
 import { TokenType, getTournamentPoolPDA, getRegistrationPDA } from "../utils/getPDAs";
 import { getProgram } from "../staking/services";
@@ -393,10 +394,48 @@ export const registerForTournamentController = async (req: Request, res: Respons
       });
     }
 
-    const userPubKey = new PublicKey(userPublicKey);
+    // Validate and create PublicKey objects
+    let userPubKey: PublicKey;
+    let adminPubKey: PublicKey;
+    
+    try {
+      userPubKey = new PublicKey(userPublicKey);
+      // Validate the public key is on curve
+      if (!PublicKey.isOnCurve(userPubKey.toBytes())) {
+        return res.status(400).json({
+          success: false,
+          message: `Invalid user public key: ${userPublicKey}. The public key must be a valid ed25519 point on the curve.`,
+          error: "INVALID_USER_PUBLIC_KEY"
+        });
+      }
+    } catch (error: any) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid user public key format: ${error.message}`,
+        error: "INVALID_USER_PUBLIC_KEY_FORMAT"
+      });
+    }
+
+    try {
+      adminPubKey = new PublicKey(adminPublicKey);
+      // Validate the admin public key is on curve
+      if (!PublicKey.isOnCurve(adminPubKey.toBytes())) {
+        return res.status(400).json({
+          success: false,
+          message: `Invalid admin public key: ${adminPublicKey}. The public key must be a valid ed25519 point on the curve.`,
+          error: "INVALID_ADMIN_PUBLIC_KEY"
+        });
+      }
+    } catch (error: any) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid admin public key format: ${error.message}`,
+        error: "INVALID_ADMIN_PUBLIC_KEY_FORMAT"
+      });
+    }
 
     // Create transaction for blockchain registration (don't add to Firebase yet)
-    const blockchainResult = await registerForTournamentService(tournamentId, userPubKey, new PublicKey(adminPublicKey), tt as TokenType );
+    const blockchainResult = await registerForTournamentService(tournamentId, userPubKey, adminPubKey, tt as TokenType );
 
     // Return transaction - participant will be added to Firebase after transaction is confirmed
     if (blockchainResult.success) {
@@ -458,8 +497,82 @@ export const confirmParticipationController = async (req: Request, res: Response
 
     // Verify transaction exists on blockchain and was successful
     const { connection, program } = getProgram();
+    
+    let actualTransactionSignature: string = transactionSignature;
+    
+    // Check if transactionSignature is a signed transaction (base64/base58) or a transaction signature (base58)
+    // Signed transactions are typically longer (>100 chars)
+    // Transaction signatures are shorter (88 chars base58)
+    // Phantom returns signed transactions in base58 format
+    const isLongTransaction = transactionSignature.length > 100;
+    
+    if (isLongTransaction) {
+      // This is likely a signed transaction - try to deserialize and send it
+      try {
+        let txBuffer: Buffer;
+        let signedTx: Transaction | VersionedTransaction;
+        
+        // Try base58 first (Phantom's format), then base64
+        try {
+          txBuffer = Buffer.from(bs58.decode(transactionSignature));
+          console.log('Decoded as base58');
+        } catch (base58Error) {
+          // If base58 fails, try base64
+          try {
+            txBuffer = Buffer.from(transactionSignature, 'base64');
+            console.log('Decoded as base64');
+          } catch (base64Error) {
+            throw new Error(`Could not decode transaction: base58 error: ${base58Error.message}, base64 error: ${base64Error.message}`);
+          }
+        }
+        
+        // Try VersionedTransaction first, then fall back to Transaction
+        try {
+          signedTx = VersionedTransaction.deserialize(txBuffer);
+          console.log('Deserialized as VersionedTransaction');
+        } catch {
+          signedTx = Transaction.from(txBuffer);
+          console.log('Deserialized as Legacy Transaction');
+        }
+        
+        // Send the signed transaction
+        console.log('Sending signed transaction to blockchain...');
+        const signature = await connection.sendRawTransaction(
+          signedTx.serialize(),
+          {
+            skipPreflight: false,
+            maxRetries: 3,
+          }
+        );
+        
+        // Wait for confirmation
+        console.log('Waiting for transaction confirmation:', signature);
+        const confirmation = await connection.confirmTransaction(signature, 'confirmed');
+        
+        if (confirmation.value.err) {
+          return res.status(400).json({
+            success: false,
+            message: 'Transaction failed on blockchain',
+            error: confirmation.value.err
+          });
+        }
+        
+        // Use the actual transaction signature for verification
+        actualTransactionSignature = signature;
+        console.log('Transaction sent successfully, signature:', signature);
+      } catch (err) {
+        console.error('Error sending signed transaction:', err);
+        return res.status(400).json({
+          success: false,
+          message: 'Could not send transaction to blockchain',
+          error: err.message
+        });
+      }
+    }
+    
+    // Verify transaction exists on blockchain and was successful
     try {
-      const txInfo = await connection.getTransaction(transactionSignature, {
+      const txInfo = await connection.getTransaction(actualTransactionSignature, {
         maxSupportedTransactionVersion: 0
       });
       
