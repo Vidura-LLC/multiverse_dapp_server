@@ -1,12 +1,13 @@
-import { Router } from "express";
-import { createGame, getAllGames, getGameById, getGamePerformanceMetrics, updateGame } from "./controller";
+import { RequestHandler, Router } from "express";
+import { getAllGames, getGameById, getGamePerformanceMetrics, updateGame } from "./controller";
+import { createGameController } from "../sdk/sdkCredentialsController";
 import {upload, handleMulterError} from "../middleware/mutler"
 const router = Router();
 
 // Create game with multipart fields only (no file handling for now)
 router.post(
   '/create-game',
-  createGame
+  createGameController as unknown as RequestHandler
 );
   
   // Update game with optional image upload

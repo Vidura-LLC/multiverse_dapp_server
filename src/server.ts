@@ -9,6 +9,7 @@ import webhooksRoutes from './webhooks/routes'
 import adminDashboardRoutes from "./adminDashboard/adminDashboardRoutes";
 import gameRoutes from "./game/routes";
 import userRoutes from "./user/route";
+import sdkRoutes from './sdk/sdkRoutes';
 import { checkAndUpdateTournamentStatuses } from "./gamehub/gamehubController";
 import schedule from 'node-schedule';
 
@@ -35,6 +36,7 @@ app.use("/api/gamehub/", gamehubRoutes);
 app.use('/api/revenue/', revenueRoutes);
 app.use('/api/webhooks/', webhooksRoutes)
 app.use('/api/game/', gameRoutes)
+app.use('/api/sdk/', sdkRoutes)
 
 // Server Port
 const PORT = process.env.PORT || 5000;

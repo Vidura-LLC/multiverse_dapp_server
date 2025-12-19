@@ -330,11 +330,26 @@ export const registerForTournamentService = async (
 
     const tournamentPoolPublicKey = getTournamentPoolPDA(adminPublicKey, tournamentId, tokenType);
     
+    // Check if tournament pool account exists before trying to fetch
+    const accountInfo = await connection.getAccountInfo(tournamentPoolPublicKey);
+    if (!accountInfo) {
+      return {
+        success: false,
+        message: `Tournament pool has not been initialized on-chain. The tournament administrator needs to initialize the tournament pool before participants can register.`,
+        error: "TOURNAMENT_POOL_NOT_INITIALIZED",
+        tournamentPoolPDA: tournamentPoolPublicKey.toString()
+      };
+    }
+    
+    // Account exists, fetch the data
     const tournamentPoolData = (await program.account.tournamentPool.fetch(
       tournamentPoolPublicKey
     )) as TournamentPoolAccount;
     
     const mintPublicKey = tournamentPoolData.mint;
+
+    // Log the keys for debugging
+    console.log(`🔍 Registration Debug - User: ${userPublicKey.toString()}, Mint: ${mintPublicKey.toString()}, TokenType: ${tokenType}`);
 
     let userTokenAccountPublicKey: PublicKey;
     let poolEscrowAccountPublicKey: PublicKey;
@@ -343,14 +358,38 @@ export const registerForTournamentService = async (
       userTokenAccountPublicKey = SystemProgram.programId;
       poolEscrowAccountPublicKey = SystemProgram.programId;
     } else {
+      // For SPL tokens, validate that mint is not SystemProgram (which would be invalid)
+      if (mintPublicKey.equals(SystemProgram.programId)) {
+        return {
+          success: false,
+          message: `Invalid mint for SPL tournament. The tournament pool has SystemProgram.programId as mint, which is only valid for SOL tournaments. Tournament pool may need to be reinitialized with a valid SPL token mint.`,
+          error: "INVALID_SPL_MINT"
+        };
+      }
+
       poolEscrowAccountPublicKey = getTournamentEscrowPDA(tournamentPoolPublicKey);
       
-      userTokenAccountPublicKey = await getAssociatedTokenAddressSync(
-        mintPublicKey, 
-        userPublicKey, 
-        false, 
-        TOKEN_2022_PROGRAM_ID
-      );
+      try {
+        userTokenAccountPublicKey = getAssociatedTokenAddressSync(
+          mintPublicKey, 
+          userPublicKey, 
+          false, 
+          TOKEN_2022_PROGRAM_ID
+        );
+        console.log(`✅ Derived ATA: ${userTokenAccountPublicKey.toString()}`);
+      } catch (ataError: any) {
+        console.error(`❌ ATA Derivation Error - User: ${userPublicKey.toString()}, Mint: ${mintPublicKey.toString()}, Error: ${ataError.message}`);
+        return {
+          success: false,
+          message: `Failed to derive Associated Token Account address: ${ataError.message}. This usually means one of the public keys (user or mint) is not a valid ed25519 point on the curve. User: ${userPublicKey.toString()}, Mint: ${mintPublicKey.toString()}`,
+          error: "ATA_DERIVATION_ERROR",
+          details: {
+            userPublicKey: userPublicKey.toString(),
+            mintPublicKey: mintPublicKey.toString(),
+            errorMessage: ataError.message
+          }
+        };
+      }
 
       const userTokenAccountInfo = await connection.getAccountInfo(userTokenAccountPublicKey);
       if (!userTokenAccountInfo) {

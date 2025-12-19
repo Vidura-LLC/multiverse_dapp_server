@@ -5,68 +5,69 @@ import { S3Service } from './s3Service';
 import { Game, TGameStatus } from '../types/game'; // Adjust import path
 import { TokenType } from '../utils/getPDAs';
 
-export async function createGame(req: Request, res: Response): Promise<void> {
-    try {
-        const { id, name, description, userId, status, adminPublicKey, image } = req.body;
+// export async function createGame(req: Request, res: Response): Promise<void> {
+//     try {
+//         const { id, name, description, userId, status, adminPublicKey, image } = req.body;
 
-        // Validate required fields
-        if (!id || !name || !description || !userId || !status || !adminPublicKey) {
-            res.status(400).json({
-                message: "Missing required fields: id, name, description, userId, status, adminPublicKey"
-            });
-            return;
-        }
+//         // Validate required fields
+//         if (!id || !name || !description || !userId || !status || !adminPublicKey) {
+//             res.status(400).json({
+//                 message: "Missing required fields: id, name, description, userId, status, adminPublicKey"
+//             });
+//             return;
+//         }
 
-        // Validate status field  
-        const validStatuses = ["draft", "published"];
-        if (!validStatuses.includes(status)) {
-            res.status(400).json({
-                message: "Invalid status. Must be one of: draft, published"
-            });
-            return;
-        }
+//         // Validate status field  
+//         const validStatuses = ["draft", "published"];
+//         if (!validStatuses.includes(status)) {
+//             res.status(400).json({
+//                 message: "Invalid status. Must be one of: draft, published"
+//             });
+//             return;
+//         }
 
-        // Create game object
-        const game: Game = {
-            id,
-            userId,
-            name,
-            description,
-            image: image || "",
-            status: status as TGameStatus,
-            createdAt: new Date(),
-            updatedAt: new Date(),
-            createdBy: adminPublicKey,
-        };
+//         // Create game object
+//         const game: Game = {
+//             id,
+//             gameId: id as string,
+//             userId,
+//             name,
+//             description,
+//             image: image || "",
+//             status: status as TGameStatus,
+//             createdAt: new Date(),
+//             updatedAt: new Date(),
+//             createdBy: adminPublicKey,
+//         };
 
-        // Save to Firebase
-        try {
-            const gameRef = ref(db, "games");
-            const newGameRef = push(gameRef);
-            const gameId = newGameRef.key;
+//         // Save to Firebase
+//         try {
+//             const gameRef = ref(db, "games");
+//             const newGameRef = push(gameRef);
+//             const gameId = newGameRef.key;
 
-            await set(newGameRef, game);
+//             await set(newGameRef, game);
 
-            res.status(201).json({
-                message: "Game created successfully",
-                gameId,
-                game: {
-                    ...game,
-                    firebaseId: gameId
-                }
-            });
-            return;
-        } catch (dbError) {
-            console.error('Error saving to Firebase:', dbError);
-            res.status(500).json({ message: "Failed to save game to database" });
-            return;
-        }
-    } catch (error) {
-        console.error('Unexpected error in createGame:', error);
-        res.status(500).json({ message: "Internal Server Error" });
-        return;
-    }
-}
+//             res.status(201).json({
+//                 message: "Game created successfully",
+//                 gameId,
+//                 game: {
+//                     ...game,
+//                     firebaseId: gameId
+//                 }
+//             });
+//             return;
+//         } catch (dbError) {
+//             console.error('Error saving to Firebase:', dbError);
+//             res.status(500).json({ message: "Failed to save game to database" });
+//             return;
+//         }
+//     } catch (error) {
+//         console.error('Unexpected error in createGame:', error);
+//         res.status(500).json({ message: "Internal Server Error" });
+//         return;
+//     }
+// }
 
 export async function getAllGames(req: Request, res: Response): Promise<void> {
     try {
