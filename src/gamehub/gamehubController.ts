@@ -635,10 +635,12 @@ export const confirmParticipationController = async (req: Request, res: Response
       });
     }
 
-    // Initialize the participant with a score of 0
+    // Initialize the participant with default fields
     participants[userPublicKey] = {
+      joinedAt: new Date().toISOString(),
       score: 0,
-      joinedAt: new Date().toISOString()
+      hasPlayed: false,
+      scoreSubmittedAt: null,
     };
 
     await update(tournamentRef, {
