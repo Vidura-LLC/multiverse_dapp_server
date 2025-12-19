@@ -17,6 +17,7 @@ import {
   updateParticipantScoreController,
   getTournamentsByGameController,
 } from '../gamehub/gamehubController';
+import { submitScoreController } from './sdkController';
 
 const router = Router();
 
@@ -106,10 +107,9 @@ router.get(
 );
 
 router.post(
-  '/tournaments/:id/score',
+  '/tournaments/:tournamentId/score',
   sdkAuth as unknown as RequestHandler,
-  verifyTournamentOwnership as unknown as RequestHandler,
-  updateParticipantScoreController as unknown as RequestHandler
+  submitScoreController as unknown as RequestHandler
 );
 
 export default router;
