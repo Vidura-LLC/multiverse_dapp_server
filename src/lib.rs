@@ -22,8 +22,6 @@ pub const SEED_TOURNAMENT_POOL: &[u8] = b"tournament_pool";
 pub const SEED_REGISTRATION: &[u8] = b"registration";
 pub const SEED_PRIZE_POOL: &[u8] = b"prize_pool";
 pub const SEED_PRIZE_ESCROW: &[u8] = b"prize_escrow";
-pub const SEED_REVENUE_POOL: &[u8] = b"revenue_pool";
-pub const SEED_REVENUE_ESCROW: &[u8] = b"revenue_escrow";
 pub const SEED_REWARD_POOL: &[u8] = b"reward_pool";
 pub const SEED_REWARD_ESCROW: &[u8] = b"reward_escrow";
 pub const SEED_SOL_VAULT: &[u8] = b"sol_vault";
@@ -312,105 +310,6 @@ pub mod multiversed_dapp {
 
         Ok(())
     }
-    /// Initialize global revenue pool (admin-only, one-time)
-    pub fn initialize_revenue_pool(
-        ctx: Context<InitializeRevenuePool>,
-        token_type: TokenType,
-    ) -> Result<()> {
-        let revenue_pool = &mut ctx.accounts.revenue_pool;
-        let admin = &ctx.accounts.admin;
-
-        require!(
-            revenue_pool.total_funds == 0,
-            RevenueError::AlreadyInitialized
-        );
-
-        revenue_pool.admin = admin.key();
-        revenue_pool.mint = ctx.accounts.mint.key();
-        revenue_pool.total_funds = 0;
-        revenue_pool.last_distribution = Clock::get()?.unix_timestamp;
-        revenue_pool.token_type = token_type;
-        revenue_pool.bump = ctx.bumps.revenue_pool;
-
-        match token_type {
-            TokenType::SOL => {
-                revenue_pool.mint = revenue_pool.key();
-                msg!("✅ SOL revenue pool initialized (no escrow needed)");
-                msg!("   Pool stores SOL directly in its account");
-            }
-            TokenType::SPL => {
-                revenue_pool.mint = ctx.accounts.mint.key();
-
-                require!(
-                    ctx.accounts.token_program.key() == anchor_spl::token_2022::ID,
-                    RevenueError::InvalidTokenProgram
-                );
-                let revenue_pool_key = revenue_pool.key();
-                let escrow_seeds = &[SEED_REVENUE_ESCROW, revenue_pool_key.as_ref()];
-                let (escrow_pda, escrow_bump) =
-                    Pubkey::find_program_address(escrow_seeds, ctx.program_id);
-
-                require!(
-                    ctx.accounts.revenue_escrow_account.key() == escrow_pda,
-                    RevenueError::InvalidEscrowAccount
-                );
-                let rent = Rent::get()?;
-                let space = 165;
-                let lamports = rent.minimum_balance(space);
-
-                // Create the escrow account
-                invoke_signed(
-                    &system_instruction::create_account(
-                        ctx.accounts.admin.key,
-                        &escrow_pda,
-                        lamports,
-                        space as u64,
-                        &anchor_spl::token_2022::ID,
-                    ),
-                    &[
-                        ctx.accounts.admin.to_account_info(),
-                        ctx.accounts.revenue_escrow_account.to_account_info(),
-                        ctx.accounts.system_program.to_account_info(),
-                    ],
-                    &[&[
-                        SEED_REVENUE_ESCROW,
-                        revenue_pool_key.as_ref(),
-                        &[escrow_bump],
-                    ]],
-                )?;
-
-                // Initialize as token account
-                let init_account_ix = spl_token_2022::instruction::initialize_account3(
-                    &anchor_spl::token_2022::ID,
-                    &escrow_pda,
-                    &ctx.accounts.mint.key(),
-                    &revenue_pool.key(),
-                )?;
-
-                invoke(
-                    &init_account_ix,
-                    &[
-                        ctx.accounts.revenue_escrow_account.to_account_info(),
-                        ctx.accounts.mint.to_account_info(),
-                    ],
-                )?;
-
-                msg!("✅ SPL revenue pool and escrow initialized");
-                msg!("   Mint: {}", ctx.accounts.mint.key());
-                msg!("   Escrow: {}", escrow_pda);
-                msg!("   Token type: {:?}", token_type);
-                msg!("   Revenue pool: {}", revenue_pool.key());
-                msg!("   Revenue escrow: {}", escrow_pda);
-            }
-        }
-        msg!(
-            "✅ Revenue pool initialized by admin: {}, token_type: {:?}",
-            revenue_pool.admin,
-            token_type
-        );
-        Ok(())
-    }
-
     /// Initialize global reward pool (admin-only, one-time)
     pub fn initialize_reward_pool(
         ctx: Context<InitializeRewardPool>,
@@ -2007,34 +1906,6 @@ pub struct RegisterForTournament<'info> {
 }
 
 // ==============================
-// REVENUE POOL INITIALIZATION
-// ==============================
-
-#[derive(Accounts)]
-#[instruction(token_type: TokenType)]
-pub struct InitializeRevenuePool<'info> {
-    #[account(
-        init_if_needed,
-        payer = admin,
-        space = RevenuePool::LEN,
-        seeds = [SEED_REVENUE_POOL, admin.key().as_ref(), &[token_type as u8]],
-        bump
-    )]
-    pub revenue_pool: Account<'info, RevenuePool>,
-
-    #[account(mut)]
-    pub revenue_escrow_account: UncheckedAccount<'info>,
-
-    pub mint: UncheckedAccount<'info>,
-
-    #[account(mut)]
-    pub admin: Signer<'info>,
-
-    pub system_program: Program<'info, System>,
-    pub token_program: UncheckedAccount<'info>,
-}
-
-// ==============================
 // REWARD POOL INITIALIZATION
 // ==============================
 
@@ -2338,23 +2209,6 @@ impl PrizePool {
 }
 
 // ==============================
-// Revenue Pool
-// ==============================
-#[account]
-pub struct RevenuePool {
-    pub admin: Pubkey,
-    pub mint: Pubkey,
-    pub total_funds: u64,
-    pub last_distribution: i64,
-    pub token_type: TokenType,
-    pub bump: u8,
-}
-
-impl RevenuePool {
-    pub const LEN: usize = 8 + 32 + 32 + 8 + 8 + 1 + 1;
-}
-
-// ==============================
 // Reward Pool
 // ==============================
 #[account]
@@ -2474,24 +2328,6 @@ pub enum StakingError {
     #[msg("Insufficient balance for this operation")]
     InsufficientBalance,
 }
-#[error_code]
-pub enum RevenueError {
-    #[msg("Revenue Pool already initialized")]
-    AlreadyInitialized,
-
-    #[msg("Unauthorized access")]
-    Unauthorized,
-
-    #[msg("Math overflow occurred")]
-    MathOverflow,
-
-    #[msg("Invalid token program provided")]
-    InvalidTokenProgram,
-
-    #[msg("Invalid escrow account provided")]
-    InvalidEscrowAccount,
-}
-
 #[error_code]
 pub enum RewardError {
     #[msg("Reward Pool already initialized")]
