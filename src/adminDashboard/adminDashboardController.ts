@@ -1,7 +1,7 @@
 //src/adminDashboard/adminDashboardController.ts
 
 import { PublicKey, SystemProgram } from '@solana/web3.js';
-import { checkPoolStatus, initializeRevenuePoolService, initializeStakingPoolService, initializeRewardPoolService, initializePrizePoolService, initializePlatformConfigService, updatePlatformConfigService, updatePlatformWalletService, transferSuperAdminService, getPlatformConfigService } from "./services";
+import { checkPoolStatus, initializeStakingPoolService, initializeRewardPoolService, initializePrizePoolService, initializePlatformConfigService, updatePlatformConfigService, updatePlatformWalletService, transferSuperAdminService, getPlatformConfigService } from "./services";
 import { getTournamentPoolPDA, getPrizePoolPDA, TokenType } from "../utils/getPDAs";
 import { getProgram } from "../staking/services";
 import { Request, Response } from 'express';
@@ -91,44 +91,6 @@ export const initializeStakingPoolController = async (req: Request, res: Respons
   };
 
 
-
-/**
- * Controller function for initializing the global revenue pool
- */
-export const initializeRevenuePoolController = async (req: Request, res: Response) => {
-    try {
-        const { mintPublicKey, adminPublicKey, tokenType } = req.body;
-
-        // Validate the mint address
-        if (!mintPublicKey || !adminPublicKey || tokenType === undefined || tokenType === null) {
-            return res.status(400).json({
-                success: false,
-                message: 'Mint, Admin public key and token type are required'
-            });
-        }
-
-        // Call the service function to initialize revenue pool
-        const tt = Number(tokenType);
-        if (tt !== TokenType.SPL && tt !== TokenType.SOL) {
-            return res.status(400).json({ success: false, message: 'tokenType must be 0 (SPL) or 1 (SOL)' });
-        }
-        const result = await initializeRevenuePoolService(new PublicKey(mintPublicKey), new PublicKey(adminPublicKey), tt as TokenType);
-
-        // Return the result
-        if (result.success) {
-            return res.status(200).json({data: result});
-        } else {
-            return res.status(500).json({ error: result.message });
-        }
-    } catch (err) {
-        console.error('Error in initialize revenue pool controller:', err);
-        return res.status(500).json({
-            success: false,
-            message: 'Failed to initialize revenue pool',
-            error: err.message || err
-        });
-    }
-};
 
 /**
  * Controller function for initializing a prize pool for a specific tournament
