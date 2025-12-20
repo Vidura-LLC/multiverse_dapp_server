@@ -13,7 +13,7 @@ import {
   import { getProgram } from "../staking/services";
   dotenv.config();
 import * as anchor from "@project-serum/anchor";
-import { getStakingPoolPDA, getStakingEscrowPDA, getRevenuePoolPDA, getRevenueEscrowPDA, getRewardPoolPDA, getRewardEscrowPDA, getTournamentPoolPDA, getPrizePoolPDA, getPrizeEscrowPDA, TokenType } from "../utils/getPDAs";
+import { getStakingPoolPDA, getStakingEscrowPDA, getRevenuePoolPDA, getRevenueEscrowPDA, getRewardPoolPDA, getRewardEscrowPDA, getTournamentPoolPDA, getPrizePoolPDA, getPrizeEscrowPDA, getPlatformConfigPDA, TokenType } from "../utils/getPDAs";
 
 
 export interface StakingPoolAccount {
@@ -42,6 +42,15 @@ export interface RevenuePoolAccount {
     totalFunds: anchor.BN;
     lastDistribution: anchor.BN;
     tokenType: {spl?: {} | {sol?: {}}}
+    bump: number;
+}
+
+export interface PlatformConfigAccount {
+    superAdmin: PublicKey;
+    platformWallet: PublicKey;
+    developerShareBps: anchor.BN;
+    platformShareBps: anchor.BN;
+    isInitialized: boolean;
     bump: number;
 }
       
@@ -405,6 +414,271 @@ export const initializeRewardPoolService = async (
           success: false,
           message: `Error checking pool status: ${err.message || err}`
       };
+  }
+};
+
+// ==============================
+// PLATFORM CONFIGURATION SERVICES
+// ==============================
+
+/**
+ * Initialize platform configuration (super admin only, one-time)
+ * Sets the revenue share split between developers and platform
+ */
+export const initializePlatformConfigService = async (
+  superAdminPublicKey: PublicKey,
+  platformWalletPublicKey: PublicKey,
+  developerShareBps: number = 9000,
+  platformShareBps: number = 1000
+) => {
+  try {
+    const { program, connection } = getProgram();
+    const platformConfigPDA = getPlatformConfigPDA();
+
+    // Validate shares sum to 10000 (100%)
+    if (developerShareBps + platformShareBps !== 10000) {
+      return {
+        success: false,
+        message: `Share percentages must sum to 10000 (100%). Current total: ${developerShareBps + platformShareBps}`
+      };
+    }
+
+    // Validate share ranges
+    if (developerShareBps < 0 || developerShareBps > 10000 || 
+        platformShareBps < 0 || platformShareBps > 10000) {
+      return {
+        success: false,
+        message: "Share percentages must be between 0 and 10000"
+      };
+    }
+
+    console.log("Initializing Platform Config:");
+    console.log("🔹 Platform Config PDA:", platformConfigPDA.toString());
+    console.log("🔹 Super Admin:", superAdminPublicKey.toString());
+    console.log("🔹 Platform Wallet:", platformWalletPublicKey.toString());
+    console.log(`🔹 Developer Share: ${developerShareBps / 100}%`);
+    console.log(`🔹 Platform Share: ${platformShareBps / 100}%`);
+
+    const instruction = await program.methods
+      .initializePlatformConfig(developerShareBps, platformShareBps)
+      .accounts({
+        platformConfig: platformConfigPDA,
+        platformWallet: platformWalletPublicKey,
+        superAdmin: superAdminPublicKey,
+        systemProgram: SystemProgram.programId,
+      })
+      .instruction();
+
+    const transaction = new Transaction().add(instruction);
+    const { blockhash } = await connection.getLatestBlockhash("finalized");
+    transaction.recentBlockhash = blockhash;
+    transaction.feePayer = superAdminPublicKey;
+
+    return {
+      success: true,
+      message: "Platform config initialization transaction prepared",
+      platformConfigPDA: platformConfigPDA.toString(),
+      transaction: transaction.serialize({ requireAllSignatures: false }).toString('base64')
+    };
+  } catch (error: any) {
+    console.error("❌ Error initializing platform config:", error);
+    return { 
+      success: false, 
+      message: `Error initializing platform config: ${error.message || error}` 
+    };
+  }
+};
+
+/**
+ * Update platform configuration (super admin only)
+ * Allows adjusting the revenue share percentages
+ */
+export const updatePlatformConfigService = async (
+  superAdminPublicKey: PublicKey,
+  developerShareBps: number,
+  platformShareBps: number
+) => {
+  try {
+    const { program, connection } = getProgram();
+    const platformConfigPDA = getPlatformConfigPDA();
+
+    // Validate shares sum to 10000 (100%)
+    if (developerShareBps + platformShareBps !== 10000) {
+      return {
+        success: false,
+        message: `Share percentages must sum to 10000 (100%). Current total: ${developerShareBps + platformShareBps}`
+      };
+    }
+
+    // Validate share ranges
+    if (developerShareBps < 0 || developerShareBps > 10000 || 
+        platformShareBps < 0 || platformShareBps > 10000) {
+      return {
+        success: false,
+        message: "Share percentages must be between 0 and 10000"
+      };
+    }
+
+    console.log("Updating Platform Config:");
+    console.log("🔹 Platform Config PDA:", platformConfigPDA.toString());
+    console.log("🔹 Super Admin:", superAdminPublicKey.toString());
+    console.log(`🔹 Developer Share: ${developerShareBps / 100}%`);
+    console.log(`🔹 Platform Share: ${platformShareBps / 100}%`);
+
+    const instruction = await program.methods
+      .updatePlatformConfig(developerShareBps, platformShareBps)
+      .accounts({
+        platformConfig: platformConfigPDA,
+        superAdmin: superAdminPublicKey,
+      })
+      .instruction();
+
+    const transaction = new Transaction().add(instruction);
+    const { blockhash } = await connection.getLatestBlockhash("finalized");
+    transaction.recentBlockhash = blockhash;
+    transaction.feePayer = superAdminPublicKey;
+
+    return {
+      success: true,
+      message: "Platform config update transaction prepared",
+      transaction: transaction.serialize({ requireAllSignatures: false }).toString('base64')
+    };
+  } catch (error: any) {
+    console.error("❌ Error updating platform config:", error);
+    return { 
+      success: false, 
+      message: `Error updating platform config: ${error.message || error}` 
+    };
+  }
+};
+
+/**
+ * Update platform wallet (super admin only)
+ */
+export const updatePlatformWalletService = async (
+  superAdminPublicKey: PublicKey,
+  newPlatformWalletPublicKey: PublicKey
+) => {
+  try {
+    const { program, connection } = getProgram();
+    const platformConfigPDA = getPlatformConfigPDA();
+
+    console.log("Updating Platform Wallet:");
+    console.log("🔹 Platform Config PDA:", platformConfigPDA.toString());
+    console.log("🔹 Super Admin:", superAdminPublicKey.toString());
+    console.log("🔹 New Platform Wallet:", newPlatformWalletPublicKey.toString());
+
+    const instruction = await program.methods
+      .updatePlatformWallet()
+      .accounts({
+        platformConfig: platformConfigPDA,
+        newPlatformWallet: newPlatformWalletPublicKey,
+        superAdmin: superAdminPublicKey,
+      })
+      .instruction();
+
+    const transaction = new Transaction().add(instruction);
+    const { blockhash } = await connection.getLatestBlockhash("finalized");
+    transaction.recentBlockhash = blockhash;
+    transaction.feePayer = superAdminPublicKey;
+
+    return {
+      success: true,
+      message: "Platform wallet update transaction prepared",
+      transaction: transaction.serialize({ requireAllSignatures: false }).toString('base64')
+    };
+  } catch (error: any) {
+    console.error("❌ Error updating platform wallet:", error);
+    return { 
+      success: false, 
+      message: `Error updating platform wallet: ${error.message || error}` 
+    };
+  }
+};
+
+/**
+ * Transfer super admin role (super admin only)
+ */
+export const transferSuperAdminService = async (
+  superAdminPublicKey: PublicKey,
+  newSuperAdminPublicKey: PublicKey
+) => {
+  try {
+    const { program, connection } = getProgram();
+    const platformConfigPDA = getPlatformConfigPDA();
+
+    console.log("Transferring Super Admin:");
+    console.log("🔹 Platform Config PDA:", platformConfigPDA.toString());
+    console.log("🔹 Current Super Admin:", superAdminPublicKey.toString());
+    console.log("🔹 New Super Admin:", newSuperAdminPublicKey.toString());
+
+    const instruction = await program.methods
+      .transferSuperAdmin()
+      .accounts({
+        platformConfig: platformConfigPDA,
+        newSuperAdmin: newSuperAdminPublicKey,
+        superAdmin: superAdminPublicKey,
+      })
+      .instruction();
+
+    const transaction = new Transaction().add(instruction);
+    const { blockhash } = await connection.getLatestBlockhash("finalized");
+    transaction.recentBlockhash = blockhash;
+    transaction.feePayer = superAdminPublicKey;
+
+    return {
+      success: true,
+      message: "Super admin transfer transaction prepared",
+      transaction: transaction.serialize({ requireAllSignatures: false }).toString('base64')
+    };
+  } catch (error: any) {
+    console.error("❌ Error transferring super admin:", error);
+    return { 
+      success: false, 
+      message: `Error transferring super admin: ${error.message || error}` 
+    };
+  }
+};
+
+/**
+ * Get platform configuration
+ */
+export const getPlatformConfigService = async () => {
+  try {
+    const { program } = getProgram();
+    const platformConfigPDA = getPlatformConfigPDA();
+    
+    const config = (await program.account.platformConfig.fetch(platformConfigPDA)) as PlatformConfigAccount;
+
+    return {
+      success: true,
+      data: {
+        superAdmin: config.superAdmin.toString(),
+        platformWallet: config.platformWallet.toString(),
+        developerShareBps: Number(config.developerShareBps),
+        platformShareBps: Number(config.platformShareBps),
+        developerSharePercent: Number(config.developerShareBps) / 100,
+        platformSharePercent: Number(config.platformShareBps) / 100,
+        isInitialized: config.isInitialized,
+        bump: config.bump,
+      } as {
+        superAdmin: string;
+        platformWallet: string;
+        developerShareBps: number;
+        platformShareBps: number;
+        developerSharePercent: number;
+        platformSharePercent: number;
+        isInitialized: boolean;
+        bump: number;
+      }
+    };
+  } catch (error: any) {
+    console.error("❌ Error fetching platform config:", error);
+    return { 
+      success: false, 
+      message: `Error fetching platform config: ${error.message || error}`,
+      data: null as null
+    };
   }
 };
 
