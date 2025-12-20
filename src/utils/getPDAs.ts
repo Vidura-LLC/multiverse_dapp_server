@@ -16,6 +16,7 @@ export const SEEDS = {
   REGISTRATION: "registration",
   TOURNAMENT_ESCROW: "escrow", // Tournament pool also uses "escrow" for its escrow
   SOL_VAULT: "sol_vault",
+  PLATFORM_CONFIG: "platform_config",
 }
 
 export enum TokenType {
@@ -214,6 +215,18 @@ tournamentPoolPublicKey: PublicKey, userPublicKey: PublicKey) => {
   const { program } = getProgram();
   return PublicKey.findProgramAddressSync(
     [Buffer.from(SEEDS.REGISTRATION), tournamentPoolPublicKey.toBuffer(), userPublicKey.toBuffer()],
+    program.programId
+  )[0];
+};
+
+/**
+ * Get Platform Config PDA
+ * @returns Platform Config PDA
+ */
+export const getPlatformConfigPDA = () => {
+  const { program } = getProgram();
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from(SEEDS.PLATFORM_CONFIG)],
     program.programId
   )[0];
 };
