@@ -13,7 +13,7 @@ import {
   import { getProgram } from "../staking/services";
   dotenv.config();
 import * as anchor from "@project-serum/anchor";
-import { getStakingPoolPDA, getStakingEscrowPDA, getRevenuePoolPDA, getRevenueEscrowPDA, getRewardPoolPDA, getRewardEscrowPDA, getTournamentPoolPDA, getPrizePoolPDA, getPrizeEscrowPDA, getPlatformConfigPDA, TokenType } from "../utils/getPDAs";
+import { getStakingPoolPDA, getStakingEscrowPDA, getRewardPoolPDA, getRewardEscrowPDA, getTournamentPoolPDA, getPrizePoolPDA, getPrizeEscrowPDA, getPlatformConfigPDA, TokenType } from "../utils/getPDAs";
 
 
 export interface StakingPoolAccount {
@@ -34,15 +34,6 @@ export interface RewardPoolAccount {
   lastDistribution: anchor.BN;
   tokenType: {spl?: {} | {sol?: {}}}
   bump: number;
-}
-
-export interface RevenuePoolAccount {
-    admin: PublicKey;
-    mint: PublicKey;
-    totalFunds: anchor.BN;
-    lastDistribution: anchor.BN;
-    tokenType: {spl?: {} | {sol?: {}}}
-    bump: number;
 }
 
 export interface PlatformConfigAccount {
@@ -118,76 +109,6 @@ export interface PlatformConfigAccount {
     }
   };
   
-  /**
-   * Initialize the global revenue pool
-   * @param mintPublicKey - The token mint address
-   * @param tokenType - The token type
-   * @param adminPublicKey - The admin public key
-   * @returns Result object with transaction details and addresses
-   */
-  export const initializeRevenuePoolService = async (mintPublicKey: PublicKey, adminPublicKey: PublicKey, tokenType: TokenType = TokenType.SPL) => {
-      try {
-          const { program, connection } = getProgram();
-  
-          // Log initial parameters for clarity
-          console.log("Initializing Revenue Pool:");
-          console.log("Admin PublicKey:", adminPublicKey.toBase58());
-          console.log("Token Type:", tokenType === TokenType.SPL ? "SPL" : "SOL");
-          console.log("Mint PublicKey:", mintPublicKey.toBase58());
-  
-          // Derive the PDA for the revenue pool
-          const revenuePoolPublicKey = getRevenuePoolPDA(adminPublicKey, tokenType);
-  
-          // Derive the PDA for the revenue escrow account
-          const revenueEscrowPublicKey = getRevenueEscrowPDA(revenuePoolPublicKey);
-  
-          console.log("🔹 Revenue Pool PDA Address:", revenuePoolPublicKey.toString());
-          console.log("🔹 Revenue Escrow PDA Address:", revenueEscrowPublicKey.toString());
-  
-          // Get the latest blockhash
-          const { blockhash } = await connection.getLatestBlockhash("finalized");
-          console.log("Latest Blockhash:", blockhash);
-          
-          const actualMint = tokenType === TokenType.SOL 
-            ? SystemProgram.programId  // Dummy mint for SOL
-            : mintPublicKey;
-  
-          const tokenTypeArg = tokenType === TokenType.SPL ? {spl: {}} : {sol: {}};
-          // Create the transaction
-          const transaction = await program.methods
-              .initializeRevenuePool(tokenTypeArg)
-              .accounts({
-                  revenuePool: revenuePoolPublicKey,
-                  revenueEscrowAccount: revenueEscrowPublicKey,
-                  mint: actualMint,
-                  admin: adminPublicKey,
-                  systemProgram: anchor.web3.SystemProgram.programId,
-                  tokenProgram: TOKEN_2022_PROGRAM_ID,
-              })
-              .transaction();
-  
-          // Set recent blockhash and fee payer
-          transaction.recentBlockhash = blockhash;
-          transaction.feePayer = adminPublicKey;
-  
-          // Serialize transaction and send it to the frontend
-          return {
-              success: true,
-              message: "Transaction created successfully!",
-              revenuePoolPublicKey: revenuePoolPublicKey.toBase58(),
-              revenueEscrowAccountPublicKey: revenueEscrowPublicKey.toBase58(),
-              tokenType: tokenType === TokenType.SPL ? "SPL" : "SOL",
-              transaction: transaction.serialize({ requireAllSignatures: false }).toString('base64'),
-          };
-      } catch (err) {
-          console.error("❌ Error initializing revenue pool:", err);
-          return {
-              success: false,
-              message: `Error initializing revenue pool: ${err.message || err}`
-          };
-      }
-  };
-
     /**
    * Initialize a prize pool for a specific tournament
    * @param tournamentId - The tournament ID
@@ -341,7 +262,7 @@ export const initializeRewardPoolService = async (
 };
 
   
- // ✅ Function to check pool status for staking, revenue, and prize pools
+ // ✅ Function to check pool status for staking and reward pools
  export const checkPoolStatus = async (adminPublicKey: PublicKey, tokenType: TokenType) => {
   try {
       const { program } = getProgram();
@@ -349,10 +270,6 @@ export const initializeRewardPoolService = async (
       const result = {
           success: true,
           stakingPool: {
-              status: false, // false = needs initialization, true = exists
-              tokenType: null as string | null,
-          },
-          revenuePool: {
               status: false, // false = needs initialization, true = exists
               tokenType: null as string | null,
           },
@@ -376,22 +293,7 @@ export const initializeRewardPoolService = async (
             null,
       };
 
-      // ✅ 2. Check Revenue Pool
-      const revenuePoolPublicKey = getRevenuePoolPDA(adminPublicKey, tokenType);
-
-      console.log("🔹 Checking Revenue Pool PDA:", revenuePoolPublicKey.toString());
-
-      const revenuePoolAccount = await program.account.revenuePool.fetchNullable(revenuePoolPublicKey) as RevenuePoolAccount | null;
-
-      result.revenuePool = {
-          status: revenuePoolAccount !== null,
-          tokenType: revenuePoolAccount ? 
-            (revenuePoolAccount.tokenType.hasOwnProperty('spl') ? 'SPL' : 'SOL') : 
-            null,
-      }
-
-
-      // ✅ 3. Check Reward Pool
+      // ✅ 2. Check Reward Pool
       const rewardPoolPublicKey = getRewardPoolPDA(adminPublicKey, tokenType);
 
 
