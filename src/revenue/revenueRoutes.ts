@@ -8,7 +8,12 @@ import {
   confirmDistributionController,
   confirmPrizeDistributionController,
   getAdminPrizesDistributedController,
-  getAdminDistributionTotalsController
+  getAdminDistributionTotalsController,
+  getDeveloperRevenueController,
+  getDeveloperRevenueHistoryController,
+  getPlatformRevenueController,
+  getPlatformRevenueHistoryController,
+  getPlatformRevenueByDeveloperController
 } from './revenueController';
 
 const router = Router();
@@ -49,6 +54,37 @@ router.get('/admin/distribution-totals/:adminPubKey',
   getAdminDistributionTotalsController as unknown as RequestHandler
 );
 
+// ==============================
+// DEVELOPER REVENUE ENDPOINTS
+// ==============================
 
+// Get developer revenue statistics
+router.get('/developer/:developerPublicKey',
+  getDeveloperRevenueController as unknown as RequestHandler
+);
+
+// Get developer revenue history (paginated)
+router.get('/developer/:developerPublicKey/history',
+  getDeveloperRevenueHistoryController as unknown as RequestHandler
+);
+
+// ==============================
+// PLATFORM REVENUE ENDPOINTS (Admin Only)
+// ==============================
+
+// Get platform revenue statistics
+router.get('/platform',
+  getPlatformRevenueController as unknown as RequestHandler
+);
+
+// Get platform revenue history (paginated)
+router.get('/platform/history',
+  getPlatformRevenueHistoryController as unknown as RequestHandler
+);
+
+// Get platform revenue grouped by developer
+router.get('/platform/by-developer',
+  getPlatformRevenueByDeveloperController as unknown as RequestHandler
+);
 
 export default router;
