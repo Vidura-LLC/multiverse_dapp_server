@@ -15,7 +15,8 @@ import {
   import { db } from "../config/firebase";
 import { getTournamentPool } from "../gamehub/services";
 import { getProgram } from "../staking/services";
-import { getPrizeEscrowPDA, getPrizePoolPDA, getRevenueEscrowPDA, getRevenuePoolPDA, getRewardEscrowPDA, getRewardPoolPDA, getStakingPoolPDA, getTournamentEscrowPDA, getTournamentPoolPDA, TokenType } from "../utils/getPDAs";
+import { getPlatformConfigPDA, getPrizeEscrowPDA, getPrizePoolPDA, getRewardEscrowPDA, getRewardPoolPDA, getStakingPoolPDA, getTournamentEscrowPDA, getTournamentPoolPDA, TokenType } from "../utils/getPDAs";
+import { PlatformConfigAccount } from "../adminDashboard/services";
 dotenv.config();
 
 // Default percentage splits based on updated requirements
@@ -70,7 +71,24 @@ export const distributeTournamentRevenueService = async (
       };
     }
 
-    // 2. Derive all necessary PDAs
+    // 2. Get platform config for wallet addresses
+    console.log("Fetching platform config...");
+    const platformConfigPDA = getPlatformConfigPDA();
+    let platformConfig;
+    try {
+      platformConfig = await program.account.platformConfig.fetch(platformConfigPDA) as PlatformConfigAccount;
+      console.log("🔹 Platform Config PDA:", platformConfigPDA.toString());
+      console.log("🔹 Developer Share BPS:", platformConfig.developerShareBps.toString());
+      console.log("🔹 Platform Share BPS:", platformConfig.platformShareBps.toString());
+      console.log("🔹 Platform Wallet:", platformConfig.platformWallet.toString());
+    } catch (error) {
+      return {
+        success: false,
+        message: `Platform config not initialized. Please initialize platform config first. Error: ${error.message || error}`
+      };
+    }
+
+    // 3. Derive all necessary PDAs
     console.log("Deriving program addresses...");
     const tournamentPoolPublicKey = getTournamentPoolPDA(adminPublicKey, tournamentId, tokenType);
     console.log("🔹 Tournament Pool PDA:", tournamentPoolPublicKey.toString());
@@ -78,16 +96,13 @@ export const distributeTournamentRevenueService = async (
     const prizePoolPublicKey = getPrizePoolPDA(tournamentPoolPublicKey);
     console.log("🔹 Prize Pool PDA:", prizePoolPublicKey.toString());
 
-    const revenuePoolPublicKey = getRevenuePoolPDA(adminPublicKey, tokenType);
-    console.log("🔹 Revenue Pool PDA:", revenuePoolPublicKey.toString());
-
     const stakingPoolPublicKey = getStakingPoolPDA(adminPublicKey, tokenType);
     console.log("🔹 Staking Pool PDA:", stakingPoolPublicKey.toString());
 
     const rewardPoolPublicKey = getRewardPoolPDA(adminPublicKey, tokenType);
     console.log("🔹 Reward Pool PDA:", rewardPoolPublicKey.toString());
 
-    // 3. Fetch tournament data from blockchain
+    // 4. Fetch tournament data from blockchain
     console.log("Fetching tournament data from blockchain...");
     const tournamentPoolResult = await getTournamentPool(tournamentId, adminPublicKey, tokenType);
     
@@ -110,19 +125,28 @@ export const distributeTournamentRevenueService = async (
       };
     }
 
-    // 4. Determine accounts based on token type
+    // 5. Set up developer and platform wallets
+    // Developer wallet = tournament creator (adminPublicKey)
+    const developerWallet = adminPublicKey;
+    const platformWallet = platformConfig.platformWallet as PublicKey;
+    console.log("🔹 Developer Wallet:", developerWallet.toString());
+    console.log("🔹 Platform Wallet:", platformWallet.toString());
+
+    // 6. Determine accounts based on token type
     let mintPublicKey: PublicKey;
     let tournamentEscrowPublicKey: PublicKey;
     let prizeEscrowPublicKey: PublicKey;
-    let revenueEscrowPublicKey: PublicKey;
     let rewardEscrowPublicKey: PublicKey;
     let tokenProgramId: PublicKey;
+
+    // Token accounts for developer and platform (for SPL only)
+    let developerTokenAccount: PublicKey = SystemProgram.programId;
+    let platformTokenAccount: PublicKey = SystemProgram.programId;
 
     if (tokenType === TokenType.SOL) {
       mintPublicKey = SystemProgram.programId;
       tournamentEscrowPublicKey = SystemProgram.programId;
       prizeEscrowPublicKey = SystemProgram.programId;
-      revenueEscrowPublicKey = SystemProgram.programId;
       rewardEscrowPublicKey = SystemProgram.programId;
       tokenProgramId = SystemProgram.programId;
       
@@ -132,19 +156,33 @@ export const distributeTournamentRevenueService = async (
       mintPublicKey = new PublicKey(tournamentPoolData.mint);
       tournamentEscrowPublicKey = getTournamentEscrowPDA(tournamentPoolPublicKey);
       prizeEscrowPublicKey = getPrizeEscrowPDA(prizePoolPublicKey);
-      revenueEscrowPublicKey = getRevenueEscrowPDA(revenuePoolPublicKey);
       rewardEscrowPublicKey = getRewardEscrowPDA(rewardPoolPublicKey);
       tokenProgramId = TOKEN_2022_PROGRAM_ID;
+      
+      // Get associated token accounts for developer and platform
+      developerTokenAccount = getAssociatedTokenAddressSync(
+        mintPublicKey,
+        developerWallet,
+        false,
+        TOKEN_2022_PROGRAM_ID
+      );
+      platformTokenAccount = getAssociatedTokenAddressSync(
+        mintPublicKey,
+        platformWallet,
+        false,
+        TOKEN_2022_PROGRAM_ID
+      );
       
       console.log("🔹 Token Type: SPL");
       console.log("🔹 Token Mint:", mintPublicKey.toString());
       console.log("🔹 Tournament Escrow:", tournamentEscrowPublicKey.toString());
       console.log("🔹 Prize Escrow:", prizeEscrowPublicKey.toString());
-      console.log("🔹 Revenue Escrow:", revenueEscrowPublicKey.toString());
       console.log("🔹 Reward Escrow:", rewardEscrowPublicKey.toString());
+      console.log("🔹 Developer Token Account:", developerTokenAccount.toString());
+      console.log("🔹 Platform Token Account:", platformTokenAccount.toString());
     }
 
-    // 5. Validate percentages
+    // 7. Validate percentages
     const totalPercentage = prizePercentage + revenuePercentage + stakingPercentage + burnPercentage;
     if (totalPercentage !== 100) {
       return {
@@ -159,7 +197,7 @@ export const distributeTournamentRevenueService = async (
     console.log(`   Staking Rewards: ${stakingPercentage}%`);
     console.log(`   Burn: ${burnPercentage}%`);
 
-    // 6. Create transaction with compute budget
+    // 8. Create transaction with compute budget
     console.log("Creating distribution transaction...");
     
     const computeBudgetInstruction = ComputeBudgetProgram.setComputeUnitLimit({
@@ -177,13 +215,16 @@ export const distributeTournamentRevenueService = async (
       .accounts({
         creator: adminPublicKey,
         tournamentPool: tournamentPoolPublicKey,
+        platformConfig: platformConfigPDA,
         prizePool: prizePoolPublicKey,
-        revenuePool: revenuePoolPublicKey,
         rewardPool: rewardPoolPublicKey,
         stakingPool: stakingPoolPublicKey,
+        developerWallet: developerWallet,
+        platformWallet: platformWallet,
+        developerTokenAccount: developerTokenAccount,
+        platformTokenAccount: platformTokenAccount,
         tournamentEscrowAccount: tournamentEscrowPublicKey,
         prizeEscrowAccount: prizeEscrowPublicKey,
-        revenueEscrowAccount: revenueEscrowPublicKey,
         rewardEscrowAccount: rewardEscrowPublicKey,
         mint: mintPublicKey,
         tokenProgram: tokenProgramId,
@@ -196,7 +237,6 @@ export const distributeTournamentRevenueService = async (
 
     const nonSignerAccounts = [
       { pubkey: prizePoolPublicKey, name: 'prize_pool' },
-      { pubkey: revenuePoolPublicKey, name: 'revenue_pool' },
       { pubkey: rewardPoolPublicKey, name: 'reward_pool' }
     ];
 
@@ -224,9 +264,17 @@ export const distributeTournamentRevenueService = async (
         ...writableAccounts,
         { pubkey: tournamentEscrowPublicKey, name: 'tournament_escrow' },
         { pubkey: prizeEscrowPublicKey, name: 'prize_escrow' },
-        { pubkey: revenueEscrowPublicKey, name: 'revenue_escrow' },
         { pubkey: rewardEscrowPublicKey, name: 'reward_escrow' },
+        { pubkey: developerTokenAccount, name: 'developer_token_account' },
+        { pubkey: platformTokenAccount, name: 'platform_token_account' },
         { pubkey: mintPublicKey, name: 'mint' }
+      ];
+    } else {
+      // For SOL, mark developer and platform wallets as writable
+      writableAccounts = [
+        ...writableAccounts,
+        { pubkey: developerWallet, name: 'developer_wallet' },
+        { pubkey: platformWallet, name: 'platform_wallet' }
       ];
     }
 
@@ -258,9 +306,17 @@ export const distributeTournamentRevenueService = async (
     const stakingAmount = Math.floor((totalFunds * stakingPercentage) / 100);
     const burnAmount = Math.floor((totalFunds * burnPercentage) / 100);
 
+    // Calculate developer and platform shares from revenue
+    const developerShareBps = Number(platformConfig.developerShareBps);
+    const platformShareBps = Number(platformConfig.platformShareBps);
+    const developerShare = Math.floor((revenueAmount * developerShareBps) / 10000);
+    const platformShare = revenueAmount - developerShare;
+
     console.log("💰 Distribution Breakdown:");
     console.log(`   Prize Pool: ${prizeAmount}`);
-    console.log(`   Revenue Pool: ${revenueAmount}`);
+    console.log(`   Revenue Split:`);
+    console.log(`     Developer (${developerShareBps / 100}%): ${developerShare}`);
+    console.log(`     Platform (${platformShareBps / 100}%): ${platformShare}`);
     console.log(`   Staking Rewards: ${stakingAmount}`);
     console.log(`   Burn: ${burnAmount}`);
     console.log(`   Total: ${prizeAmount + revenueAmount + stakingAmount + burnAmount}`);
@@ -274,6 +330,8 @@ export const distributeTournamentRevenueService = async (
         totalFunds,
         prizeAmount,
         revenueAmount,
+        developerShare,
+        platformShare,
         stakingAmount,
         burnAmount
       },
@@ -572,4 +630,4 @@ async function getOrCreateAssociatedTokenAccount(
     console.error("Error in getOrCreateAssociatedTokenAccount:", err);
     throw err;
   }
-}
+} 
