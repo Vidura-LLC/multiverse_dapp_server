@@ -1,7 +1,7 @@
 //src/adminDashboard/adminDashboardRoutes.ts
 
 import { Router, RequestHandler } from 'express';
-import { checkPoolStatusController, getActiveStakersController, getAPYController, getDashboardStatsController, getDetailedStakersController, getRevenuePoolStatsController, getStakingPoolController, getStakingStatsController, getTournamentStatsController, initializePrizePoolController, confirmPrizePoolController, initializeRevenuePoolController, initializeRewardPoolController, initializeStakingPoolController, initializePlatformConfigController, updatePlatformConfigController, updatePlatformWalletController, transferSuperAdminController, getPlatformConfigController } from './adminDashboardController';
+import { checkPoolStatusController, getActiveStakersController, getAPYController, getDashboardStatsController, getDetailedStakersController, getRevenuePoolStatsController, getStakingPoolController, getStakingStatsController, getTournamentStatsController, initializePrizePoolController, confirmPrizePoolController, initializeRewardPoolController, initializeStakingPoolController, initializePlatformConfigController, updatePlatformConfigController, updatePlatformWalletController, transferSuperAdminController, getPlatformConfigController } from './adminDashboardController';
 
 const router = Router();
 
@@ -19,9 +19,6 @@ router.post('/initialize-prize-pool', initializePrizePoolController as unknown a
 
 // Route to confirm prize pool initialization after transaction is verified
 router.post('/confirm-prize-pool', confirmPrizePoolController as unknown as RequestHandler);
-
-// Route for initializing the global revenue pool
-router.post('/initialize-revenue-pool', initializeRevenuePoolController as unknown as RequestHandler);
 
 
 // Main route to get comprehensive staking statistics (for your dashboard)
