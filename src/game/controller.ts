@@ -155,12 +155,25 @@ export async function getGamePerformanceMetrics(req: Request, res: Response): Pr
 
             // Calculate total revenue from distribution amounts (not entry fees)
             // Revenue comes from the distribution.revenueAmount field after tournaments are distributed
+            // If revenueAmount is not available, calculate it from developerShare + platformShare
             const totalRevenue = gameTournaments.reduce((sum: number, tournament: any) => {
                 // Check both 'distribution' and 'distributionDetails' for backward compatibility
                 const distribution = tournament.distribution || tournament.distributionDetails || {};
-                const revenueAmount = distribution.revenueAmount || 0;
+                
+                // Only count tournaments that have distribution data (been distributed)
+                if (!distribution || Object.keys(distribution).length === 0) {
+                    return sum;
+                }
+                
+                // Try to get revenueAmount directly, or calculate from developerShare + platformShare
+                let revenueAmount = distribution.revenueAmount;
+                if (!revenueAmount && (distribution.developerShare || distribution.platformShare)) {
+                    // Calculate revenue as sum of developer and platform shares
+                    revenueAmount = (Number(distribution.developerShare) || 0) + (Number(distribution.platformShare) || 0);
+                }
+                
                 // revenueAmount is in base units, will be converted to tokens below
-                return sum + Number(revenueAmount);
+                return sum + Number(revenueAmount || 0);
             }, 0);
 
             // Count tournaments
