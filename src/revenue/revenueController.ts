@@ -625,123 +625,146 @@ export const confirmDistributionController = async (req: Request, res: Response)
     const distributionDetails = distribution || {};
     const developerShare = distributionDetails.developerShare || 0;
     const platformShare = distributionDetails.platformShare || 0;
+    const revenueAmount = distributionDetails.revenueAmount || (developerShare + platformShare);
     const prizeAmount = distributionDetails.prizeAmount || 0;
     const stakingAmount = distributionDetails.stakingAmount || 0;
     const burnAmount = distributionDetails.burnAmount || 0;
     const totalFunds = distributionDetails.totalFunds || 0;
 
+    // Calculate share percentages dynamically
+    const developerSharePercent = revenueAmount > 0 
+      ? Math.round((developerShare / revenueAmount) * 100) 
+      : 90; // Default to 90% if revenueAmount is 0
+    const platformSharePercent = revenueAmount > 0 
+      ? Math.round((platformShare / revenueAmount) * 100) 
+      : 10; // Default to 10% if revenueAmount is 0
+
     // Convert token type to string key
     const tokenKey = tt === TokenType.SOL ? "SOL" : "SPL";
     const currentTimestamp = Date.now();
 
-    // Track DEVELOPER revenue in Firebase
+    // Track DEVELOPER revenue in Firebase (non-blocking - transaction already succeeded on-chain)
     console.log("📊 Tracking developer revenue in Firebase...");
-    const developerRef = ref(db, `developerRevenue/${adminPublicKey}`);
-    const developerSnapshot = await get(developerRef);
-    
-    const developerHistoryEntry = {
-      tournamentId,
-      tournamentName: tournament.name || tournament.tournamentName || tournamentId,
-      gameId: tournament.gameId || tournament.game || "",
-      amount: developerShare, // Amount in base units
-      tokenType: tokenKey,
-      sharePercent: 90,
-      timestamp: currentTimestamp,
-      txSignature: transactionSignature
-    };
-
-    if (developerSnapshot.exists()) {
-      const data = developerSnapshot.val();
-      const existingHistory = data.history || [];
-      const currentTotalEarned = data.totalEarned || { SOL: 0, SPL: 0 };
+    try {
+      const developerRef = ref(db, `developerRevenue/${adminPublicKey}`);
+      const developerSnapshot = await get(developerRef);
       
-      await update(developerRef, {
-        walletAddress: adminPublicKey,
-        totalEarned: {
-          ...currentTotalEarned,
-          [tokenKey]: (currentTotalEarned[tokenKey] || 0) + developerShare
-        },
-        tournamentsCount: (data.tournamentsCount || 0) + 1,
-        lastDistribution: currentTimestamp,
-        history: [...existingHistory, developerHistoryEntry]
-      });
-      console.log(`✅ Updated developer revenue for ${adminPublicKey}`);
-    } else {
-      await set(developerRef, {
-        walletAddress: adminPublicKey,
-        totalEarned: { 
-          SOL: tokenKey === "SOL" ? developerShare : 0,
-          SPL: tokenKey === "SPL" ? developerShare : 0
-        },
-        tournamentsCount: 1,
-        lastDistribution: currentTimestamp,
-        history: [developerHistoryEntry]
-      });
-      console.log(`✅ Created developer revenue record for ${adminPublicKey}`);
-    }
+      const developerHistoryEntry = {
+        tournamentId,
+        tournamentName: tournament.name || tournament.tournamentName || tournamentId,
+        gameId: tournament.gameId || tournament.game || "",
+        amount: developerShare, // Amount in base units
+        tokenType: tokenKey,
+        sharePercent: developerSharePercent,
+        timestamp: currentTimestamp,
+        txSignature: transactionSignature
+      };
 
-    // Track PLATFORM revenue in Firebase
-    console.log("📊 Tracking platform revenue in Firebase...");
-    const platformRef = ref(db, `platformRevenue`);
-    const platformSnapshot = await get(platformRef);
-    
-    const platformHistoryEntry = {
-      tournamentId,
-      developerWallet: adminPublicKey,
-      amount: platformShare, // Amount in base units
-      tokenType: tokenKey,
-      sharePercent: 10,
-      timestamp: currentTimestamp,
-      txSignature: transactionSignature
-    };
-
-    if (platformSnapshot.exists()) {
-      const data = platformSnapshot.val();
-      const existingHistory = data.history || [];
-      const currentTotalEarned = data.totalEarned || { SOL: 0, SPL: 0 };
-      
-      await update(platformRef, {
-        totalEarned: {
-          ...currentTotalEarned,
-          [tokenKey]: (currentTotalEarned[tokenKey] || 0) + platformShare
-        },
-        tournamentsCount: (data.tournamentsCount || 0) + 1,
-        lastDistribution: currentTimestamp,
-        history: [...existingHistory, platformHistoryEntry]
-      });
-      console.log(`✅ Updated platform revenue`);
-    } else {
-      await set(platformRef, {
-        totalEarned: { 
-          SOL: tokenKey === "SOL" ? platformShare : 0,
-          SPL: tokenKey === "SPL" ? platformShare : 0
-        },
-        tournamentsCount: 1,
-        lastDistribution: currentTimestamp,
-        history: [platformHistoryEntry]
-      });
-      console.log(`✅ Created platform revenue record`);
-    }
-
-    // Update tournament with distribution info
-    await update(tournamentRef, {
-      status: 'Distributed',
-      distributionCompleted: true,
-      distributionTimestamp: currentTimestamp,
-      distributionTransaction: transactionSignature,
-      distributionDetails: {
-        prizeAmount,
-        developerShare,
-        platformShare,
-        stakingAmount,
-        burnAmount,
-        totalFunds,
-        totalDistributed: prizeAmount + developerShare + platformShare + stakingAmount + burnAmount,
-        transactionSignature: transactionSignature
+      if (developerSnapshot.exists()) {
+        const data = developerSnapshot.val();
+        const existingHistory = data.history || [];
+        const currentTotalEarned = data.totalEarned || { SOL: 0, SPL: 0 };
+        
+        await update(developerRef, {
+          walletAddress: adminPublicKey,
+          totalEarned: {
+            ...currentTotalEarned,
+            [tokenKey]: (currentTotalEarned[tokenKey] || 0) + developerShare
+          },
+          tournamentsCount: (data.tournamentsCount || 0) + 1,
+          lastDistribution: currentTimestamp,
+          history: [...existingHistory, developerHistoryEntry]
+        });
+        console.log(`✅ Updated developer revenue for ${adminPublicKey}`);
+      } else {
+        await set(developerRef, {
+          walletAddress: adminPublicKey,
+          totalEarned: { 
+            SOL: tokenKey === "SOL" ? developerShare : 0,
+            SPL: tokenKey === "SPL" ? developerShare : 0
+          },
+          tournamentsCount: 1,
+          lastDistribution: currentTimestamp,
+          history: [developerHistoryEntry]
+        });
+        console.log(`✅ Created developer revenue record for ${adminPublicKey}`);
       }
-    });
+    } catch (firebaseError: any) {
+      console.warn(`⚠️ Failed to track developer revenue in Firebase (transaction succeeded on-chain):`, firebaseError.message);
+      // Continue - transaction already succeeded on-chain, Firebase tracking is secondary
+    }
 
-    console.log(`✅ Tournament ${tournamentId} distribution confirmed and revenue tracked`);
+    // Track PLATFORM revenue in Firebase (non-blocking - transaction already succeeded on-chain)
+    console.log("📊 Tracking platform revenue in Firebase...");
+    try {
+      const platformRef = ref(db, `platformRevenue`);
+      const platformSnapshot = await get(platformRef);
+      
+      const platformHistoryEntry = {
+        tournamentId,
+        developerWallet: adminPublicKey,
+        amount: platformShare, // Amount in base units
+        tokenType: tokenKey,
+        sharePercent: platformSharePercent,
+        timestamp: currentTimestamp,
+        txSignature: transactionSignature
+      };
+
+      if (platformSnapshot.exists()) {
+        const data = platformSnapshot.val();
+        const existingHistory = data.history || [];
+        const currentTotalEarned = data.totalEarned || { SOL: 0, SPL: 0 };
+        
+        await update(platformRef, {
+          totalEarned: {
+            ...currentTotalEarned,
+            [tokenKey]: (currentTotalEarned[tokenKey] || 0) + platformShare
+          },
+          tournamentsCount: (data.tournamentsCount || 0) + 1,
+          lastDistribution: currentTimestamp,
+          history: [...existingHistory, platformHistoryEntry]
+        });
+        console.log(`✅ Updated platform revenue`);
+      } else {
+        await set(platformRef, {
+          totalEarned: { 
+            SOL: tokenKey === "SOL" ? platformShare : 0,
+            SPL: tokenKey === "SPL" ? platformShare : 0
+          },
+          tournamentsCount: 1,
+          lastDistribution: currentTimestamp,
+          history: [platformHistoryEntry]
+        });
+        console.log(`✅ Created platform revenue record`);
+      }
+    } catch (firebaseError: any) {
+      console.warn(`⚠️ Failed to track platform revenue in Firebase (transaction succeeded on-chain):`, firebaseError.message);
+      // Continue - transaction already succeeded on-chain, Firebase tracking is secondary
+    }
+
+    // Update tournament with distribution info (non-blocking - transaction already succeeded on-chain)
+    try {
+      await update(tournamentRef, {
+        status: 'Distributed',
+        distributionCompleted: true,
+        distributionTimestamp: currentTimestamp,
+        distributionTransaction: transactionSignature,
+        distributionDetails: {
+          prizeAmount,
+          developerShare,
+          platformShare,
+          stakingAmount,
+          burnAmount,
+          totalFunds,
+          totalDistributed: prizeAmount + developerShare + platformShare + stakingAmount + burnAmount,
+          transactionSignature: transactionSignature
+        }
+      });
+      console.log(`✅ Tournament ${tournamentId} distribution confirmed and revenue tracked`);
+    } catch (firebaseError: any) {
+      console.warn(`⚠️ Failed to update tournament status in Firebase (transaction succeeded on-chain):`, firebaseError.message);
+      // Continue - transaction already succeeded on-chain, Firebase update is secondary
+    }
 
     return res.status(200).json({
       success: true,
