@@ -5,8 +5,6 @@ import { getProgram } from "../staking/services";
 export const SEEDS = {
   STAKING_POOL: "staking_pool",
   STAKING_POOL_ESCROW: "escrow",
-  REVENUE_POOL: "revenue_pool",
-  REVENUE_POOL_ESCROW: "revenue_escrow",
   PRIZE_POOL: "prize_pool",
   PRIZE_POOL_ESCROW: "prize_escrow",
   REWARD_POOL: "reward_pool",
@@ -16,6 +14,7 @@ export const SEEDS = {
   REGISTRATION: "registration",
   TOURNAMENT_ESCROW: "escrow", // Tournament pool also uses "escrow" for its escrow
   SOL_VAULT: "sol_vault",
+  PLATFORM_CONFIG: "platform_config",
 }
 
 export enum TokenType {
@@ -68,33 +67,6 @@ export const getStakingEscrowPDA = (stakingPoolPublicKey: PublicKey) => {
   const { program } = getProgram();
   return PublicKey.findProgramAddressSync(
     [Buffer.from(SEEDS.STAKING_POOL_ESCROW), stakingPoolPublicKey.toBuffer()],
-    program.programId
-  )[0];
-};
-
-/**
- * Get Revenue Pool PDA
- * @param adminPublicKey - Admin who initialized the pool
- * @param tokenType - Type of token (SPL or SOL)
- * @returns Revenue Pool PDA
- */
-export const getRevenuePoolPDA = (adminPublicKey: PublicKey, tokenType: TokenType) => {
-  const { program } = getProgram();
-  return PublicKey.findProgramAddressSync(
-    [Buffer.from(SEEDS.REVENUE_POOL), adminPublicKey.toBuffer(), Buffer.from([tokenType])],
-    program.programId
-  )[0];
-};
-
-/**
- * Get Revenue Pool Escrow PDA
- * @param revenuePoolPublicKey - The revenue pool PDA
- * @returns Escrow account PDA for the revenue pool
- */
-export const getRevenueEscrowPDA = (revenuePoolPublicKey: PublicKey) => {
-  const { program } = getProgram();
-  return PublicKey.findProgramAddressSync(
-    [Buffer.from(SEEDS.REVENUE_POOL_ESCROW), revenuePoolPublicKey.toBuffer()],
     program.programId
   )[0];
 };
@@ -219,6 +191,18 @@ tournamentPoolPublicKey: PublicKey, userPublicKey: PublicKey) => {
 };
 
 /**
+ * Get Platform Config PDA
+ * @returns Platform Config PDA
+ */
+export const getPlatformConfigPDA = () => {
+  const { program } = getProgram();
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from(SEEDS.PLATFORM_CONFIG)],
+    program.programId
+  )[0];
+};
+
+/**
  * Get all pool PDAs at once (convenience function)
  * @param adminPublicKey - Admin public key (optional)
  * @param opts - Optional parameters
@@ -241,10 +225,6 @@ export const getAllPoolPDAs = (
   // Staking-related PDAs
   const stakingPool = getStakingPoolPDA(admin, tokenType);
   const stakingEscrow = getStakingEscrowPDA(stakingPool);
-
-  // Revenue-related PDAs
-  const revenuePool = getRevenuePoolPDA(admin, tokenType);
-  const revenueEscrow = getRevenueEscrowPDA(revenuePool);
 
   // Reward-related PDAs
   const rewardPool = getRewardPoolPDA(admin, tokenType);
@@ -278,8 +258,6 @@ export const getAllPoolPDAs = (
   return {
     stakingPool,
     stakingEscrow,
-    revenuePool,
-    revenueEscrow,
     rewardPool,
     rewardEscrow,
     tournamentPool,
@@ -352,8 +330,6 @@ export const logAllPDAs = (
   console.log("=== ALL PDAs ===");
   console.log("Staking Pool:", pdas.stakingPool.toBase58());
   console.log("Staking Escrow:", pdas.stakingEscrow.toBase58());
-  console.log("Revenue Pool:", pdas.revenuePool.toBase58());
-  console.log("Revenue Escrow:", pdas.revenueEscrow.toBase58());
   console.log("Reward Pool:", pdas.rewardPool.toBase58());
   console.log("Reward Escrow:", pdas.rewardEscrow.toBase58());
 

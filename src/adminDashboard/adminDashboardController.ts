@@ -1,7 +1,7 @@
 //src/adminDashboard/adminDashboardController.ts
 
 import { PublicKey, SystemProgram } from '@solana/web3.js';
-import { checkPoolStatus, initializeRevenuePoolService, initializeStakingPoolService, initializeRewardPoolService, initializePrizePoolService } from "./services";
+import { checkPoolStatus, initializeStakingPoolService, initializeRewardPoolService, initializePrizePoolService, initializePlatformConfigService, updatePlatformConfigService, updatePlatformWalletService, transferSuperAdminService, getPlatformConfigService } from "./services";
 import { getTournamentPoolPDA, getPrizePoolPDA, TokenType } from "../utils/getPDAs";
 import { getProgram } from "../staking/services";
 import { Request, Response } from 'express';
@@ -91,44 +91,6 @@ export const initializeStakingPoolController = async (req: Request, res: Respons
   };
 
 
-
-/**
- * Controller function for initializing the global revenue pool
- */
-export const initializeRevenuePoolController = async (req: Request, res: Response) => {
-    try {
-        const { mintPublicKey, adminPublicKey, tokenType } = req.body;
-
-        // Validate the mint address
-        if (!mintPublicKey || !adminPublicKey || tokenType === undefined || tokenType === null) {
-            return res.status(400).json({
-                success: false,
-                message: 'Mint, Admin public key and token type are required'
-            });
-        }
-
-        // Call the service function to initialize revenue pool
-        const tt = Number(tokenType);
-        if (tt !== TokenType.SPL && tt !== TokenType.SOL) {
-            return res.status(400).json({ success: false, message: 'tokenType must be 0 (SPL) or 1 (SOL)' });
-        }
-        const result = await initializeRevenuePoolService(new PublicKey(mintPublicKey), new PublicKey(adminPublicKey), tt as TokenType);
-
-        // Return the result
-        if (result.success) {
-            return res.status(200).json({data: result});
-        } else {
-            return res.status(500).json({ error: result.message });
-        }
-    } catch (err) {
-        console.error('Error in initialize revenue pool controller:', err);
-        return res.status(500).json({
-            success: false,
-            message: 'Failed to initialize revenue pool',
-            error: err.message || err
-        });
-    }
-};
 
 /**
  * Controller function for initializing a prize pool for a specific tournament
@@ -699,6 +661,309 @@ export const getDashboardStatsController = async (req: Request, res: Response) =
         return res.status(500).json({
             success: false,
             message: 'Internal server error while fetching dashboard statistics'
+        });
+    }
+};
+
+// ==============================
+// PLATFORM CONFIGURATION CONTROLLERS
+// ==============================
+
+/**
+ * Controller to initialize platform configuration (super admin only, one-time)
+ */
+export const initializePlatformConfigController = async (req: Request, res: Response) => {
+    try {
+        const { 
+            superAdminPublicKey, 
+            platformWalletPublicKey, 
+            developerShareBps = 9000, 
+            platformShareBps = 1000 
+        } = req.body;
+
+        // Validate required fields
+        if (!superAdminPublicKey) {
+            return res.status(400).json({
+                success: false,
+                message: 'Super admin public key is required'
+            });
+        }
+
+        if (!platformWalletPublicKey) {
+            return res.status(400).json({
+                success: false,
+                message: 'Platform wallet public key is required'
+            });
+        }
+
+        // Validate public key formats
+        let superAdminPubKey: PublicKey;
+        let platformWalletPubKey: PublicKey;
+        try {
+            superAdminPubKey = new PublicKey(superAdminPublicKey);
+            platformWalletPubKey = new PublicKey(platformWalletPublicKey);
+        } catch (err) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid public key format'
+            });
+        }
+
+        // Validate share percentages
+        const devBps = Number(developerShareBps);
+        const platBps = Number(platformShareBps);
+
+        if (isNaN(devBps) || isNaN(platBps)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Share percentages must be valid numbers'
+            });
+        }
+
+        if (devBps + platBps !== 10000) {
+            return res.status(400).json({
+                success: false,
+                message: `Share percentages must sum to 10000 (100%). Current total: ${devBps + platBps}`
+            });
+        }
+
+        // Call the service
+        const result = await initializePlatformConfigService(
+            superAdminPubKey,
+            platformWalletPubKey,
+            devBps,
+            platBps
+        );
+
+        if (result.success) {
+            return res.status(200).json(result);
+        } else {
+            return res.status(400).json(result);
+        }
+    } catch (err: any) {
+        console.error('❌ Error in initialize platform config controller:', err);
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to initialize platform config',
+            error: err.message || err
+        });
+    }
+};
+
+/**
+ * Controller to update platform configuration (super admin only)
+ */
+export const updatePlatformConfigController = async (req: Request, res: Response) => {
+    try {
+        const { 
+            superAdminPublicKey, 
+            developerShareBps, 
+            platformShareBps 
+        } = req.body;
+
+        // Validate required fields
+        if (!superAdminPublicKey) {
+            return res.status(400).json({
+                success: false,
+                message: 'Super admin public key is required'
+            });
+        }
+
+        if (developerShareBps === undefined || platformShareBps === undefined) {
+            return res.status(400).json({
+                success: false,
+                message: 'Both developer and platform share percentages are required'
+            });
+        }
+
+        // Validate public key format
+        let superAdminPubKey: PublicKey;
+        try {
+            superAdminPubKey = new PublicKey(superAdminPublicKey);
+        } catch (err) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid super admin public key format'
+            });
+        }
+
+        // Validate share percentages
+        const devBps = Number(developerShareBps);
+        const platBps = Number(platformShareBps);
+
+        if (isNaN(devBps) || isNaN(platBps)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Share percentages must be valid numbers'
+            });
+        }
+
+        if (devBps + platBps !== 10000) {
+            return res.status(400).json({
+                success: false,
+                message: `Share percentages must sum to 10000 (100%). Current total: ${devBps + platBps}`
+            });
+        }
+
+        // Call the service
+        const result = await updatePlatformConfigService(
+            superAdminPubKey,
+            devBps,
+            platBps
+        );
+
+        if (result.success) {
+            return res.status(200).json(result);
+        } else {
+            return res.status(400).json(result);
+        }
+    } catch (err: any) {
+        console.error('❌ Error in update platform config controller:', err);
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to update platform config',
+            error: err.message || err
+        });
+    }
+};
+
+/**
+ * Controller to update platform wallet (super admin only)
+ */
+export const updatePlatformWalletController = async (req: Request, res: Response) => {
+    try {
+        const { 
+            superAdminPublicKey, 
+            newPlatformWalletPublicKey 
+        } = req.body;
+
+        // Validate required fields
+        if (!superAdminPublicKey) {
+            return res.status(400).json({
+                success: false,
+                message: 'Super admin public key is required'
+            });
+        }
+
+        if (!newPlatformWalletPublicKey) {
+            return res.status(400).json({
+                success: false,
+                message: 'New platform wallet public key is required'
+            });
+        }
+
+        // Validate public key formats
+        let superAdminPubKey: PublicKey;
+        let newPlatformWalletPubKey: PublicKey;
+        try {
+            superAdminPubKey = new PublicKey(superAdminPublicKey);
+            newPlatformWalletPubKey = new PublicKey(newPlatformWalletPublicKey);
+        } catch (err) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid public key format'
+            });
+        }
+
+        // Call the service
+        const result = await updatePlatformWalletService(
+            superAdminPubKey,
+            newPlatformWalletPubKey
+        );
+
+        if (result.success) {
+            return res.status(200).json(result);
+        } else {
+            return res.status(400).json(result);
+        }
+    } catch (err: any) {
+        console.error('❌ Error in update platform wallet controller:', err);
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to update platform wallet',
+            error: err.message || err
+        });
+    }
+};
+
+/**
+ * Controller to transfer super admin role (super admin only)
+ */
+export const transferSuperAdminController = async (req: Request, res: Response) => {
+    try {
+        const { 
+            superAdminPublicKey, 
+            newSuperAdminPublicKey 
+        } = req.body;
+
+        // Validate required fields
+        if (!superAdminPublicKey) {
+            return res.status(400).json({
+                success: false,
+                message: 'Current super admin public key is required'
+            });
+        }
+
+        if (!newSuperAdminPublicKey) {
+            return res.status(400).json({
+                success: false,
+                message: 'New super admin public key is required'
+            });
+        }
+
+        // Validate public key formats
+        let superAdminPubKey: PublicKey;
+        let newSuperAdminPubKey: PublicKey;
+        try {
+            superAdminPubKey = new PublicKey(superAdminPublicKey);
+            newSuperAdminPubKey = new PublicKey(newSuperAdminPublicKey);
+        } catch (err) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid public key format'
+            });
+        }
+
+        // Call the service
+        const result = await transferSuperAdminService(
+            superAdminPubKey,
+            newSuperAdminPubKey
+        );
+
+        if (result.success) {
+            return res.status(200).json(result);
+        } else {
+            return res.status(400).json(result);
+        }
+    } catch (err: any) {
+        console.error('❌ Error in transfer super admin controller:', err);
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to transfer super admin',
+            error: err.message || err
+        });
+    }
+};
+
+/**
+ * Controller to get platform configuration
+ */
+export const getPlatformConfigController = async (req: Request, res: Response) => {
+    try {
+        // Call the service
+        const result = await getPlatformConfigService();
+
+        if (result.success) {
+            return res.status(200).json(result);
+        } else {
+            return res.status(404).json(result);
+        }
+    } catch (err: any) {
+        console.error('❌ Error in get platform config controller:', err);
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to fetch platform config',
+            error: err.message || err
         });
     }
 };

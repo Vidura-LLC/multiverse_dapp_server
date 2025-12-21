@@ -22,11 +22,10 @@ pub const SEED_TOURNAMENT_POOL: &[u8] = b"tournament_pool";
 pub const SEED_REGISTRATION: &[u8] = b"registration";
 pub const SEED_PRIZE_POOL: &[u8] = b"prize_pool";
 pub const SEED_PRIZE_ESCROW: &[u8] = b"prize_escrow";
-pub const SEED_REVENUE_POOL: &[u8] = b"revenue_pool";
-pub const SEED_REVENUE_ESCROW: &[u8] = b"revenue_escrow";
 pub const SEED_REWARD_POOL: &[u8] = b"reward_pool";
 pub const SEED_REWARD_ESCROW: &[u8] = b"reward_escrow";
 pub const SEED_SOL_VAULT: &[u8] = b"sol_vault";
+pub const SEED_PLATFORM_CONFIG: &[u8] = b"platform_config";
 
 // ==============================
 // PROTOCOL LIMITS & CONSTANTS
@@ -104,6 +103,98 @@ fn validate_lock_duration(lock_duration: i64) -> Result<()> {
 #[program]
 pub mod multiversed_dapp {
     use super::*;
+
+
+    // ==============================
+    // PLATFORM CONFIGURATION (NEW)
+    // ==============================
+
+    /// Initialize platform configuration (super admin only, one-time)
+    /// Sets the revenue share split between developers and platform
+    pub fn initialize_platform_config(
+        ctx: Context<InitializePlatformConfig>,
+        developer_share_bps: u16,
+        platform_share_bps: u16,
+    ) -> Result<()> {
+        // Validate shares sum to 100%
+        require!(
+            developer_share_bps + platform_share_bps == BPS_DENOMINATOR as u16,
+            PlatformError::InvalidSharePercentages
+        );
+
+        let config = &mut ctx.accounts.platform_config;
+        
+        // Check if already initialized
+        require!(!config.is_initialized, PlatformError::AlreadyInitialized);
+
+        config.super_admin = ctx.accounts.super_admin.key();
+        config.platform_wallet = ctx.accounts.platform_wallet.key();
+        config.developer_share_bps = developer_share_bps;
+        config.platform_share_bps = platform_share_bps;
+        config.is_initialized = true;
+        config.bump = ctx.bumps.platform_config;
+
+        msg!(
+            "✅ Platform config initialized: {}% developer, {}% platform",
+            developer_share_bps / 100,
+            platform_share_bps / 100
+        );
+        msg!("   Super Admin: {}", config.super_admin);
+        msg!("   Platform Wallet: {}", config.platform_wallet);
+
+        Ok(())
+    }
+
+    /// Update platform configuration (super admin only)
+    /// Allows adjusting the revenue share percentages
+    pub fn update_platform_config(
+        ctx: Context<UpdatePlatformConfig>,
+        developer_share_bps: u16,
+        platform_share_bps: u16,
+    ) -> Result<()> {
+        // Validate shares sum to 100%
+        require!(
+            developer_share_bps + platform_share_bps == BPS_DENOMINATOR as u16,
+            PlatformError::InvalidSharePercentages
+        );
+
+        let config = &mut ctx.accounts.platform_config;
+        config.developer_share_bps = developer_share_bps;
+        config.platform_share_bps = platform_share_bps;
+
+        msg!(
+            "✅ Platform config updated: {}% developer, {}% platform",
+            developer_share_bps / 100,
+            platform_share_bps / 100
+        );
+
+        Ok(())
+    }
+
+    /// Update platform wallet (super admin only)
+    pub fn update_platform_wallet(
+        ctx: Context<UpdatePlatformWallet>,
+    ) -> Result<()> {
+        let config = &mut ctx.accounts.platform_config;
+        config.platform_wallet = ctx.accounts.new_platform_wallet.key();
+
+        msg!("✅ Platform wallet updated to: {}", config.platform_wallet);
+
+        Ok(())
+    }
+
+    /// Transfer super admin role (super admin only)
+    pub fn transfer_super_admin(
+        ctx: Context<TransferSuperAdmin>,
+    ) -> Result<()> {
+        let config = &mut ctx.accounts.platform_config;
+        config.super_admin = ctx.accounts.new_super_admin.key();
+
+        msg!("✅ Super admin transferred to: {}", config.super_admin);
+
+        Ok(())
+    }
+
 
     // ==============================
     // GLOBAL POOL INITIALIZATION
@@ -219,105 +310,6 @@ pub mod multiversed_dapp {
 
         Ok(())
     }
-    /// Initialize global revenue pool (admin-only, one-time)
-    pub fn initialize_revenue_pool(
-        ctx: Context<InitializeRevenuePool>,
-        token_type: TokenType,
-    ) -> Result<()> {
-        let revenue_pool = &mut ctx.accounts.revenue_pool;
-        let admin = &ctx.accounts.admin;
-
-        require!(
-            revenue_pool.total_funds == 0,
-            RevenueError::AlreadyInitialized
-        );
-
-        revenue_pool.admin = admin.key();
-        revenue_pool.mint = ctx.accounts.mint.key();
-        revenue_pool.total_funds = 0;
-        revenue_pool.last_distribution = Clock::get()?.unix_timestamp;
-        revenue_pool.token_type = token_type;
-        revenue_pool.bump = ctx.bumps.revenue_pool;
-
-        match token_type {
-            TokenType::SOL => {
-                revenue_pool.mint = revenue_pool.key();
-                msg!("✅ SOL revenue pool initialized (no escrow needed)");
-                msg!("   Pool stores SOL directly in its account");
-            }
-            TokenType::SPL => {
-                revenue_pool.mint = ctx.accounts.mint.key();
-
-                require!(
-                    ctx.accounts.token_program.key() == anchor_spl::token_2022::ID,
-                    RevenueError::InvalidTokenProgram
-                );
-                let revenue_pool_key = revenue_pool.key();
-                let escrow_seeds = &[SEED_REVENUE_ESCROW, revenue_pool_key.as_ref()];
-                let (escrow_pda, escrow_bump) =
-                    Pubkey::find_program_address(escrow_seeds, ctx.program_id);
-
-                require!(
-                    ctx.accounts.revenue_escrow_account.key() == escrow_pda,
-                    RevenueError::InvalidEscrowAccount
-                );
-                let rent = Rent::get()?;
-                let space = 165;
-                let lamports = rent.minimum_balance(space);
-
-                // Create the escrow account
-                invoke_signed(
-                    &system_instruction::create_account(
-                        ctx.accounts.admin.key,
-                        &escrow_pda,
-                        lamports,
-                        space as u64,
-                        &anchor_spl::token_2022::ID,
-                    ),
-                    &[
-                        ctx.accounts.admin.to_account_info(),
-                        ctx.accounts.revenue_escrow_account.to_account_info(),
-                        ctx.accounts.system_program.to_account_info(),
-                    ],
-                    &[&[
-                        SEED_REVENUE_ESCROW,
-                        revenue_pool_key.as_ref(),
-                        &[escrow_bump],
-                    ]],
-                )?;
-
-                // Initialize as token account
-                let init_account_ix = spl_token_2022::instruction::initialize_account3(
-                    &anchor_spl::token_2022::ID,
-                    &escrow_pda,
-                    &ctx.accounts.mint.key(),
-                    &revenue_pool.key(),
-                )?;
-
-                invoke(
-                    &init_account_ix,
-                    &[
-                        ctx.accounts.revenue_escrow_account.to_account_info(),
-                        ctx.accounts.mint.to_account_info(),
-                    ],
-                )?;
-
-                msg!("✅ SPL revenue pool and escrow initialized");
-                msg!("   Mint: {}", ctx.accounts.mint.key());
-                msg!("   Escrow: {}", escrow_pda);
-                msg!("   Token type: {:?}", token_type);
-                msg!("   Revenue pool: {}", revenue_pool.key());
-                msg!("   Revenue escrow: {}", escrow_pda);
-            }
-        }
-        msg!(
-            "✅ Revenue pool initialized by admin: {}, token_type: {:?}",
-            revenue_pool.admin,
-            token_type
-        );
-        Ok(())
-    }
-
     /// Initialize global reward pool (admin-only, one-time)
     pub fn initialize_reward_pool(
         ctx: Context<InitializeRewardPool>,
@@ -1129,9 +1121,12 @@ pub mod multiversed_dapp {
     }
 
     // ==============================
-    // REVENUE DISTRIBUTION FUNCTIONS
+    // REVENUE DISTRIBUTION (UPDATED WITH 90/10 SPLIT)
     // ==============================
 
+    /// Distribute tournament revenue with 90/10 developer/platform split
+    /// Developer receives 90% of revenue portion directly to their wallet
+    /// Platform receives 10% of revenue portion directly to platform wallet
     pub fn distribute_tournament_revenue(
         ctx: Context<DistributeTournamentRevenue>,
         tournament_id: String,
@@ -1150,6 +1145,7 @@ pub mod multiversed_dapp {
         require!(total == 100, TournamentError::InvalidPercentages);
 
         let tournament_pool = &mut ctx.accounts.tournament_pool;
+        let platform_config = &ctx.accounts.platform_config;
 
         // Verify tournament has ended
         let current_time = Clock::get()?.unix_timestamp;
@@ -1167,9 +1163,7 @@ pub mod multiversed_dapp {
         let total_funds = tournament_pool.total_funds;
         require!(total_funds > 0, TournamentError::InsufficientFunds);
 
-        // ✅ REMOVED: Prize pool initialization logic - it should already exist
-
-        // Calculate distribution amounts
+        // Calculate base distribution amounts
         let prize_amount = (total_funds as u128)
             .saturating_mul(prize_percentage as u128)
             .checked_div(100)
@@ -1190,16 +1184,24 @@ pub mod multiversed_dapp {
             .checked_div(100)
             .ok_or(TournamentError::MathOverflow)? as u64;
 
+        // ✅ NEW: Calculate developer and platform shares from revenue
+        let developer_share = (revenue_amount as u128)
+            .saturating_mul(platform_config.developer_share_bps as u128)
+            .checked_div(BPS_DENOMINATOR as u128)
+            .ok_or(TournamentError::MathOverflow)? as u64;
+
+        let platform_share = revenue_amount.saturating_sub(developer_share);
+
         // Prepare signer seeds for tournament pool
         let creator_key = tournament_pool.admin;
-        let tournament_id_bytes = tournament_id.as_bytes(); // ✅ Use the actual string bytes
+        let tournament_id_bytes = tournament_id.as_bytes();
         let token_type_seed = [tournament_pool.token_type as u8];
         let bump = tournament_pool.bump;
 
         let tournament_seeds = &[
             SEED_TOURNAMENT_POOL,
             creator_key.as_ref(),
-            tournament_id_bytes, // ✅ This now matches the backend derivation
+            tournament_id_bytes,
             token_type_seed.as_ref(),
             &[bump],
         ];
@@ -1208,10 +1210,9 @@ pub mod multiversed_dapp {
         // Distribute based on token type
         match tournament_pool.token_type {
             TokenType::SOL => {
-                // SOL distribution via direct lamport manipulation
-
                 let tournament_pool_info = tournament_pool.to_account_info();
 
+                // Prize pool transfer
                 if prize_amount > 0 {
                     **tournament_pool_info.try_borrow_mut_lamports()? -= prize_amount;
                     **ctx
@@ -1222,16 +1223,25 @@ pub mod multiversed_dapp {
                     ctx.accounts.prize_pool.total_funds += prize_amount;
                 }
 
-                if revenue_amount > 0 {
-                    **tournament_pool_info.try_borrow_mut_lamports()? -= revenue_amount;
+                // ✅ NEW: Developer share - direct to developer wallet (90% of revenue)
+                if developer_share > 0 {
+                    **tournament_pool_info.try_borrow_mut_lamports()? -= developer_share;
                     **ctx
                         .accounts
-                        .revenue_pool
-                        .to_account_info()
-                        .try_borrow_mut_lamports()? += revenue_amount;
-                    ctx.accounts.revenue_pool.total_funds += revenue_amount;
+                        .developer_wallet
+                        .try_borrow_mut_lamports()? += developer_share;
                 }
 
+                // ✅ NEW: Platform share - direct to platform wallet (10% of revenue)
+                if platform_share > 0 {
+                    **tournament_pool_info.try_borrow_mut_lamports()? -= platform_share;
+                    **ctx
+                        .accounts
+                        .platform_wallet
+                        .try_borrow_mut_lamports()? += platform_share;
+                }
+
+                // Staking rewards
                 if staking_amount > 0 {
                     **tournament_pool_info.try_borrow_mut_lamports()? -= staking_amount;
                     **ctx
@@ -1241,7 +1251,7 @@ pub mod multiversed_dapp {
                         .try_borrow_mut_lamports()? += staking_amount;
                     ctx.accounts.reward_pool.total_funds += staking_amount;
 
-                    // ✅ ADD THIS: Update staking pool accumulator for SOL
+                    // Update staking pool accumulator
                     let staking_pool = &mut ctx.accounts.staking_pool;
                     if staking_pool.total_weight > 0 {
                         let delta: u128 = (staking_amount as u128)
@@ -1253,18 +1263,26 @@ pub mod multiversed_dapp {
                     }
                 }
 
+                // Note: SOL cannot be "burned" - burn_amount stays in tournament pool or could be sent to a dead address
+                // For now, we'll send it to the platform wallet as additional revenue
+                if burn_amount > 0 {
+                    **tournament_pool_info.try_borrow_mut_lamports()? -= burn_amount;
+                    **ctx
+                        .accounts
+                        .platform_wallet
+                        .try_borrow_mut_lamports()? += burn_amount;
+                }
+
                 msg!("✅ SOL tournament revenue distributed");
             }
             TokenType::SPL => {
-                // SPL token distribution
-                // ✅ Get mint decimals in a limited scope
                 let mint_decimals = {
                     let mint_data = ctx.accounts.mint.try_borrow_data()?;
                     let mint = Mint::try_deserialize(&mut &mint_data[..])?;
                     mint.decimals
-                }; // ✅ mint_data borrow is dropped here
+                };
 
-                // Transfer to prize pool
+                // Prize pool transfer
                 if prize_amount > 0 {
                     let prize_pool = &mut ctx.accounts.prize_pool;
                     token_2022::transfer_checked(
@@ -1284,26 +1302,43 @@ pub mod multiversed_dapp {
                     prize_pool.total_funds += prize_amount;
                 }
 
-                // Transfer to revenue pool
-                if revenue_amount > 0 {
+                // ✅ NEW: Developer share - direct to developer token account (90% of revenue)
+                if developer_share > 0 {
                     token_2022::transfer_checked(
                         CpiContext::new_with_signer(
                             ctx.accounts.token_program.to_account_info(),
                             TransferChecked {
                                 from: ctx.accounts.tournament_escrow_account.to_account_info(),
-                                to: ctx.accounts.revenue_escrow_account.to_account_info(),
+                                to: ctx.accounts.developer_token_account.to_account_info(),
                                 mint: ctx.accounts.mint.to_account_info(),
                                 authority: tournament_pool.to_account_info(),
                             },
                             signer_seeds,
                         ),
-                        revenue_amount,
+                        developer_share,
                         mint_decimals,
                     )?;
-                    ctx.accounts.revenue_pool.total_funds += revenue_amount;
                 }
 
-                // Transfer to reward pool
+                // ✅ NEW: Platform share - direct to platform token account (10% of revenue)
+                if platform_share > 0 {
+                    token_2022::transfer_checked(
+                        CpiContext::new_with_signer(
+                            ctx.accounts.token_program.to_account_info(),
+                            TransferChecked {
+                                from: ctx.accounts.tournament_escrow_account.to_account_info(),
+                                to: ctx.accounts.platform_token_account.to_account_info(),
+                                mint: ctx.accounts.mint.to_account_info(),
+                                authority: tournament_pool.to_account_info(),
+                            },
+                            signer_seeds,
+                        ),
+                        platform_share,
+                        mint_decimals,
+                    )?;
+                }
+
+                // Staking rewards
                 if staking_amount > 0 {
                     token_2022::transfer_checked(
                         CpiContext::new_with_signer(
@@ -1355,19 +1390,18 @@ pub mod multiversed_dapp {
         // Update tournament pool state
         tournament_pool.is_active = false;
         tournament_pool.total_funds = 0;
-        ctx.accounts.revenue_pool.last_distribution = current_time;
 
         msg!(
-            "✅ Tournament revenue distributed: Prize: {}, Revenue: {}, Staking: {}, Burned: {}",
+            "✅ Tournament revenue distributed - Prize: {}, Developer (90%): {}, Platform (10%): {}, Staking: {}, Burn: {}",
             prize_amount,
-            revenue_amount,
+            developer_share,
+            platform_share,
             staking_amount,
             burn_amount
         );
 
         Ok(())
     }
-
     /// Distribute prizes to tournament winners
     /// Only callable by tournament creator
     pub fn distribute_tournament_prizes(
@@ -1538,6 +1572,78 @@ pub mod multiversed_dapp {
 // ACCOUNT CONTEXTS
 // ==============================
 
+// ==============================
+// PLATFORM CONFIGURATION
+// =============================='
+#[derive(Accounts)]
+pub struct InitializePlatformConfig<'info> {
+    #[account(
+        init,
+        payer = super_admin,
+        space = PlatformConfig::LEN,
+        seeds = [SEED_PLATFORM_CONFIG],
+        bump
+    )]
+    pub platform_config: Account<'info, PlatformConfig>,
+
+    /// CHECK: Platform wallet to receive revenue share
+    pub platform_wallet: UncheckedAccount<'info>,
+
+    #[account(mut)]
+    pub super_admin: Signer<'info>,
+
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct UpdatePlatformConfig<'info> {
+    #[account(
+        mut,
+        seeds = [SEED_PLATFORM_CONFIG],
+        bump = platform_config.bump,
+        constraint = platform_config.super_admin == super_admin.key() @ PlatformError::Unauthorized
+    )]
+    pub platform_config: Account<'info, PlatformConfig>,
+
+    pub super_admin: Signer<'info>,
+}
+
+#[derive(Accounts)]
+pub struct UpdatePlatformWallet<'info> {
+    #[account(
+        mut,
+        seeds = [SEED_PLATFORM_CONFIG],
+        bump = platform_config.bump,
+        constraint = platform_config.super_admin == super_admin.key() @ PlatformError::Unauthorized
+    )]
+    pub platform_config: Account<'info, PlatformConfig>,
+
+    /// CHECK: New platform wallet address
+    pub new_platform_wallet: UncheckedAccount<'info>,
+
+    pub super_admin: Signer<'info>,
+}
+
+#[derive(Accounts)]
+pub struct TransferSuperAdmin<'info> {
+    #[account(
+        mut,
+        seeds = [SEED_PLATFORM_CONFIG],
+        bump = platform_config.bump,
+        constraint = platform_config.super_admin == super_admin.key() @ PlatformError::Unauthorized
+    )]
+    pub platform_config: Account<'info, PlatformConfig>,
+
+    /// CHECK: New super admin address
+    pub new_super_admin: UncheckedAccount<'info>,
+
+    pub super_admin: Signer<'info>,
+}
+
+// ==============================
+// STAKING POOL INITIALIZATION
+// ==============================
+
 #[derive(Accounts)]
 #[instruction(token_type: TokenType)]
 pub struct InitializeAccounts<'info> {
@@ -1565,6 +1671,10 @@ pub struct InitializeAccounts<'info> {
     /// CHECK: Token program - only validated when token_type is SPL
     pub token_program: UncheckedAccount<'info>,
 }
+
+// ==============================
+// STAKING OPERATIONS
+// ==============================
 
 #[derive(Accounts)]
 pub struct Stake<'info> {
@@ -1604,6 +1714,10 @@ pub struct Stake<'info> {
     pub system_program: Program<'info, System>,
 }
 
+// ==============================
+// UNSTAKING OPERATIONS
+// ==============================
+
 #[derive(Accounts)]
 pub struct Unstake<'info> {
     #[account(mut)]
@@ -1641,6 +1755,10 @@ pub struct Unstake<'info> {
 
     pub system_program: Program<'info, System>,
 }
+
+// ==============================
+// REWARD CLAIMING
+// ==============================
 
 #[derive(Accounts)]
 pub struct ClaimRewards<'info> {
@@ -1686,6 +1804,10 @@ pub struct ClaimRewards<'info> {
     pub system_program: Program<'info, System>,
 }
 
+// ==============================
+// REWARD ACCRUING
+// ==============================
+
 #[derive(Accounts)]
 pub struct AccrueRewards<'info> {
     #[account(mut)]
@@ -1707,6 +1829,10 @@ pub struct AccrueRewards<'info> {
 
     pub system_program: Program<'info, System>,
 }
+
+// ==============================
+// TOURNAMENT REGISTRATION
+// ==============================
 
 #[derive(Accounts)]
 #[instruction(tournament_id: String, entry_fee: u64, max_participants: u16, end_time: i64, token_type: TokenType)]
@@ -1736,6 +1862,10 @@ pub struct CreateTournamentPool<'info> {
     /// CHECK: Token program - only validated when token_type is SPL
     pub token_program: UncheckedAccount<'info>,
 }
+
+// ==============================
+// TOURNAMENT REGISTRATION
+// ==============================
 
 #[derive(Accounts)]
 #[instruction(tournament_id: String)]
@@ -1775,29 +1905,9 @@ pub struct RegisterForTournament<'info> {
     pub system_program: Program<'info, System>,
 }
 
-#[derive(Accounts)]
-#[instruction(token_type: TokenType)]
-pub struct InitializeRevenuePool<'info> {
-    #[account(
-        init_if_needed,
-        payer = admin,
-        space = RevenuePool::LEN,
-        seeds = [SEED_REVENUE_POOL, admin.key().as_ref(), &[token_type as u8]],
-        bump
-    )]
-    pub revenue_pool: Account<'info, RevenuePool>,
-
-    #[account(mut)]
-    pub revenue_escrow_account: UncheckedAccount<'info>,
-
-    pub mint: UncheckedAccount<'info>,
-
-    #[account(mut)]
-    pub admin: Signer<'info>,
-
-    pub system_program: Program<'info, System>,
-    pub token_program: UncheckedAccount<'info>,
-}
+// ==============================
+// REWARD POOL INITIALIZATION
+// ==============================
 
 #[derive(Accounts)]
 #[instruction(token_type: TokenType)]
@@ -1820,6 +1930,10 @@ pub struct InitializeRewardPool<'info> {
     pub system_program: Program<'info, System>,
     pub token_program: UncheckedAccount<'info>,
 }
+
+// ==============================
+// PRIZE POOL INITIALIZATION
+// ==============================
 
 #[derive(Accounts)]
 #[instruction(tournament_id: String)]
@@ -1856,6 +1970,9 @@ pub struct InitializePrizePool<'info> {
     pub token_program: UncheckedAccount<'info>,
 }
 
+// ==============================
+// DISTRIBUTE TOURNAMENT REVENUE
+// ==============================
 #[derive(Accounts)]
 #[instruction(tournament_id: String, prize_percentage: u8, revenue_percentage: u8, staking_percentage: u8, burn_percentage: u8)]
 pub struct DistributeTournamentRevenue<'info> {
@@ -1866,11 +1983,18 @@ pub struct DistributeTournamentRevenue<'info> {
     pub creator: Signer<'info>,
 
     #[account(
-        mut, 
+        mut,
         seeds = [SEED_TOURNAMENT_POOL, creator.key().as_ref(), tournament_id.as_bytes(), &[tournament_pool.token_type as u8]],
         bump = tournament_pool.bump
     )]
     pub tournament_pool: Account<'info, TournamentPool>,
+
+    // ✅ NEW: Platform config for share percentages
+    #[account(
+        seeds = [SEED_PLATFORM_CONFIG],
+        bump = platform_config.bump
+    )]
+    pub platform_config: Account<'info, PlatformConfig>,
 
     #[account(
         mut,
@@ -1878,13 +2002,6 @@ pub struct DistributeTournamentRevenue<'info> {
         bump = prize_pool.bump
     )]
     pub prize_pool: Account<'info, PrizePool>,
-
-    #[account(
-        mut,
-        seeds = [SEED_REVENUE_POOL, revenue_pool.admin.as_ref(), &[tournament_pool.token_type as u8]],
-        bump = revenue_pool.bump
-    )]
-    pub revenue_pool: Account<'info, RevenuePool>,
 
     #[account(
         mut,
@@ -1900,27 +2017,42 @@ pub struct DistributeTournamentRevenue<'info> {
     )]
     pub staking_pool: Account<'info, StakingPool>,
 
-    /// CHECK: For SPL, this is a token escrow. For SOL, not used (SystemProgram.programId).
-    /// Remove mut constraint for UncheckedAccount
+    // ✅ NEW: Developer wallet (same as tournament creator)
+    /// CHECK: Developer wallet - receives 90% of revenue directly
+    #[account(mut)]
+    pub developer_wallet: UncheckedAccount<'info>,
+
+    // ✅ NEW: Platform wallet from config
+    /// CHECK: Platform wallet - receives 10% of revenue directly
+    #[account(
+        mut,
+        constraint = platform_wallet.key() == platform_config.platform_wallet @ PlatformError::InvalidPlatformWallet
+    )]
+    pub platform_wallet: UncheckedAccount<'info>,
+
+    // ✅ NEW: Developer token account (for SPL)
+    /// CHECK: Developer's token account for SPL transfers
+    pub developer_token_account: UncheckedAccount<'info>,
+
+    // ✅ NEW: Platform token account (for SPL)
+    /// CHECK: Platform's token account for SPL transfers
+    pub platform_token_account: UncheckedAccount<'info>,
+
     pub tournament_escrow_account: UncheckedAccount<'info>,
 
-    /// CHECK: For SPL, this is a token escrow. For SOL, not used
     pub prize_escrow_account: UncheckedAccount<'info>,
 
-    /// CHECK: For SPL, this is a token escrow. For SOL, not used
-    pub revenue_escrow_account: UncheckedAccount<'info>,
-
-    /// CHECK: For SPL, this is a token escrow. For SOL, not used
     pub reward_escrow_account: UncheckedAccount<'info>,
 
-    /// CHECK: For SPL, must be valid mint. For SOL, we pass SystemProgram.programId
     pub mint: UncheckedAccount<'info>,
 
-    /// CHECK: Token program - only used for SPL
     pub token_program: UncheckedAccount<'info>,
 
     pub system_program: Program<'info, System>,
 }
+// ==============================
+// Distribute Tournament Prizes
+// ==============================
 
 #[derive(Accounts)]
 #[instruction(tournament_id: String)]
@@ -1982,6 +2114,9 @@ pub struct DistributeTournamentPrizes<'info> {
 // ACCOUNT STRUCTS
 // ==============================
 
+// ==============================
+// Staking Pool
+// ==============================
 #[account]
 pub struct StakingPool {
     pub admin: Pubkey,
@@ -1998,6 +2133,9 @@ impl StakingPool {
     pub const LEN: usize = 8 + 32 + 32 + 8 + 16 + 16 + 8 + 1 + 1;
 }
 
+// ==============================
+// User Staking Account
+// ==============================
 #[account]
 pub struct UserStakingAccount {
     pub owner: Pubkey,
@@ -2013,6 +2151,9 @@ impl UserStakingAccount {
     pub const LEN: usize = 8 + 32 + 8 + 8 + 8 + 16 + 16 + 8;
 }
 
+// ==============================
+// Tournament Pool
+// ==============================
 #[account]
 pub struct TournamentPool {
     pub admin: Pubkey,
@@ -2032,6 +2173,9 @@ impl TournamentPool {
     pub const LEN: usize = 8 + 32 + 32 + 32 + 8 + 8 + 2 + 2 + 8 + 1 + 1 + 1;
 }
 
+// ==============================
+// Registration Record
+// ==============================
 #[account]
 pub struct RegistrationRecord {
     pub user: Pubkey,
@@ -2045,6 +2189,9 @@ impl RegistrationRecord {
     pub const LEN: usize = 8 + 32 + 32 + 1 + 8 + 1;
 }
 
+// ==============================
+// Prize Pool
+// ==============================
 #[account]
 pub struct PrizePool {
     pub admin: Pubkey,
@@ -2061,20 +2208,9 @@ impl PrizePool {
     pub const LEN: usize = 8 + 32 + 32 + 32 + 32 + 8 + 1 + 1 + 1;
 }
 
-#[account]
-pub struct RevenuePool {
-    pub admin: Pubkey,
-    pub mint: Pubkey,
-    pub total_funds: u64,
-    pub last_distribution: i64,
-    pub token_type: TokenType,
-    pub bump: u8,
-}
-
-impl RevenuePool {
-    pub const LEN: usize = 8 + 32 + 32 + 8 + 8 + 1 + 1;
-}
-
+// ==============================
+// Reward Pool
+// ==============================
 #[account]
 pub struct RewardPool {
     pub admin: Pubkey,
@@ -2087,6 +2223,23 @@ pub struct RewardPool {
 
 impl RewardPool {
     pub const LEN: usize = 8 + 32 + 32 + 8 + 8 + 1 + 1;
+}
+
+// ==============================
+// Platform Config
+// ==============================
+#[account]
+pub struct PlatformConfig {
+    pub super_admin: Pubkey,
+    pub platform_wallet: Pubkey,
+    pub developer_share_bps: u16,  // 9000 = 90%
+    pub platform_share_bps: u16,   // 1000 = 10%
+    pub is_initialized: bool,
+    pub bump: u8,
+}
+
+impl PlatformConfig {
+    pub const LEN: usize = 8 + 32 + 32 + 2 + 2 + 1 + 1; // 78 bytes
 }
 
 // ==============================
@@ -2176,8 +2329,8 @@ pub enum StakingError {
     InsufficientBalance,
 }
 #[error_code]
-pub enum RevenueError {
-    #[msg("Revenue Pool already initialized")]
+pub enum RewardError {
+    #[msg("Reward Pool already initialized")]
     AlreadyInitialized,
 
     #[msg("Unauthorized access")]
@@ -2194,19 +2347,19 @@ pub enum RevenueError {
 }
 
 #[error_code]
-pub enum RewardError {
-    #[msg("Reward Pool already initialized")]
+pub enum PlatformError {
+    #[msg("Share percentages must sum to 10000 (100%)")]
+    InvalidSharePercentages,
+
+    #[msg("Platform config already initialized")]
     AlreadyInitialized,
 
-    #[msg("Unauthorized access")]
+    #[msg("Platform not initialized")]
+    NotInitialized,
+
+    #[msg("Unauthorized - only super admin can perform this action")]
     Unauthorized,
 
-    #[msg("Math overflow occurred")]
-    MathOverflow,
-
-    #[msg("Invalid token program provided")]
-    InvalidTokenProgram,
-
-    #[msg("Invalid escrow account provided")]
-    InvalidEscrowAccount,
+    #[msg("Invalid platform wallet provided")]
+    InvalidPlatformWallet,
 }

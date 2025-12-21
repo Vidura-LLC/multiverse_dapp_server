@@ -1,7 +1,7 @@
 //src/adminDashboard/adminDashboardRoutes.ts
 
 import { Router, RequestHandler } from 'express';
-import { checkPoolStatusController, getActiveStakersController, getAPYController, getDashboardStatsController, getDetailedStakersController, getRevenuePoolStatsController, getStakingPoolController, getStakingStatsController, getTournamentStatsController, initializePrizePoolController, confirmPrizePoolController, initializeRevenuePoolController, initializeRewardPoolController, initializeStakingPoolController } from './adminDashboardController';
+import { checkPoolStatusController, getActiveStakersController, getAPYController, getDashboardStatsController, getDetailedStakersController, getRevenuePoolStatsController, getStakingPoolController, getStakingStatsController, getTournamentStatsController, initializePrizePoolController, confirmPrizePoolController, initializeRewardPoolController, initializeStakingPoolController, initializePlatformConfigController, updatePlatformConfigController, updatePlatformWalletController, transferSuperAdminController, getPlatformConfigController } from './adminDashboardController';
 
 const router = Router();
 
@@ -19,9 +19,6 @@ router.post('/initialize-prize-pool', initializePrizePoolController as unknown a
 
 // Route to confirm prize pool initialization after transaction is verified
 router.post('/confirm-prize-pool', confirmPrizePoolController as unknown as RequestHandler);
-
-// Route for initializing the global revenue pool
-router.post('/initialize-revenue-pool', initializeRevenuePoolController as unknown as RequestHandler);
 
 
 // Main route to get comprehensive staking statistics (for your dashboard)
@@ -50,5 +47,33 @@ router.get('/revenue/stats/:adminPublicKey', getRevenuePoolStatsController as un
 // Route to get dashboard data
 router.get('/dashboardStats/:adminPublicKey', getDashboardStatsController as unknown as RequestHandler);
 
+// ==============================
+// PLATFORM CONFIGURATION ROUTES
+// ==============================
+
+// Route to initialize platform configuration (one-time setup)
+router.post('/platform-config/initialize',
+  initializePlatformConfigController as unknown as RequestHandler
+);
+
+// Route to update platform configuration (share percentages)
+router.post('/platform-config/update',
+  updatePlatformConfigController as unknown as RequestHandler
+);
+
+// Route to update platform wallet
+router.post('/platform-config/update-wallet',
+  updatePlatformWalletController as unknown as RequestHandler
+);
+
+// Route to transfer super admin role
+router.post('/platform-config/transfer-admin',
+  transferSuperAdminController as unknown as RequestHandler
+);
+
+// Route to get platform configuration
+router.get('/platform-config',
+  getPlatformConfigController as unknown as RequestHandler
+);
 
 export default router;
