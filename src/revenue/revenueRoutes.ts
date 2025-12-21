@@ -58,14 +58,14 @@ router.get('/admin/distribution-totals/:adminPubKey',
 // DEVELOPER REVENUE ENDPOINTS
 // ==============================
 
+// Get developer revenue history (paginated) - MUST come before the general route
+router.get('/developer/:developerPublicKey/history',
+  getDeveloperRevenueHistoryController as unknown as RequestHandler
+);
+
 // Get developer revenue statistics
 router.get('/developer/:developerPublicKey',
   getDeveloperRevenueController as unknown as RequestHandler
-);
-
-// Get developer revenue history (paginated)
-router.get('/developer/:developerPublicKey/history',
-  getDeveloperRevenueHistoryController as unknown as RequestHandler
 );
 
 // ==============================
