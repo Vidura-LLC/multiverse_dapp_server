@@ -18,5 +18,21 @@ router.get('/prize-distribution/:tournamentId', revenueController_1.getTournamen
 router.get('/admin/prizes-distributed/:adminPubKey', revenueController_1.getAdminPrizesDistributedController);
 // Route for admin distribution totals aggregation
 router.get('/admin/distribution-totals/:adminPubKey', revenueController_1.getAdminDistributionTotalsController);
+// ==============================
+// DEVELOPER REVENUE ENDPOINTS
+// ==============================
+// Get developer revenue history (paginated) - MUST come before the general route
+router.get('/developer/:developerPublicKey/history', revenueController_1.getDeveloperRevenueHistoryController);
+// Get developer revenue statistics
+router.get('/developer/:developerPublicKey', revenueController_1.getDeveloperRevenueController);
+// ==============================
+// PLATFORM REVENUE ENDPOINTS (Admin Only)
+// ==============================
+// Get platform revenue statistics
+router.get('/platform', revenueController_1.getPlatformRevenueController);
+// Get platform revenue history (paginated)
+router.get('/platform/history', revenueController_1.getPlatformRevenueHistoryController);
+// Get platform revenue grouped by developer
+router.get('/platform/by-developer', revenueController_1.getPlatformRevenueByDeveloperController);
 exports.default = router;
 //# sourceMappingURL=revenueRoutes.js.map

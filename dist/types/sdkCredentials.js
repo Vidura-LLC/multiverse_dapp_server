@@ -1,4 +1,4 @@
 "use strict";
-// src/types/game.ts
+// src/types/sdkCredentials.ts
 Object.defineProperty(exports, "__esModule", { value: true });
-//# sourceMappingURL=game.js.map
+//# sourceMappingURL=sdkCredentials.js.map

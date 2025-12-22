@@ -55,12 +55,12 @@ const getPDAs_1 = require("../utils/getPDAs");
 dotenv_1.default.config();
 // Helper function to get the program
 const getProgram = () => {
-    const idl = require("../staking/idl-solxspl.json");
-    const walletKeypair = require("../staking/SOLxSPL-Admin-wallet-keypair.json");
+    const idl = require("../staking/idl_developer_split.json");
+    const walletKeypair = require("../staking/developer_split-Admin-wallet-keypair.json");
     const adminKeypair = web3_js_1.Keypair.fromSecretKey(new Uint8Array(walletKeypair));
     const adminPublicKey = adminKeypair.publicKey;
     const connection = new web3_js_1.Connection("https://api.devnet.solana.com", "confirmed");
-    const programId = new web3_js_1.PublicKey("A5sbJW4hgVtaYU8TvfJc8bxeWsvFgapc88qX1VruTfq4");
+    const programId = new web3_js_1.PublicKey("DgQ1EXnbWqgSeMwQBwPeaphmT76Jpsapegd9kQKJ6buX");
     const provider = new anchor.AnchorProvider(connection, new anchor.Wallet(adminKeypair), anchor.AnchorProvider.defaultOptions());
     anchor.setProvider(provider);
     return {

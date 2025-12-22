@@ -1,38 +1,5 @@
 "use strict";
 //src/adminDashboard/services.ts
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
 var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
     function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
     return new (P || (P = Promise))(function (resolve, reject) {
@@ -46,13 +13,12 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.checkPoolStatus = exports.initializeRewardPoolService = exports.initializePrizePoolService = exports.initializeRevenuePoolService = exports.initializeStakingPoolService = void 0;
+exports.getPlatformConfigService = exports.transferSuperAdminService = exports.updatePlatformWalletService = exports.updatePlatformConfigService = exports.initializePlatformConfigService = exports.checkPoolStatus = exports.initializeRewardPoolService = exports.initializePrizePoolService = exports.initializeStakingPoolService = void 0;
 const web3_js_1 = require("@solana/web3.js");
 const spl_token_1 = require("@solana/spl-token");
 const dotenv_1 = __importDefault(require("dotenv"));
 const services_1 = require("../staking/services");
 dotenv_1.default.config();
-const anchor = __importStar(require("@project-serum/anchor"));
 const getPDAs_1 = require("../utils/getPDAs");
 // ✅ Function to initialize the staking pool and escrow account
 const initializeStakingPoolService = (mintPublicKey_1, ...args_1) => __awaiter(void 0, [mintPublicKey_1, ...args_1], void 0, function* (mintPublicKey, tokenType = getPDAs_1.TokenType.SPL, adminPublicKey) {
@@ -106,68 +72,6 @@ const initializeStakingPoolService = (mintPublicKey_1, ...args_1) => __awaiter(v
     }
 });
 exports.initializeStakingPoolService = initializeStakingPoolService;
-/**
- * Initialize the global revenue pool
- * @param mintPublicKey - The token mint address
- * @param tokenType - The token type
- * @param adminPublicKey - The admin public key
- * @returns Result object with transaction details and addresses
- */
-const initializeRevenuePoolService = (mintPublicKey_1, adminPublicKey_1, ...args_1) => __awaiter(void 0, [mintPublicKey_1, adminPublicKey_1, ...args_1], void 0, function* (mintPublicKey, adminPublicKey, tokenType = getPDAs_1.TokenType.SPL) {
-    try {
-        const { program, connection } = (0, services_1.getProgram)();
-        // Log initial parameters for clarity
-        console.log("Initializing Revenue Pool:");
-        console.log("Admin PublicKey:", adminPublicKey.toBase58());
-        console.log("Token Type:", tokenType === getPDAs_1.TokenType.SPL ? "SPL" : "SOL");
-        console.log("Mint PublicKey:", mintPublicKey.toBase58());
-        // Derive the PDA for the revenue pool
-        const revenuePoolPublicKey = (0, getPDAs_1.getRevenuePoolPDA)(adminPublicKey, tokenType);
-        // Derive the PDA for the revenue escrow account
-        const revenueEscrowPublicKey = (0, getPDAs_1.getRevenueEscrowPDA)(revenuePoolPublicKey);
-        console.log("🔹 Revenue Pool PDA Address:", revenuePoolPublicKey.toString());
-        console.log("🔹 Revenue Escrow PDA Address:", revenueEscrowPublicKey.toString());
-        // Get the latest blockhash
-        const { blockhash } = yield connection.getLatestBlockhash("finalized");
-        console.log("Latest Blockhash:", blockhash);
-        const actualMint = tokenType === getPDAs_1.TokenType.SOL
-            ? web3_js_1.SystemProgram.programId // Dummy mint for SOL
-            : mintPublicKey;
-        const tokenTypeArg = tokenType === getPDAs_1.TokenType.SPL ? { spl: {} } : { sol: {} };
-        // Create the transaction
-        const transaction = yield program.methods
-            .initializeRevenuePool(tokenTypeArg)
-            .accounts({
-            revenuePool: revenuePoolPublicKey,
-            revenueEscrowAccount: revenueEscrowPublicKey,
-            mint: actualMint,
-            admin: adminPublicKey,
-            systemProgram: anchor.web3.SystemProgram.programId,
-            tokenProgram: spl_token_1.TOKEN_2022_PROGRAM_ID,
-        })
-            .transaction();
-        // Set recent blockhash and fee payer
-        transaction.recentBlockhash = blockhash;
-        transaction.feePayer = adminPublicKey;
-        // Serialize transaction and send it to the frontend
-        return {
-            success: true,
-            message: "Transaction created successfully!",
-            revenuePoolPublicKey: revenuePoolPublicKey.toBase58(),
-            revenueEscrowAccountPublicKey: revenueEscrowPublicKey.toBase58(),
-            tokenType: tokenType === getPDAs_1.TokenType.SPL ? "SPL" : "SOL",
-            transaction: transaction.serialize({ requireAllSignatures: false }).toString('base64'),
-        };
-    }
-    catch (err) {
-        console.error("❌ Error initializing revenue pool:", err);
-        return {
-            success: false,
-            message: `Error initializing revenue pool: ${err.message || err}`
-        };
-    }
-});
-exports.initializeRevenuePoolService = initializeRevenuePoolService;
 /**
 * Initialize a prize pool for a specific tournament
 * @param tournamentId - The tournament ID
@@ -292,17 +196,13 @@ const initializeRewardPoolService = (mintPublicKey_1, adminPublicKey_1, ...args_
     }
 });
 exports.initializeRewardPoolService = initializeRewardPoolService;
-// ✅ Function to check pool status for staking, revenue, and prize pools
+// ✅ Function to check pool status for staking and reward pools
 const checkPoolStatus = (adminPublicKey, tokenType) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { program } = (0, services_1.getProgram)();
         const result = {
             success: true,
             stakingPool: {
-                status: false, // false = needs initialization, true = exists
-                tokenType: null,
-            },
-            revenuePool: {
                 status: false, // false = needs initialization, true = exists
                 tokenType: null,
             },
@@ -322,17 +222,7 @@ const checkPoolStatus = (adminPublicKey, tokenType) => __awaiter(void 0, void 0,
                 (stakingPoolAccount.tokenType.hasOwnProperty('spl') ? 'SPL' : 'SOL') :
                 null,
         };
-        // ✅ 2. Check Revenue Pool
-        const revenuePoolPublicKey = (0, getPDAs_1.getRevenuePoolPDA)(adminPublicKey, tokenType);
-        console.log("🔹 Checking Revenue Pool PDA:", revenuePoolPublicKey.toString());
-        const revenuePoolAccount = yield program.account.revenuePool.fetchNullable(revenuePoolPublicKey);
-        result.revenuePool = {
-            status: revenuePoolAccount !== null,
-            tokenType: revenuePoolAccount ?
-                (revenuePoolAccount.tokenType.hasOwnProperty('spl') ? 'SPL' : 'SOL') :
-                null,
-        };
-        // ✅ 3. Check Reward Pool
+        // ✅ 2. Check Reward Pool
         const rewardPoolPublicKey = (0, getPDAs_1.getRewardPoolPDA)(adminPublicKey, tokenType);
         console.log("🔹 Checking Reward Pool PDA:", rewardPoolPublicKey.toString());
         const rewardPoolAccount = yield program.account.rewardPool.fetchNullable(rewardPoolPublicKey);
@@ -353,4 +243,227 @@ const checkPoolStatus = (adminPublicKey, tokenType) => __awaiter(void 0, void 0,
     }
 });
 exports.checkPoolStatus = checkPoolStatus;
+// ==============================
+// PLATFORM CONFIGURATION SERVICES
+// ==============================
+/**
+ * Initialize platform configuration (super admin only, one-time)
+ * Sets the revenue share split between developers and platform
+ */
+const initializePlatformConfigService = (superAdminPublicKey_1, platformWalletPublicKey_1, ...args_1) => __awaiter(void 0, [superAdminPublicKey_1, platformWalletPublicKey_1, ...args_1], void 0, function* (superAdminPublicKey, platformWalletPublicKey, developerShareBps = 9000, platformShareBps = 1000) {
+    try {
+        const { program, connection } = (0, services_1.getProgram)();
+        const platformConfigPDA = (0, getPDAs_1.getPlatformConfigPDA)();
+        // Validate shares sum to 10000 (100%)
+        if (developerShareBps + platformShareBps !== 10000) {
+            return {
+                success: false,
+                message: `Share percentages must sum to 10000 (100%). Current total: ${developerShareBps + platformShareBps}`
+            };
+        }
+        // Validate share ranges
+        if (developerShareBps < 0 || developerShareBps > 10000 ||
+            platformShareBps < 0 || platformShareBps > 10000) {
+            return {
+                success: false,
+                message: "Share percentages must be between 0 and 10000"
+            };
+        }
+        console.log("Initializing Platform Config:");
+        console.log("🔹 Platform Config PDA:", platformConfigPDA.toString());
+        console.log("🔹 Super Admin:", superAdminPublicKey.toString());
+        console.log("🔹 Platform Wallet:", platformWalletPublicKey.toString());
+        console.log(`🔹 Developer Share: ${developerShareBps / 100}%`);
+        console.log(`🔹 Platform Share: ${platformShareBps / 100}%`);
+        const instruction = yield program.methods
+            .initializePlatformConfig(developerShareBps, platformShareBps)
+            .accounts({
+            platformConfig: platformConfigPDA,
+            platformWallet: platformWalletPublicKey,
+            superAdmin: superAdminPublicKey,
+            systemProgram: web3_js_1.SystemProgram.programId,
+        })
+            .instruction();
+        const transaction = new web3_js_1.Transaction().add(instruction);
+        const { blockhash } = yield connection.getLatestBlockhash("finalized");
+        transaction.recentBlockhash = blockhash;
+        transaction.feePayer = superAdminPublicKey;
+        return {
+            success: true,
+            message: "Platform config initialization transaction prepared",
+            platformConfigPDA: platformConfigPDA.toString(),
+            transaction: transaction.serialize({ requireAllSignatures: false }).toString('base64')
+        };
+    }
+    catch (error) {
+        console.error("❌ Error initializing platform config:", error);
+        return {
+            success: false,
+            message: `Error initializing platform config: ${error.message || error}`
+        };
+    }
+});
+exports.initializePlatformConfigService = initializePlatformConfigService;
+/**
+ * Update platform configuration (super admin only)
+ * Allows adjusting the revenue share percentages
+ */
+const updatePlatformConfigService = (superAdminPublicKey, developerShareBps, platformShareBps) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const { program, connection } = (0, services_1.getProgram)();
+        const platformConfigPDA = (0, getPDAs_1.getPlatformConfigPDA)();
+        // Validate shares sum to 10000 (100%)
+        if (developerShareBps + platformShareBps !== 10000) {
+            return {
+                success: false,
+                message: `Share percentages must sum to 10000 (100%). Current total: ${developerShareBps + platformShareBps}`
+            };
+        }
+        // Validate share ranges
+        if (developerShareBps < 0 || developerShareBps > 10000 ||
+            platformShareBps < 0 || platformShareBps > 10000) {
+            return {
+                success: false,
+                message: "Share percentages must be between 0 and 10000"
+            };
+        }
+        console.log("Updating Platform Config:");
+        console.log("🔹 Platform Config PDA:", platformConfigPDA.toString());
+        console.log("🔹 Super Admin:", superAdminPublicKey.toString());
+        console.log(`🔹 Developer Share: ${developerShareBps / 100}%`);
+        console.log(`🔹 Platform Share: ${platformShareBps / 100}%`);
+        const instruction = yield program.methods
+            .updatePlatformConfig(developerShareBps, platformShareBps)
+            .accounts({
+            platformConfig: platformConfigPDA,
+            superAdmin: superAdminPublicKey,
+        })
+            .instruction();
+        const transaction = new web3_js_1.Transaction().add(instruction);
+        const { blockhash } = yield connection.getLatestBlockhash("finalized");
+        transaction.recentBlockhash = blockhash;
+        transaction.feePayer = superAdminPublicKey;
+        return {
+            success: true,
+            message: "Platform config update transaction prepared",
+            transaction: transaction.serialize({ requireAllSignatures: false }).toString('base64')
+        };
+    }
+    catch (error) {
+        console.error("❌ Error updating platform config:", error);
+        return {
+            success: false,
+            message: `Error updating platform config: ${error.message || error}`
+        };
+    }
+});
+exports.updatePlatformConfigService = updatePlatformConfigService;
+/**
+ * Update platform wallet (super admin only)
+ */
+const updatePlatformWalletService = (superAdminPublicKey, newPlatformWalletPublicKey) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const { program, connection } = (0, services_1.getProgram)();
+        const platformConfigPDA = (0, getPDAs_1.getPlatformConfigPDA)();
+        console.log("Updating Platform Wallet:");
+        console.log("🔹 Platform Config PDA:", platformConfigPDA.toString());
+        console.log("🔹 Super Admin:", superAdminPublicKey.toString());
+        console.log("🔹 New Platform Wallet:", newPlatformWalletPublicKey.toString());
+        const instruction = yield program.methods
+            .updatePlatformWallet()
+            .accounts({
+            platformConfig: platformConfigPDA,
+            newPlatformWallet: newPlatformWalletPublicKey,
+            superAdmin: superAdminPublicKey,
+        })
+            .instruction();
+        const transaction = new web3_js_1.Transaction().add(instruction);
+        const { blockhash } = yield connection.getLatestBlockhash("finalized");
+        transaction.recentBlockhash = blockhash;
+        transaction.feePayer = superAdminPublicKey;
+        return {
+            success: true,
+            message: "Platform wallet update transaction prepared",
+            transaction: transaction.serialize({ requireAllSignatures: false }).toString('base64')
+        };
+    }
+    catch (error) {
+        console.error("❌ Error updating platform wallet:", error);
+        return {
+            success: false,
+            message: `Error updating platform wallet: ${error.message || error}`
+        };
+    }
+});
+exports.updatePlatformWalletService = updatePlatformWalletService;
+/**
+ * Transfer super admin role (super admin only)
+ */
+const transferSuperAdminService = (superAdminPublicKey, newSuperAdminPublicKey) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const { program, connection } = (0, services_1.getProgram)();
+        const platformConfigPDA = (0, getPDAs_1.getPlatformConfigPDA)();
+        console.log("Transferring Super Admin:");
+        console.log("🔹 Platform Config PDA:", platformConfigPDA.toString());
+        console.log("🔹 Current Super Admin:", superAdminPublicKey.toString());
+        console.log("🔹 New Super Admin:", newSuperAdminPublicKey.toString());
+        const instruction = yield program.methods
+            .transferSuperAdmin()
+            .accounts({
+            platformConfig: platformConfigPDA,
+            newSuperAdmin: newSuperAdminPublicKey,
+            superAdmin: superAdminPublicKey,
+        })
+            .instruction();
+        const transaction = new web3_js_1.Transaction().add(instruction);
+        const { blockhash } = yield connection.getLatestBlockhash("finalized");
+        transaction.recentBlockhash = blockhash;
+        transaction.feePayer = superAdminPublicKey;
+        return {
+            success: true,
+            message: "Super admin transfer transaction prepared",
+            transaction: transaction.serialize({ requireAllSignatures: false }).toString('base64')
+        };
+    }
+    catch (error) {
+        console.error("❌ Error transferring super admin:", error);
+        return {
+            success: false,
+            message: `Error transferring super admin: ${error.message || error}`
+        };
+    }
+});
+exports.transferSuperAdminService = transferSuperAdminService;
+/**
+ * Get platform configuration
+ */
+const getPlatformConfigService = () => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const { program } = (0, services_1.getProgram)();
+        const platformConfigPDA = (0, getPDAs_1.getPlatformConfigPDA)();
+        const config = (yield program.account.platformConfig.fetch(platformConfigPDA));
+        return {
+            success: true,
+            data: {
+                superAdmin: config.superAdmin.toString(),
+                platformWallet: config.platformWallet.toString(),
+                developerShareBps: Number(config.developerShareBps),
+                platformShareBps: Number(config.platformShareBps),
+                developerSharePercent: Number(config.developerShareBps) / 100,
+                platformSharePercent: Number(config.platformShareBps) / 100,
+                isInitialized: config.isInitialized,
+                bump: config.bump,
+            }
+        };
+    }
+    catch (error) {
+        console.error("❌ Error fetching platform config:", error);
+        return {
+            success: false,
+            message: `Error fetching platform config: ${error.message || error}`,
+            data: null
+        };
+    }
+});
+exports.getPlatformConfigService = getPlatformConfigService;
 //# sourceMappingURL=services.js.map

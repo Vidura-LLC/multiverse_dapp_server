@@ -23,6 +23,7 @@ const routes_1 = __importDefault(require("./webhooks/routes"));
 const adminDashboardRoutes_1 = __importDefault(require("./adminDashboard/adminDashboardRoutes"));
 const routes_2 = __importDefault(require("./game/routes"));
 const route_1 = __importDefault(require("./user/route"));
+const sdkRoutes_1 = __importDefault(require("./sdk/sdkRoutes"));
 const gamehubController_1 = require("./gamehub/gamehubController");
 const node_schedule_1 = __importDefault(require("node-schedule"));
 // Load environment variables
@@ -43,6 +44,7 @@ app.use("/api/gamehub/", gamehubRoutes_1.default);
 app.use('/api/revenue/', revenueRoutes_1.default);
 app.use('/api/webhooks/', routes_1.default);
 app.use('/api/game/', routes_2.default);
+app.use('/api/sdk/', sdkRoutes_1.default);
 // Server Port
 const PORT = process.env.PORT || 5000;
 app.get('/', (req, res) => {

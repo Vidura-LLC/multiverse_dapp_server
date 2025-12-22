@@ -299,8 +299,21 @@ const registerForTournamentService = (tournamentId, userPublicKey, adminPublicKe
     try {
         const { program, connection } = (0, services_1.getProgram)();
         const tournamentPoolPublicKey = (0, getPDAs_2.getTournamentPoolPDA)(adminPublicKey, tournamentId, tokenType);
+        // Check if tournament pool account exists before trying to fetch
+        const accountInfo = yield connection.getAccountInfo(tournamentPoolPublicKey);
+        if (!accountInfo) {
+            return {
+                success: false,
+                message: `Tournament pool has not been initialized on-chain. The tournament administrator needs to initialize the tournament pool before participants can register.`,
+                error: "TOURNAMENT_POOL_NOT_INITIALIZED",
+                tournamentPoolPDA: tournamentPoolPublicKey.toString()
+            };
+        }
+        // Account exists, fetch the data
         const tournamentPoolData = (yield program.account.tournamentPool.fetch(tournamentPoolPublicKey));
         const mintPublicKey = tournamentPoolData.mint;
+        // Log the keys for debugging
+        console.log(`🔍 Registration Debug - User: ${userPublicKey.toString()}, Mint: ${mintPublicKey.toString()}, TokenType: ${tokenType}`);
         let userTokenAccountPublicKey;
         let poolEscrowAccountPublicKey;
         if (tokenType === getPDAs_1.TokenType.SOL) {
@@ -308,8 +321,32 @@ const registerForTournamentService = (tournamentId, userPublicKey, adminPublicKe
             poolEscrowAccountPublicKey = web3_js_1.SystemProgram.programId;
         }
         else {
+            // For SPL tokens, validate that mint is not SystemProgram (which would be invalid)
+            if (mintPublicKey.equals(web3_js_1.SystemProgram.programId)) {
+                return {
+                    success: false,
+                    message: `Invalid mint for SPL tournament. The tournament pool has SystemProgram.programId as mint, which is only valid for SOL tournaments. Tournament pool may need to be reinitialized with a valid SPL token mint.`,
+                    error: "INVALID_SPL_MINT"
+                };
+            }
             poolEscrowAccountPublicKey = (0, getPDAs_1.getTournamentEscrowPDA)(tournamentPoolPublicKey);
-            userTokenAccountPublicKey = yield (0, spl_token_1.getAssociatedTokenAddressSync)(mintPublicKey, userPublicKey, false, spl_token_1.TOKEN_2022_PROGRAM_ID);
+            try {
+                userTokenAccountPublicKey = (0, spl_token_1.getAssociatedTokenAddressSync)(mintPublicKey, userPublicKey, false, spl_token_1.TOKEN_2022_PROGRAM_ID);
+                console.log(`✅ Derived ATA: ${userTokenAccountPublicKey.toString()}`);
+            }
+            catch (ataError) {
+                console.error(`❌ ATA Derivation Error - User: ${userPublicKey.toString()}, Mint: ${mintPublicKey.toString()}, Error: ${ataError.message}`);
+                return {
+                    success: false,
+                    message: `Failed to derive Associated Token Account address: ${ataError.message}. This usually means one of the public keys (user or mint) is not a valid ed25519 point on the curve. User: ${userPublicKey.toString()}, Mint: ${mintPublicKey.toString()}`,
+                    error: "ATA_DERIVATION_ERROR",
+                    details: {
+                        userPublicKey: userPublicKey.toString(),
+                        mintPublicKey: mintPublicKey.toString(),
+                        errorMessage: ataError.message
+                    }
+                };
+            }
             const userTokenAccountInfo = yield connection.getAccountInfo(userTokenAccountPublicKey);
             if (!userTokenAccountInfo) {
                 console.log("User Token Account does not exist. Creating ATA...");

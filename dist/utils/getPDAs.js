@@ -1,13 +1,11 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.PDA_SEEDS = exports.logAllPDAs = exports.getAllStakingPoolPDAs = exports.getAllPoolPDAs = exports.getRegistrationPDA = exports.getUserStakingPDA = exports.getPrizeEscrowPDA = exports.getPrizePoolPDA = exports.getTournamentEscrowPDA = exports.getTournamentPoolPDA = exports.getRewardEscrowPDA = exports.getRewardPoolPDA = exports.getRevenueEscrowPDA = exports.getRevenuePoolPDA = exports.getStakingEscrowPDA = exports.getSOLVaultPDA = exports.getStakingPoolPDA = exports.TokenType = exports.SEEDS = void 0;
+exports.PDA_SEEDS = exports.logAllPDAs = exports.getAllStakingPoolPDAs = exports.getAllPoolPDAs = exports.getPlatformConfigPDA = exports.getRegistrationPDA = exports.getUserStakingPDA = exports.getPrizeEscrowPDA = exports.getPrizePoolPDA = exports.getTournamentEscrowPDA = exports.getTournamentPoolPDA = exports.getRewardEscrowPDA = exports.getRewardPoolPDA = exports.getStakingEscrowPDA = exports.getSOLVaultPDA = exports.getStakingPoolPDA = exports.TokenType = exports.SEEDS = void 0;
 const web3_js_1 = require("@solana/web3.js");
 const services_1 = require("../staking/services");
 exports.SEEDS = {
     STAKING_POOL: "staking_pool",
     STAKING_POOL_ESCROW: "escrow",
-    REVENUE_POOL: "revenue_pool",
-    REVENUE_POOL_ESCROW: "revenue_escrow",
     PRIZE_POOL: "prize_pool",
     PRIZE_POOL_ESCROW: "prize_escrow",
     REWARD_POOL: "reward_pool",
@@ -17,6 +15,7 @@ exports.SEEDS = {
     REGISTRATION: "registration",
     TOURNAMENT_ESCROW: "escrow", // Tournament pool also uses "escrow" for its escrow
     SOL_VAULT: "sol_vault",
+    PLATFORM_CONFIG: "platform_config",
 };
 exports.PDA_SEEDS = exports.SEEDS;
 var TokenType;
@@ -60,27 +59,6 @@ const getStakingEscrowPDA = (stakingPoolPublicKey) => {
     return web3_js_1.PublicKey.findProgramAddressSync([Buffer.from(exports.SEEDS.STAKING_POOL_ESCROW), stakingPoolPublicKey.toBuffer()], program.programId)[0];
 };
 exports.getStakingEscrowPDA = getStakingEscrowPDA;
-/**
- * Get Revenue Pool PDA
- * @param adminPublicKey - Admin who initialized the pool
- * @param tokenType - Type of token (SPL or SOL)
- * @returns Revenue Pool PDA
- */
-const getRevenuePoolPDA = (adminPublicKey, tokenType) => {
-    const { program } = (0, services_1.getProgram)();
-    return web3_js_1.PublicKey.findProgramAddressSync([Buffer.from(exports.SEEDS.REVENUE_POOL), adminPublicKey.toBuffer(), Buffer.from([tokenType])], program.programId)[0];
-};
-exports.getRevenuePoolPDA = getRevenuePoolPDA;
-/**
- * Get Revenue Pool Escrow PDA
- * @param revenuePoolPublicKey - The revenue pool PDA
- * @returns Escrow account PDA for the revenue pool
- */
-const getRevenueEscrowPDA = (revenuePoolPublicKey) => {
-    const { program } = (0, services_1.getProgram)();
-    return web3_js_1.PublicKey.findProgramAddressSync([Buffer.from(exports.SEEDS.REVENUE_POOL_ESCROW), revenuePoolPublicKey.toBuffer()], program.programId)[0];
-};
-exports.getRevenueEscrowPDA = getRevenueEscrowPDA;
 /**
  * Get Reward Pool PDA
  * @param adminPublicKey - Admin who initialized the pool
@@ -169,6 +147,15 @@ const getRegistrationPDA = (tournamentPoolPublicKey, userPublicKey) => {
 };
 exports.getRegistrationPDA = getRegistrationPDA;
 /**
+ * Get Platform Config PDA
+ * @returns Platform Config PDA
+ */
+const getPlatformConfigPDA = () => {
+    const { program } = (0, services_1.getProgram)();
+    return web3_js_1.PublicKey.findProgramAddressSync([Buffer.from(exports.SEEDS.PLATFORM_CONFIG)], program.programId)[0];
+};
+exports.getPlatformConfigPDA = getPlatformConfigPDA;
+/**
  * Get all pool PDAs at once (convenience function)
  * @param adminPublicKey - Admin public key (optional)
  * @param opts - Optional parameters
@@ -184,9 +171,6 @@ const getAllPoolPDAs = (adminPublicKey, opts) => {
     // Staking-related PDAs
     const stakingPool = (0, exports.getStakingPoolPDA)(admin, tokenType);
     const stakingEscrow = (0, exports.getStakingEscrowPDA)(stakingPool);
-    // Revenue-related PDAs
-    const revenuePool = (0, exports.getRevenuePoolPDA)(admin, tokenType);
-    const revenueEscrow = (0, exports.getRevenueEscrowPDA)(revenuePool);
     // Reward-related PDAs
     const rewardPool = (0, exports.getRewardPoolPDA)(admin, tokenType);
     const rewardEscrow = (0, exports.getRewardEscrowPDA)(rewardPool);
@@ -214,8 +198,6 @@ const getAllPoolPDAs = (adminPublicKey, opts) => {
     return {
         stakingPool,
         stakingEscrow,
-        revenuePool,
-        revenueEscrow,
         rewardPool,
         rewardEscrow,
         tournamentPool,
@@ -273,8 +255,6 @@ const logAllPDAs = (adminPublicKey, opts) => {
     console.log("=== ALL PDAs ===");
     console.log("Staking Pool:", pdas.stakingPool.toBase58());
     console.log("Staking Escrow:", pdas.stakingEscrow.toBase58());
-    console.log("Revenue Pool:", pdas.revenuePool.toBase58());
-    console.log("Revenue Escrow:", pdas.revenueEscrow.toBase58());
     console.log("Reward Pool:", pdas.rewardPool.toBase58());
     console.log("Reward Escrow:", pdas.rewardEscrow.toBase58());
     if (pdas.tournamentPool) {

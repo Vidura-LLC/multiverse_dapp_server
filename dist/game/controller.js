@@ -9,7 +9,6 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.createGame = createGame;
 exports.getAllGames = getAllGames;
 exports.getGameById = getGameById;
 exports.getGamePerformanceMetrics = getGamePerformanceMetrics;
@@ -18,63 +17,63 @@ const database_1 = require("firebase/database");
 const firebase_1 = require("../config/firebase"); // Adjust import path
 const s3Service_1 = require("./s3Service");
 const getPDAs_1 = require("../utils/getPDAs");
-function createGame(req, res) {
-    return __awaiter(this, void 0, void 0, function* () {
-        try {
-            const { id, name, description, userId, status, adminPublicKey, image } = req.body;
-            // Validate required fields
-            if (!id || !name || !description || !userId || !status || !adminPublicKey) {
-                res.status(400).json({
-                    message: "Missing required fields: id, name, description, userId, status, adminPublicKey"
-                });
-                return;
-            }
-            // Validate status field  
-            const validStatuses = ["draft", "published"];
-            if (!validStatuses.includes(status)) {
-                res.status(400).json({
-                    message: "Invalid status. Must be one of: draft, published"
-                });
-                return;
-            }
-            // Create game object
-            const game = {
-                id,
-                userId,
-                name,
-                description,
-                image: image || "",
-                status: status,
-                createdAt: new Date(),
-                updatedAt: new Date(),
-                createdBy: adminPublicKey,
-            };
-            // Save to Firebase
-            try {
-                const gameRef = (0, database_1.ref)(firebase_1.db, "games");
-                const newGameRef = (0, database_1.push)(gameRef);
-                const gameId = newGameRef.key;
-                yield (0, database_1.set)(newGameRef, game);
-                res.status(201).json({
-                    message: "Game created successfully",
-                    gameId,
-                    game: Object.assign(Object.assign({}, game), { firebaseId: gameId })
-                });
-                return;
-            }
-            catch (dbError) {
-                console.error('Error saving to Firebase:', dbError);
-                res.status(500).json({ message: "Failed to save game to database" });
-                return;
-            }
-        }
-        catch (error) {
-            console.error('Unexpected error in createGame:', error);
-            res.status(500).json({ message: "Internal Server Error" });
-            return;
-        }
-    });
-}
+// export async function createGame(req: Request, res: Response): Promise<void> {
+//     try {
+//         const { id, name, description, userId, status, adminPublicKey, image } = req.body;
+//         // Validate required fields
+//         if (!id || !name || !description || !userId || !status || !adminPublicKey) {
+//             res.status(400).json({
+//                 message: "Missing required fields: id, name, description, userId, status, adminPublicKey"
+//             });
+//             return;
+//         }
+//         // Validate status field  
+//         const validStatuses = ["draft", "published"];
+//         if (!validStatuses.includes(status)) {
+//             res.status(400).json({
+//                 message: "Invalid status. Must be one of: draft, published"
+//             });
+//             return;
+//         }
+//         // Create game object
+//         const game: Game = {
+//             id,
+//             gameId: id as string,
+//             userId,
+//             name,
+//             description,
+//             image: image || "",
+//             status: status as TGameStatus,
+//             createdAt: new Date(),
+//             updatedAt: new Date(),
+//             createdBy: adminPublicKey,
+//         };
+//         // Save to Firebase
+//         try {
+//             const gameRef = ref(db, "games");
+//             const newGameRef = push(gameRef);
+//             const gameId = newGameRef.key;
+//             await set(newGameRef, game);
+//             res.status(201).json({
+//                 message: "Game created successfully",
+//                 gameId,
+//                 game: {
+//                     ...game,
+//                     firebaseId: gameId
+//                 }
+//             });
+//             return;
+//         } catch (dbError) {
+//             console.error('Error saving to Firebase:', dbError);
+//             res.status(500).json({ message: "Failed to save game to database" });
+//             return;
+//         }
+//     } catch (error) {
+//         console.error('Unexpected error in createGame:', error);
+//         res.status(500).json({ message: "Internal Server Error" });
+//         return;
+//     }
+// }
 function getAllGames(req, res) {
     return __awaiter(this, void 0, void 0, function* () {
         try {
@@ -153,12 +152,22 @@ function getGamePerformanceMetrics(req, res) {
                 }, 0);
                 // Calculate total revenue from distribution amounts (not entry fees)
                 // Revenue comes from the distribution.revenueAmount field after tournaments are distributed
+                // If revenueAmount is not available, calculate it from developerShare + platformShare
                 const totalRevenue = gameTournaments.reduce((sum, tournament) => {
                     // Check both 'distribution' and 'distributionDetails' for backward compatibility
                     const distribution = tournament.distribution || tournament.distributionDetails || {};
-                    const revenueAmount = distribution.revenueAmount || 0;
+                    // Only count tournaments that have distribution data (been distributed)
+                    if (!distribution || Object.keys(distribution).length === 0) {
+                        return sum;
+                    }
+                    // Try to get revenueAmount directly, or calculate from developerShare + platformShare
+                    let revenueAmount = distribution.revenueAmount;
+                    if (!revenueAmount && (distribution.developerShare || distribution.platformShare)) {
+                        // Calculate revenue as sum of developer and platform shares
+                        revenueAmount = (Number(distribution.developerShare) || 0) + (Number(distribution.platformShare) || 0);
+                    }
                     // revenueAmount is in base units, will be converted to tokens below
-                    return sum + Number(revenueAmount);
+                    return sum + Number(revenueAmount || 0);
                 }, 0);
                 // Count tournaments
                 const tournamentCount = gameTournaments.length;

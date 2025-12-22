@@ -14,8 +14,6 @@ router.post('/initialize-reward-pool', adminDashboardController_1.initializeRewa
 router.post('/initialize-prize-pool', adminDashboardController_1.initializePrizePoolController);
 // Route to confirm prize pool initialization after transaction is verified
 router.post('/confirm-prize-pool', adminDashboardController_1.confirmPrizePoolController);
-// Route for initializing the global revenue pool
-router.post('/initialize-revenue-pool', adminDashboardController_1.initializeRevenuePoolController);
 // Main route to get comprehensive staking statistics (for your dashboard)
 router.get('/staking/stats/:adminPublicKey', adminDashboardController_1.getStakingStatsController);
 // Route to get staking pool data only
@@ -34,5 +32,18 @@ router.get('/tournaments/stats', adminDashboardController_1.getTournamentStatsCo
 router.get('/revenue/stats/:adminPublicKey', adminDashboardController_1.getRevenuePoolStatsController);
 // Route to get dashboard data
 router.get('/dashboardStats/:adminPublicKey', adminDashboardController_1.getDashboardStatsController);
+// ==============================
+// PLATFORM CONFIGURATION ROUTES
+// ==============================
+// Route to initialize platform configuration (one-time setup)
+router.post('/platform-config/initialize', adminDashboardController_1.initializePlatformConfigController);
+// Route to update platform configuration (share percentages)
+router.post('/platform-config/update', adminDashboardController_1.updatePlatformConfigController);
+// Route to update platform wallet
+router.post('/platform-config/update-wallet', adminDashboardController_1.updatePlatformWalletController);
+// Route to transfer super admin role
+router.post('/platform-config/transfer-admin', adminDashboardController_1.transferSuperAdminController);
+// Route to get platform configuration
+router.get('/platform-config', adminDashboardController_1.getPlatformConfigController);
 exports.default = router;
 //# sourceMappingURL=adminDashboardRoutes.js.map

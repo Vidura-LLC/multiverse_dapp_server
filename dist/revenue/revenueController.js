@@ -10,7 +10,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.confirmPrizeDistributionController = exports.confirmDistributionController = exports.getAdminDistributionTotalsController = exports.getAdminPrizesDistributedController = exports.getTournamentPrizesDistributionController = exports.distributeTournamentPrizesController = exports.getTournamentDistributionController = exports.distributeTournamentRevenueController = void 0;
+exports.getPlatformRevenueByDeveloperController = exports.getPlatformRevenueHistoryController = exports.getPlatformRevenueController = exports.getDeveloperRevenueHistoryController = exports.getDeveloperRevenueController = exports.confirmPrizeDistributionController = exports.confirmDistributionController = exports.getAdminDistributionTotalsController = exports.getAdminPrizesDistributedController = exports.getTournamentPrizesDistributionController = exports.distributeTournamentPrizesController = exports.getTournamentDistributionController = exports.distributeTournamentRevenueController = void 0;
 const database_1 = require("firebase/database");
 const firebase_1 = require("../config/firebase");
 const web3_js_1 = require("@solana/web3.js");
@@ -533,29 +533,146 @@ const confirmDistributionController = (req, res) => __awaiter(void 0, void 0, vo
                 message: 'Tournament revenue has already been distributed'
             });
         }
-        // Update tournament with distribution info
-        yield (0, database_1.update)(tournamentRef, {
-            status: 'Distributed',
-            distributionCompleted: true,
-            distributionTimestamp: new Date().toISOString(),
-            distributionTransaction: transactionSignature,
-            distributionDetails: distribution ? {
-                prizeAmount: distribution.prizeAmount || 0,
-                revenueAmount: distribution.revenueAmount || 0,
-                stakingAmount: distribution.stakingAmount || 0,
-                burnAmount: distribution.burnAmount || 0,
-                totalDistributed: (distribution.prizeAmount || 0) + (distribution.revenueAmount || 0) + (distribution.stakingAmount || 0) + (distribution.burnAmount || 0),
-                transactionSignature: transactionSignature
-            } : {
-                prizeAmount: 0,
-                revenueAmount: 0,
-                stakingAmount: 0,
-                burnAmount: 0,
-                totalDistributed: 0,
-                transactionSignature: transactionSignature
+        // Get developer wallet (adminPublicKey) from tournament
+        const adminPublicKey = tournament.createdBy;
+        if (!adminPublicKey) {
+            return res.status(400).json({
+                success: false,
+                message: 'Tournament creator (adminPublicKey) not found'
+            });
+        }
+        // Extract distribution details
+        const distributionDetails = distribution || {};
+        const developerShare = distributionDetails.developerShare || 0;
+        const platformShare = distributionDetails.platformShare || 0;
+        const revenueAmount = distributionDetails.revenueAmount || (developerShare + platformShare);
+        const prizeAmount = distributionDetails.prizeAmount || 0;
+        const stakingAmount = distributionDetails.stakingAmount || 0;
+        const burnAmount = distributionDetails.burnAmount || 0;
+        const totalFunds = distributionDetails.totalFunds || 0;
+        // Calculate share percentages dynamically
+        const developerSharePercent = revenueAmount > 0
+            ? Math.round((developerShare / revenueAmount) * 100)
+            : 90; // Default to 90% if revenueAmount is 0
+        const platformSharePercent = revenueAmount > 0
+            ? Math.round((platformShare / revenueAmount) * 100)
+            : 10; // Default to 10% if revenueAmount is 0
+        // Convert token type to string key
+        const tokenKey = tt === getPDAs_1.TokenType.SOL ? "SOL" : "SPL";
+        const currentTimestamp = Date.now();
+        // Track DEVELOPER revenue in Firebase (non-blocking - transaction already succeeded on-chain)
+        console.log("📊 Tracking developer revenue in Firebase...");
+        try {
+            const developerRef = (0, database_1.ref)(firebase_1.db, `developerRevenue/${adminPublicKey}`);
+            const developerSnapshot = yield (0, database_1.get)(developerRef);
+            const developerHistoryEntry = {
+                tournamentId,
+                tournamentName: tournament.name || tournament.tournamentName || tournamentId,
+                gameId: tournament.gameId || tournament.game || "",
+                amount: developerShare, // Amount in base units
+                tokenType: tokenKey,
+                sharePercent: developerSharePercent,
+                timestamp: currentTimestamp,
+                txSignature: transactionSignature
+            };
+            if (developerSnapshot.exists()) {
+                const data = developerSnapshot.val();
+                const existingHistory = data.history || [];
+                const currentTotalEarned = data.totalEarned || { SOL: 0, SPL: 0 };
+                yield (0, database_1.update)(developerRef, {
+                    walletAddress: adminPublicKey,
+                    totalEarned: Object.assign(Object.assign({}, currentTotalEarned), { [tokenKey]: (currentTotalEarned[tokenKey] || 0) + developerShare }),
+                    tournamentsCount: (data.tournamentsCount || 0) + 1,
+                    lastDistribution: currentTimestamp,
+                    history: [...existingHistory, developerHistoryEntry]
+                });
+                console.log(`✅ Updated developer revenue for ${adminPublicKey}`);
             }
-        });
-        console.log(`✅ Tournament ${tournamentId} distribution confirmed`);
+            else {
+                yield (0, database_1.set)(developerRef, {
+                    walletAddress: adminPublicKey,
+                    totalEarned: {
+                        SOL: tokenKey === "SOL" ? developerShare : 0,
+                        SPL: tokenKey === "SPL" ? developerShare : 0
+                    },
+                    tournamentsCount: 1,
+                    lastDistribution: currentTimestamp,
+                    history: [developerHistoryEntry]
+                });
+                console.log(`✅ Created developer revenue record for ${adminPublicKey}`);
+            }
+        }
+        catch (firebaseError) {
+            console.warn(`⚠️ Failed to track developer revenue in Firebase (transaction succeeded on-chain):`, firebaseError.message);
+            // Continue - transaction already succeeded on-chain, Firebase tracking is secondary
+        }
+        // Track PLATFORM revenue in Firebase (non-blocking - transaction already succeeded on-chain)
+        console.log("📊 Tracking platform revenue in Firebase...");
+        try {
+            const platformRef = (0, database_1.ref)(firebase_1.db, `platformRevenue`);
+            const platformSnapshot = yield (0, database_1.get)(platformRef);
+            const platformHistoryEntry = {
+                tournamentId,
+                developerWallet: adminPublicKey,
+                amount: platformShare, // Amount in base units
+                tokenType: tokenKey,
+                sharePercent: platformSharePercent,
+                timestamp: currentTimestamp,
+                txSignature: transactionSignature
+            };
+            if (platformSnapshot.exists()) {
+                const data = platformSnapshot.val();
+                const existingHistory = data.history || [];
+                const currentTotalEarned = data.totalEarned || { SOL: 0, SPL: 0 };
+                yield (0, database_1.update)(platformRef, {
+                    totalEarned: Object.assign(Object.assign({}, currentTotalEarned), { [tokenKey]: (currentTotalEarned[tokenKey] || 0) + platformShare }),
+                    tournamentsCount: (data.tournamentsCount || 0) + 1,
+                    lastDistribution: currentTimestamp,
+                    history: [...existingHistory, platformHistoryEntry]
+                });
+                console.log(`✅ Updated platform revenue`);
+            }
+            else {
+                yield (0, database_1.set)(platformRef, {
+                    totalEarned: {
+                        SOL: tokenKey === "SOL" ? platformShare : 0,
+                        SPL: tokenKey === "SPL" ? platformShare : 0
+                    },
+                    tournamentsCount: 1,
+                    lastDistribution: currentTimestamp,
+                    history: [platformHistoryEntry]
+                });
+                console.log(`✅ Created platform revenue record`);
+            }
+        }
+        catch (firebaseError) {
+            console.warn(`⚠️ Failed to track platform revenue in Firebase (transaction succeeded on-chain):`, firebaseError.message);
+            // Continue - transaction already succeeded on-chain, Firebase tracking is secondary
+        }
+        // Update tournament with distribution info (non-blocking - transaction already succeeded on-chain)
+        try {
+            yield (0, database_1.update)(tournamentRef, {
+                status: 'Distributed',
+                distributionCompleted: true,
+                distributionTimestamp: currentTimestamp,
+                distributionTransaction: transactionSignature,
+                distributionDetails: {
+                    prizeAmount,
+                    developerShare,
+                    platformShare,
+                    stakingAmount,
+                    burnAmount,
+                    totalFunds,
+                    totalDistributed: prizeAmount + developerShare + platformShare + stakingAmount + burnAmount,
+                    transactionSignature: transactionSignature
+                }
+            });
+            console.log(`✅ Tournament ${tournamentId} distribution confirmed and revenue tracked`);
+        }
+        catch (firebaseError) {
+            console.warn(`⚠️ Failed to update tournament status in Firebase (transaction succeeded on-chain):`, firebaseError.message);
+            // Continue - transaction already succeeded on-chain, Firebase update is secondary
+        }
         return res.status(200).json({
             success: true,
             message: 'Tournament revenue distribution confirmed successfully',
@@ -682,4 +799,315 @@ const confirmPrizeDistributionController = (req, res) => __awaiter(void 0, void 
     }
 });
 exports.confirmPrizeDistributionController = confirmPrizeDistributionController;
+/**
+ * Get developer revenue statistics
+ * GET /api/revenue/developer/:developerPublicKey
+ */
+const getDeveloperRevenueController = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a, _b;
+    const { developerPublicKey } = req.params;
+    if (!developerPublicKey) {
+        return res.status(400).json({
+            success: false,
+            message: 'Developer public key is required'
+        });
+    }
+    try {
+        const developerRef = (0, database_1.ref)(firebase_1.db, `developerRevenue/${developerPublicKey}`);
+        const developerSnapshot = yield (0, database_1.get)(developerRef);
+        if (!developerSnapshot.exists()) {
+            return res.status(200).json({
+                success: true,
+                data: {
+                    walletAddress: developerPublicKey,
+                    totalEarned: { SOL: 0, SPL: 0 },
+                    tournamentsCount: 0,
+                    lastDistribution: null,
+                    history: []
+                }
+            });
+        }
+        const developerData = developerSnapshot.val();
+        // Convert amounts from base units to readable format
+        const tokenDecimals = 9;
+        const totalEarnedSOL = (((_a = developerData.totalEarned) === null || _a === void 0 ? void 0 : _a.SOL) || 0) / (Math.pow(10, tokenDecimals));
+        const totalEarnedSPL = (((_b = developerData.totalEarned) === null || _b === void 0 ? void 0 : _b.SPL) || 0) / (Math.pow(10, tokenDecimals));
+        return res.status(200).json({
+            success: true,
+            data: {
+                walletAddress: developerData.walletAddress || developerPublicKey,
+                totalEarned: {
+                    SOL: totalEarnedSOL,
+                    SPL: totalEarnedSPL
+                },
+                tournamentsCount: developerData.tournamentsCount || 0,
+                lastDistribution: developerData.lastDistribution || null,
+                history: developerData.history || []
+            }
+        });
+    }
+    catch (err) {
+        console.error('Error fetching developer revenue:', err);
+        // Handle Firebase permission errors gracefully - return empty data instead of error
+        if (err.message && err.message.includes('Permission denied')) {
+            return res.status(200).json({
+                success: true,
+                data: {
+                    walletAddress: developerPublicKey,
+                    totalEarned: { SOL: 0, SPL: 0 },
+                    tournamentsCount: 0,
+                    lastDistribution: null,
+                    history: []
+                }
+            });
+        }
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to fetch developer revenue',
+            error: err.message || err
+        });
+    }
+});
+exports.getDeveloperRevenueController = getDeveloperRevenueController;
+/**
+ * Get developer revenue history (paginated)
+ * GET /api/revenue/developer/:developerPublicKey/history
+ */
+const getDeveloperRevenueHistoryController = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const { developerPublicKey } = req.params;
+        const { page = 1, limit: limitParam = 20, tokenType } = req.query;
+        if (!developerPublicKey) {
+            return res.status(400).json({
+                success: false,
+                message: 'Developer public key is required'
+            });
+        }
+        const developerRef = (0, database_1.ref)(firebase_1.db, `developerRevenue/${developerPublicKey}`);
+        const developerSnapshot = yield (0, database_1.get)(developerRef);
+        if (!developerSnapshot.exists()) {
+            return res.status(200).json({
+                success: true,
+                data: {
+                    history: [],
+                    total: 0,
+                    page: Number(page),
+                    limit: Number(limitParam)
+                }
+            });
+        }
+        const developerData = developerSnapshot.val();
+        let history = developerData.history || [];
+        // Filter by token type if provided
+        if (tokenType) {
+            history = history.filter((entry) => entry.tokenType === tokenType);
+        }
+        // Sort by timestamp descending (newest first)
+        history.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+        // Paginate
+        const pageNum = Number(page);
+        const limitNum = Number(limitParam);
+        const startIndex = (pageNum - 1) * limitNum;
+        const endIndex = startIndex + limitNum;
+        const paginatedHistory = history.slice(startIndex, endIndex);
+        // Convert amounts from base units to readable format
+        const tokenDecimals = 9;
+        const formattedHistory = paginatedHistory.map((entry) => (Object.assign(Object.assign({}, entry), { amount: entry.amount / (Math.pow(10, tokenDecimals)) })));
+        return res.status(200).json({
+            success: true,
+            data: {
+                history: formattedHistory,
+                total: history.length,
+                page: pageNum,
+                limit: limitNum,
+                totalPages: Math.ceil(history.length / limitNum)
+            }
+        });
+    }
+    catch (err) {
+        console.error('Error fetching developer revenue history:', err);
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to fetch developer revenue history',
+            error: err.message || err
+        });
+    }
+});
+exports.getDeveloperRevenueHistoryController = getDeveloperRevenueHistoryController;
+/**
+ * Get platform revenue statistics (admin only)
+ * GET /api/revenue/platform
+ */
+const getPlatformRevenueController = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a, _b;
+    try {
+        const platformRef = (0, database_1.ref)(firebase_1.db, `platformRevenue`);
+        const platformSnapshot = yield (0, database_1.get)(platformRef);
+        if (!platformSnapshot.exists()) {
+            return res.status(200).json({
+                success: true,
+                data: {
+                    totalEarned: { SOL: 0, SPL: 0 },
+                    tournamentsCount: 0,
+                    lastDistribution: null,
+                    history: []
+                }
+            });
+        }
+        const platformData = platformSnapshot.val();
+        // Convert amounts from base units to readable format
+        const tokenDecimals = 9;
+        const totalEarnedSOL = (((_a = platformData.totalEarned) === null || _a === void 0 ? void 0 : _a.SOL) || 0) / (Math.pow(10, tokenDecimals));
+        const totalEarnedSPL = (((_b = platformData.totalEarned) === null || _b === void 0 ? void 0 : _b.SPL) || 0) / (Math.pow(10, tokenDecimals));
+        return res.status(200).json({
+            success: true,
+            data: {
+                totalEarned: {
+                    SOL: totalEarnedSOL,
+                    SPL: totalEarnedSPL
+                },
+                tournamentsCount: platformData.tournamentsCount || 0,
+                lastDistribution: platformData.lastDistribution || null,
+                history: platformData.history || []
+            }
+        });
+    }
+    catch (err) {
+        console.error('Error fetching platform revenue:', err);
+        // Handle Firebase permission errors gracefully - return empty data instead of error
+        if (err.message && err.message.includes('Permission denied')) {
+            return res.status(200).json({
+                success: true,
+                data: {
+                    totalEarned: { SOL: 0, SPL: 0 },
+                    tournamentsCount: 0,
+                    lastDistribution: null,
+                    history: []
+                }
+            });
+        }
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to fetch platform revenue',
+            error: err.message || err
+        });
+    }
+});
+exports.getPlatformRevenueController = getPlatformRevenueController;
+/**
+ * Get platform revenue history (paginated, admin only)
+ * GET /api/revenue/platform/history
+ */
+const getPlatformRevenueHistoryController = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const { page = 1, limit: limitParam = 20, tokenType } = req.query;
+        const platformRef = (0, database_1.ref)(firebase_1.db, `platformRevenue`);
+        const platformSnapshot = yield (0, database_1.get)(platformRef);
+        if (!platformSnapshot.exists()) {
+            return res.status(200).json({
+                success: true,
+                data: {
+                    history: [],
+                    total: 0,
+                    page: Number(page),
+                    limit: Number(limitParam)
+                }
+            });
+        }
+        const platformData = platformSnapshot.val();
+        let history = platformData.history || [];
+        // Filter by token type if provided
+        if (tokenType) {
+            history = history.filter((entry) => entry.tokenType === tokenType);
+        }
+        // Sort by timestamp descending (newest first)
+        history.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+        // Paginate
+        const pageNum = Number(page);
+        const limitNum = Number(limitParam);
+        const startIndex = (pageNum - 1) * limitNum;
+        const endIndex = startIndex + limitNum;
+        const paginatedHistory = history.slice(startIndex, endIndex);
+        // Convert amounts from base units to readable format
+        const tokenDecimals = 9;
+        const formattedHistory = paginatedHistory.map((entry) => (Object.assign(Object.assign({}, entry), { amount: entry.amount / (Math.pow(10, tokenDecimals)) })));
+        return res.status(200).json({
+            success: true,
+            data: {
+                history: formattedHistory,
+                total: history.length,
+                page: pageNum,
+                limit: limitNum,
+                totalPages: Math.ceil(history.length / limitNum)
+            }
+        });
+    }
+    catch (err) {
+        console.error('Error fetching platform revenue history:', err);
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to fetch platform revenue history',
+            error: err.message || err
+        });
+    }
+});
+exports.getPlatformRevenueHistoryController = getPlatformRevenueHistoryController;
+/**
+ * Get platform revenue grouped by developer (admin only)
+ * GET /api/revenue/platform/by-developer
+ */
+const getPlatformRevenueByDeveloperController = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const platformRef = (0, database_1.ref)(firebase_1.db, `platformRevenue`);
+        const platformSnapshot = yield (0, database_1.get)(platformRef);
+        if (!platformSnapshot.exists()) {
+            return res.status(200).json({
+                success: true,
+                data: []
+            });
+        }
+        const platformData = platformSnapshot.val();
+        const history = platformData.history || [];
+        // Group by developer wallet
+        const byDeveloper = {};
+        history.forEach((entry) => {
+            const devWallet = entry.developerWallet;
+            if (!devWallet)
+                return;
+            if (!byDeveloper[devWallet]) {
+                byDeveloper[devWallet] = {
+                    developerWallet: devWallet,
+                    totalSOL: 0,
+                    totalSPL: 0,
+                    count: 0
+                };
+            }
+            if (entry.tokenType === 'SOL') {
+                byDeveloper[devWallet].totalSOL += entry.amount || 0;
+            }
+            else if (entry.tokenType === 'SPL') {
+                byDeveloper[devWallet].totalSPL += entry.amount || 0;
+            }
+            byDeveloper[devWallet].count += 1;
+        });
+        // Convert amounts from base units to readable format
+        const tokenDecimals = 9;
+        const result = Object.values(byDeveloper).map((dev) => (Object.assign(Object.assign({}, dev), { totalSOL: dev.totalSOL / (Math.pow(10, tokenDecimals)), totalSPL: dev.totalSPL / (Math.pow(10, tokenDecimals)) })));
+        // Sort by total revenue (SOL + SPL combined)
+        result.sort((a, b) => (b.totalSOL + b.totalSPL) - (a.totalSOL + a.totalSPL));
+        return res.status(200).json({
+            success: true,
+            data: result
+        });
+    }
+    catch (err) {
+        console.error('Error fetching platform revenue by developer:', err);
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to fetch platform revenue by developer',
+            error: err.message || err
+        });
+    }
+});
+exports.getPlatformRevenueByDeveloperController = getPlatformRevenueByDeveloperController;
 //# sourceMappingURL=revenueController.js.map

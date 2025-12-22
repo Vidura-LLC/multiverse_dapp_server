@@ -30,8 +30,29 @@ exports.DEFAULT_SPLITS = {
     BURN: 5 // 5% to burn (2.5% Kaya and 2.5% CRD)
 };
 /**
- * Distribute tournament revenue according to the specified percentages
- */
+* Helper to ensure a Token-2022 ATA exists for a wallet
+* Returns the ATA address and optional creation instruction
+*/
+const ensureTokenAccount = (connection, mintPublicKey, ownerPublicKey, payerPublicKey) => __awaiter(void 0, void 0, void 0, function* () {
+    const tokenAccount = (0, spl_token_1.getAssociatedTokenAddressSync)(mintPublicKey, ownerPublicKey, false, // allowOwnerOffCurve
+    spl_token_1.TOKEN_2022_PROGRAM_ID);
+    const accountInfo = yield connection.getAccountInfo(tokenAccount);
+    if (!accountInfo) {
+        console.log(`   ⚠️ Token account does not exist for ${ownerPublicKey.toString().slice(0, 8)}... Will create.`);
+        const createInstruction = (0, spl_token_1.createAssociatedTokenAccountInstruction)(payerPublicKey, // payer
+        tokenAccount, // ata
+        ownerPublicKey, // owner
+        mintPublicKey, // mint
+        spl_token_1.TOKEN_2022_PROGRAM_ID // program
+        );
+        return { tokenAccount, createInstruction };
+    }
+    console.log(`   ✅ Token account exists for ${ownerPublicKey.toString().slice(0, 8)}...`);
+    return { tokenAccount, createInstruction: null };
+});
+/**
+* Distribute tournament revenue according to the specified percentages
+*/
 const distributeTournamentRevenueService = (tournamentId_1, ...args_1) => __awaiter(void 0, [tournamentId_1, ...args_1], void 0, function* (tournamentId, prizePercentage = exports.DEFAULT_SPLITS.PRIZE_POOL, revenuePercentage = exports.DEFAULT_SPLITS.REVENUE_POOL, stakingPercentage = exports.DEFAULT_SPLITS.STAKING_REWARD_POOL, burnPercentage = exports.DEFAULT_SPLITS.BURN, adminPublicKey, tokenType) {
     try {
         const { program, connection } = (0, services_2.getProgram)();
@@ -58,19 +79,34 @@ const distributeTournamentRevenueService = (tournamentId_1, ...args_1) => __awai
                 message: "Tournament revenue has already been distributed"
             };
         }
-        // 2. Derive all necessary PDAs
+        // 2. Get platform config for wallet addresses
+        console.log("Fetching platform config...");
+        const platformConfigPDA = (0, getPDAs_1.getPlatformConfigPDA)();
+        let platformConfig;
+        try {
+            platformConfig = (yield program.account.platformConfig.fetch(platformConfigPDA));
+            console.log("🔹 Platform Config PDA:", platformConfigPDA.toString());
+            console.log("🔹 Developer Share BPS:", platformConfig.developerShareBps.toString());
+            console.log("🔹 Platform Share BPS:", platformConfig.platformShareBps.toString());
+            console.log("🔹 Platform Wallet:", platformConfig.platformWallet.toString());
+        }
+        catch (error) {
+            return {
+                success: false,
+                message: `Platform config not initialized. Please initialize platform config first. Error: ${error.message || error}`
+            };
+        }
+        // 3. Derive all necessary PDAs
         console.log("Deriving program addresses...");
         const tournamentPoolPublicKey = (0, getPDAs_1.getTournamentPoolPDA)(adminPublicKey, tournamentId, tokenType);
         console.log("🔹 Tournament Pool PDA:", tournamentPoolPublicKey.toString());
         const prizePoolPublicKey = (0, getPDAs_1.getPrizePoolPDA)(tournamentPoolPublicKey);
         console.log("🔹 Prize Pool PDA:", prizePoolPublicKey.toString());
-        const revenuePoolPublicKey = (0, getPDAs_1.getRevenuePoolPDA)(adminPublicKey, tokenType);
-        console.log("🔹 Revenue Pool PDA:", revenuePoolPublicKey.toString());
         const stakingPoolPublicKey = (0, getPDAs_1.getStakingPoolPDA)(adminPublicKey, tokenType);
         console.log("🔹 Staking Pool PDA:", stakingPoolPublicKey.toString());
         const rewardPoolPublicKey = (0, getPDAs_1.getRewardPoolPDA)(adminPublicKey, tokenType);
         console.log("🔹 Reward Pool PDA:", rewardPoolPublicKey.toString());
-        // 3. Fetch tournament data from blockchain
+        // 4. Fetch tournament data from blockchain
         console.log("Fetching tournament data from blockchain...");
         const tournamentPoolResult = yield (0, services_1.getTournamentPool)(tournamentId, adminPublicKey, tokenType);
         if (!tournamentPoolResult.success) {
@@ -88,18 +124,27 @@ const distributeTournamentRevenueService = (tournamentId_1, ...args_1) => __awai
                 message: "Tournament has no funds to distribute"
             };
         }
-        // 4. Determine accounts based on token type
+        // 5. Set up developer and platform wallets
+        // Developer wallet = tournament creator (adminPublicKey)
+        const developerWallet = adminPublicKey;
+        const platformWallet = platformConfig.platformWallet;
+        console.log("🔹 Developer Wallet:", developerWallet.toString());
+        console.log("🔹 Platform Wallet:", platformWallet.toString());
+        // 6. Determine accounts based on token type
         let mintPublicKey;
         let tournamentEscrowPublicKey;
         let prizeEscrowPublicKey;
-        let revenueEscrowPublicKey;
         let rewardEscrowPublicKey;
         let tokenProgramId;
+        // Token accounts for developer and platform (for SPL only)
+        let developerTokenAccount = web3_js_1.SystemProgram.programId;
+        let platformTokenAccount = web3_js_1.SystemProgram.programId;
+        // Track ATA creation instructions
+        const ataCreationInstructions = [];
         if (tokenType === getPDAs_1.TokenType.SOL) {
             mintPublicKey = web3_js_1.SystemProgram.programId;
             tournamentEscrowPublicKey = web3_js_1.SystemProgram.programId;
             prizeEscrowPublicKey = web3_js_1.SystemProgram.programId;
-            revenueEscrowPublicKey = web3_js_1.SystemProgram.programId;
             rewardEscrowPublicKey = web3_js_1.SystemProgram.programId;
             tokenProgramId = web3_js_1.SystemProgram.programId;
             console.log("🔹 Token Type: SOL (no escrow accounts needed)");
@@ -109,17 +154,36 @@ const distributeTournamentRevenueService = (tournamentId_1, ...args_1) => __awai
             mintPublicKey = new web3_js_1.PublicKey(tournamentPoolData.mint);
             tournamentEscrowPublicKey = (0, getPDAs_1.getTournamentEscrowPDA)(tournamentPoolPublicKey);
             prizeEscrowPublicKey = (0, getPDAs_1.getPrizeEscrowPDA)(prizePoolPublicKey);
-            revenueEscrowPublicKey = (0, getPDAs_1.getRevenueEscrowPDA)(revenuePoolPublicKey);
             rewardEscrowPublicKey = (0, getPDAs_1.getRewardEscrowPDA)(rewardPoolPublicKey);
             tokenProgramId = spl_token_1.TOKEN_2022_PROGRAM_ID;
             console.log("🔹 Token Type: SPL");
             console.log("🔹 Token Mint:", mintPublicKey.toString());
             console.log("🔹 Tournament Escrow:", tournamentEscrowPublicKey.toString());
             console.log("🔹 Prize Escrow:", prizeEscrowPublicKey.toString());
-            console.log("🔹 Revenue Escrow:", revenueEscrowPublicKey.toString());
             console.log("🔹 Reward Escrow:", rewardEscrowPublicKey.toString());
+            // ✅ NEW: Check and create developer token account if needed
+            console.log("🔍 Checking developer token account...");
+            const developerResult = yield ensureTokenAccount(connection, mintPublicKey, developerWallet, adminPublicKey // payer
+            );
+            developerTokenAccount = developerResult.tokenAccount;
+            if (developerResult.createInstruction) {
+                ataCreationInstructions.push(developerResult.createInstruction);
+            }
+            // ✅ NEW: Check and create platform token account if needed
+            console.log("🔍 Checking platform token account...");
+            const platformResult = yield ensureTokenAccount(connection, mintPublicKey, platformWallet, adminPublicKey // developer pays for platform ATA creation
+            );
+            platformTokenAccount = platformResult.tokenAccount;
+            if (platformResult.createInstruction) {
+                ataCreationInstructions.push(platformResult.createInstruction);
+            }
+            console.log("🔹 Developer Token Account:", developerTokenAccount.toString());
+            console.log("🔹 Platform Token Account:", platformTokenAccount.toString());
+            if (ataCreationInstructions.length > 0) {
+                console.log(`📝 Will create ${ataCreationInstructions.length} token account(s) in this transaction`);
+            }
         }
-        // 5. Validate percentages
+        // 7. Validate percentages
         const totalPercentage = prizePercentage + revenuePercentage + stakingPercentage + burnPercentage;
         if (totalPercentage !== 100) {
             return {
@@ -132,23 +196,28 @@ const distributeTournamentRevenueService = (tournamentId_1, ...args_1) => __awai
         console.log(`   Revenue Pool: ${revenuePercentage}%`);
         console.log(`   Staking Rewards: ${stakingPercentage}%`);
         console.log(`   Burn: ${burnPercentage}%`);
-        // 6. Create transaction with compute budget
+        // 8. Create transaction with compute budget
         console.log("Creating distribution transaction...");
+        // Increase compute budget if creating ATAs
+        const computeUnits = ataCreationInstructions.length > 0 ? 500000 : 400000;
         const computeBudgetInstruction = web3_js_1.ComputeBudgetProgram.setComputeUnitLimit({
-            units: 400000,
+            units: computeUnits,
         });
         const distributionInstruction = yield program.methods
             .distributeTournamentRevenue(tournamentId, prizePercentage, revenuePercentage, stakingPercentage, burnPercentage)
             .accounts({
             creator: adminPublicKey,
             tournamentPool: tournamentPoolPublicKey,
+            platformConfig: platformConfigPDA,
             prizePool: prizePoolPublicKey,
-            revenuePool: revenuePoolPublicKey,
             rewardPool: rewardPoolPublicKey,
             stakingPool: stakingPoolPublicKey,
+            developerWallet: developerWallet,
+            platformWallet: platformWallet,
+            developerTokenAccount: developerTokenAccount,
+            platformTokenAccount: platformTokenAccount,
             tournamentEscrowAccount: tournamentEscrowPublicKey,
             prizeEscrowAccount: prizeEscrowPublicKey,
-            revenueEscrowAccount: revenueEscrowPublicKey,
             rewardEscrowAccount: rewardEscrowPublicKey,
             mint: mintPublicKey,
             tokenProgram: tokenProgramId,
@@ -159,7 +228,6 @@ const distributeTournamentRevenueService = (tournamentId_1, ...args_1) => __awai
         console.log("🔧 Adjusting account properties for distribution...");
         const nonSignerAccounts = [
             { pubkey: prizePoolPublicKey, name: 'prize_pool' },
-            { pubkey: revenuePoolPublicKey, name: 'revenue_pool' },
             { pubkey: rewardPoolPublicKey, name: 'reward_pool' }
         ];
         nonSignerAccounts.forEach(({ pubkey, name }) => {
@@ -181,9 +249,18 @@ const distributeTournamentRevenueService = (tournamentId_1, ...args_1) => __awai
                 ...writableAccounts,
                 { pubkey: tournamentEscrowPublicKey, name: 'tournament_escrow' },
                 { pubkey: prizeEscrowPublicKey, name: 'prize_escrow' },
-                { pubkey: revenueEscrowPublicKey, name: 'revenue_escrow' },
                 { pubkey: rewardEscrowPublicKey, name: 'reward_escrow' },
+                { pubkey: developerTokenAccount, name: 'developer_token_account' },
+                { pubkey: platformTokenAccount, name: 'platform_token_account' },
                 { pubkey: mintPublicKey, name: 'mint' }
+            ];
+        }
+        else {
+            // For SOL, mark developer and platform wallets as writable
+            writableAccounts = [
+                ...writableAccounts,
+                { pubkey: developerWallet, name: 'developer_wallet' },
+                { pubkey: platformWallet, name: 'platform_wallet' }
             ];
         }
         writableAccounts.forEach(({ pubkey, name }) => {
@@ -196,10 +273,20 @@ const distributeTournamentRevenueService = (tournamentId_1, ...args_1) => __awai
                 console.log(`   ⚠️ Warning: ${name} account not found in instruction`);
             }
         });
-        // Create transaction with both instructions
-        const transaction = new web3_js_1.Transaction()
-            .add(computeBudgetInstruction)
-            .add(distributionInstruction);
+        // ✅ Build transaction with ATA creation instructions first (if needed)
+        const transaction = new web3_js_1.Transaction();
+        // 1. Add compute budget
+        transaction.add(computeBudgetInstruction);
+        // 2. Add ATA creation instructions (if any accounts need to be created)
+        if (ataCreationInstructions.length > 0) {
+            console.log(`📝 Adding ${ataCreationInstructions.length} ATA creation instruction(s) to transaction...`);
+            ataCreationInstructions.forEach((ix, index) => {
+                transaction.add(ix);
+                console.log(`   ✅ Added ATA creation instruction ${index + 1}`);
+            });
+        }
+        // 3. Add the distribution instruction
+        transaction.add(distributionInstruction);
         // Set transaction metadata
         const { blockhash } = yield connection.getLatestBlockhash("finalized");
         transaction.recentBlockhash = blockhash;
@@ -209,9 +296,16 @@ const distributeTournamentRevenueService = (tournamentId_1, ...args_1) => __awai
         const revenueAmount = Math.floor((totalFunds * revenuePercentage) / 100);
         const stakingAmount = Math.floor((totalFunds * stakingPercentage) / 100);
         const burnAmount = Math.floor((totalFunds * burnPercentage) / 100);
+        // Calculate developer and platform shares from revenue
+        const developerShareBps = Number(platformConfig.developerShareBps);
+        const platformShareBps = Number(platformConfig.platformShareBps);
+        const developerShare = Math.floor((revenueAmount * developerShareBps) / 10000);
+        const platformShare = revenueAmount - developerShare;
         console.log("💰 Distribution Breakdown:");
         console.log(`   Prize Pool: ${prizeAmount}`);
-        console.log(`   Revenue Pool: ${revenueAmount}`);
+        console.log(`   Revenue Split:`);
+        console.log(`     Developer (${developerShareBps / 100}%): ${developerShare}`);
+        console.log(`     Platform (${platformShareBps / 100}%): ${platformShare}`);
         console.log(`   Staking Rewards: ${stakingAmount}`);
         console.log(`   Burn: ${burnAmount}`);
         console.log(`   Total: ${prizeAmount + revenueAmount + stakingAmount + burnAmount}`);
@@ -224,12 +318,15 @@ const distributeTournamentRevenueService = (tournamentId_1, ...args_1) => __awai
                 totalFunds,
                 prizeAmount,
                 revenueAmount,
+                developerShare,
+                platformShare,
                 stakingAmount,
                 burnAmount
             },
             tournamentRef: tournamentRef.toString(),
             status: "Pending Signature",
-            tokenType: tokenType === getPDAs_1.TokenType.SOL ? "SOL" : "SPL"
+            tokenType: tokenType === getPDAs_1.TokenType.SOL ? "SOL" : "SPL",
+            ataCreated: ataCreationInstructions.length // ✅ NEW: Track how many ATAs were created
         };
     }
     catch (err) {

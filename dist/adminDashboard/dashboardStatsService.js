@@ -145,60 +145,81 @@ function getTournamentStats(tokenType) {
     });
 }
 /**
- * Fetch revenue pool statistics and information
- * @param adminPublicKey - Optional admin public key, defaults to program admin
- * @returns Result object with revenue pool stats
+ * Fetch revenue statistics from Firebase
+ * Revenue is now tracked off-chain in Firebase since funds go directly to developer/platform wallets
+ * @param adminPublicKey - Developer/admin public key to fetch revenue for
+ * @param tokenType - Token type (SPL or SOL)
+ * @returns Result object with revenue stats from Firebase
  */
 const getRevenuePoolStatsService = (adminPublicKey, tokenType) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a, _b;
     try {
-        const { program, connection } = (0, services_1.getProgram)();
-        // Use provided admin public key or default to program admin
-        const adminPubkey = adminPublicKey;
-        console.log("Fetching Revenue Pool Stats:");
-        console.log("Admin PublicKey:", adminPubkey.toBase58());
-        // Derive the revenue pool PDA
-        const revenuePoolPublicKey = (0, getPDAs_1.getRevenuePoolPDA)(adminPublicKey, tokenType);
-        // Derive the revenue pool escrow account
-        const revenueEscrowPublicKey = (0, getPDAs_1.getRevenueEscrowPDA)(revenuePoolPublicKey);
-        console.log("🔹 Revenue Pool PDA:", revenuePoolPublicKey.toString());
-        // Check if the revenue pool account exists
-        const accountExists = yield connection.getAccountInfo(revenuePoolPublicKey);
-        if (!accountExists) {
-            return {
-                success: false,
-                message: "Revenue pool has not been initialized yet."
-            };
+        console.log("Fetching Revenue Stats from Firebase:");
+        console.log("Admin PublicKey:", adminPublicKey.toBase58());
+        console.log("Token Type:", tokenType === getPDAs_1.TokenType.SPL ? "SPL" : "SOL");
+        // Convert token type to string key
+        const tokenKey = tokenType === getPDAs_1.TokenType.SOL ? "SOL" : "SPL";
+        // Fetch developer revenue from Firebase
+        const developerRef = (0, database_1.ref)(firebase_1.db, `developerRevenue/${adminPublicKey.toString()}`);
+        const developerSnapshot = yield (0, database_1.get)(developerRef);
+        // Fetch platform revenue from Firebase
+        const platformRef = (0, database_1.ref)(firebase_1.db, `platformRevenue`);
+        const platformSnapshot = yield (0, database_1.get)(platformRef);
+        let developerTotal = 0;
+        let platformTotal = 0;
+        let lastDistribution = null;
+        // Get developer revenue for the specific token type
+        if (developerSnapshot.exists()) {
+            const developerData = developerSnapshot.val();
+            // Get totalEarned for the specific token type
+            developerTotal = ((_a = developerData.totalEarned) === null || _a === void 0 ? void 0 : _a[tokenKey]) || 0;
+            // Get most recent distribution timestamp from history
+            if (developerData.history && Array.isArray(developerData.history)) {
+                // Filter history by token type and get latest
+                const tokenHistory = developerData.history.filter((entry) => entry.tokenType === tokenKey);
+                if (tokenHistory.length > 0) {
+                    const latest = tokenHistory[tokenHistory.length - 1];
+                    if (latest.timestamp) {
+                        lastDistribution = new Date(latest.timestamp).toISOString();
+                    }
+                }
+            }
+            else if (developerData.lastDistribution) {
+                lastDistribution = new Date(developerData.lastDistribution).toISOString();
+            }
         }
-        // Fetch the revenue pool data
-        const revenuePoolData = (yield program.account.revenuePool.fetch(revenuePoolPublicKey));
-        console.log("✅ Raw Revenue Pool Data:", revenuePoolData);
-        // Convert data to readable format
-        const tokenDecimals = 9; // Adjust based on your token decimals
-        const readableTotalFunds = revenuePoolData.totalFunds.toNumber() / (Math.pow(10, tokenDecimals));
-        // Convert timestamps to readable dates
-        const lastDistributionTimestamp = revenuePoolData.lastDistribution.toNumber();
-        const lastDistributionDate = lastDistributionTimestamp > 0
-            ? new Date(lastDistributionTimestamp * 1000).toISOString()
-            : null;
-        // Calculate time since last distribution
-        const currentTimestamp = Math.floor(Date.now() / 1000);
-        const timeSinceLastDistribution = lastDistributionTimestamp > 0
-            ? currentTimestamp - lastDistributionTimestamp
-            : null;
+        // Get platform revenue for the specific token type
+        if (platformSnapshot.exists()) {
+            const platformData = platformSnapshot.val();
+            // Get totalEarned for the specific token type
+            platformTotal = ((_b = platformData.totalEarned) === null || _b === void 0 ? void 0 : _b[tokenKey]) || 0;
+        }
+        // Convert from base units to readable format
+        const tokenDecimals = 9;
+        const developerTotalReadable = developerTotal / (Math.pow(10, tokenDecimals));
+        const platformTotalReadable = platformTotal / (Math.pow(10, tokenDecimals));
+        const totalRevenueReadable = developerTotalReadable + platformTotalReadable;
+        console.log("✅ Revenue Stats from Firebase:", {
+            developerTotal: developerTotalReadable,
+            platformTotal: platformTotalReadable,
+            totalRevenue: totalRevenueReadable
+        });
         return {
             success: true,
-            totalFunds: readableTotalFunds,
-            revenuePoolAddress: revenuePoolPublicKey.toString(),
-            revenueEscrowAddress: revenueEscrowPublicKey.toString(),
-            lastDistribution: lastDistributionDate,
+            totalFunds: totalRevenueReadable,
+            developerRevenue: developerTotalReadable,
+            platformRevenue: platformTotalReadable,
+            revenuePoolAddress: "N/A (Firebase-based tracking)",
+            revenueEscrowAddress: "N/A (Direct wallet transfers)",
+            lastDistribution: lastDistribution,
             tokenType: tokenType
         };
     }
     catch (err) {
-        console.error("❌ Error fetching revenue pool stats:", err);
+        console.error("❌ Error fetching revenue stats from Firebase:", err);
         return {
             success: false,
-            message: `Error fetching revenue pool stats: ${err.message || err}`
+            message: `Error fetching revenue stats: ${err.message || err}`
         };
     }
 });

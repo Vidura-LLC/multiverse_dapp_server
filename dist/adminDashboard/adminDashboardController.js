@@ -10,7 +10,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getDashboardStatsController = exports.getRevenuePoolStatsController = exports.getTournamentStatsController = exports.getDetailedStakersController = exports.getAPYController = exports.getActiveStakersController = exports.getStakingPoolController = exports.getStakingStatsController = exports.initializeRewardPoolController = exports.confirmPrizePoolController = exports.initializePrizePoolController = exports.initializeRevenuePoolController = exports.initializeStakingPoolController = exports.checkPoolStatusController = void 0;
+exports.getPlatformConfigController = exports.transferSuperAdminController = exports.updatePlatformWalletController = exports.updatePlatformConfigController = exports.initializePlatformConfigController = exports.getDashboardStatsController = exports.getRevenuePoolStatsController = exports.getTournamentStatsController = exports.getDetailedStakersController = exports.getAPYController = exports.getActiveStakersController = exports.getStakingPoolController = exports.getStakingStatsController = exports.initializeRewardPoolController = exports.confirmPrizePoolController = exports.initializePrizePoolController = exports.initializeStakingPoolController = exports.checkPoolStatusController = void 0;
 const web3_js_1 = require("@solana/web3.js");
 const services_1 = require("./services");
 const getPDAs_1 = require("../utils/getPDAs");
@@ -90,43 +90,6 @@ const initializeStakingPoolController = (req, res) => __awaiter(void 0, void 0, 
     }
 });
 exports.initializeStakingPoolController = initializeStakingPoolController;
-/**
- * Controller function for initializing the global revenue pool
- */
-const initializeRevenuePoolController = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const { mintPublicKey, adminPublicKey, tokenType } = req.body;
-        // Validate the mint address
-        if (!mintPublicKey || !adminPublicKey || tokenType === undefined || tokenType === null) {
-            return res.status(400).json({
-                success: false,
-                message: 'Mint, Admin public key and token type are required'
-            });
-        }
-        // Call the service function to initialize revenue pool
-        const tt = Number(tokenType);
-        if (tt !== getPDAs_1.TokenType.SPL && tt !== getPDAs_1.TokenType.SOL) {
-            return res.status(400).json({ success: false, message: 'tokenType must be 0 (SPL) or 1 (SOL)' });
-        }
-        const result = yield (0, services_1.initializeRevenuePoolService)(new web3_js_1.PublicKey(mintPublicKey), new web3_js_1.PublicKey(adminPublicKey), tt);
-        // Return the result
-        if (result.success) {
-            return res.status(200).json({ data: result });
-        }
-        else {
-            return res.status(500).json({ error: result.message });
-        }
-    }
-    catch (err) {
-        console.error('Error in initialize revenue pool controller:', err);
-        return res.status(500).json({
-            success: false,
-            message: 'Failed to initialize revenue pool',
-            error: err.message || err
-        });
-    }
-});
-exports.initializeRevenuePoolController = initializeRevenuePoolController;
 /**
  * Controller function for initializing a prize pool for a specific tournament
  */
@@ -662,4 +625,263 @@ const getDashboardStatsController = (req, res) => __awaiter(void 0, void 0, void
     }
 });
 exports.getDashboardStatsController = getDashboardStatsController;
+// ==============================
+// PLATFORM CONFIGURATION CONTROLLERS
+// ==============================
+/**
+ * Controller to initialize platform configuration (super admin only, one-time)
+ */
+const initializePlatformConfigController = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const { superAdminPublicKey, platformWalletPublicKey, developerShareBps = 9000, platformShareBps = 1000 } = req.body;
+        // Validate required fields
+        if (!superAdminPublicKey) {
+            return res.status(400).json({
+                success: false,
+                message: 'Super admin public key is required'
+            });
+        }
+        if (!platformWalletPublicKey) {
+            return res.status(400).json({
+                success: false,
+                message: 'Platform wallet public key is required'
+            });
+        }
+        // Validate public key formats
+        let superAdminPubKey;
+        let platformWalletPubKey;
+        try {
+            superAdminPubKey = new web3_js_1.PublicKey(superAdminPublicKey);
+            platformWalletPubKey = new web3_js_1.PublicKey(platformWalletPublicKey);
+        }
+        catch (err) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid public key format'
+            });
+        }
+        // Validate share percentages
+        const devBps = Number(developerShareBps);
+        const platBps = Number(platformShareBps);
+        if (isNaN(devBps) || isNaN(platBps)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Share percentages must be valid numbers'
+            });
+        }
+        if (devBps + platBps !== 10000) {
+            return res.status(400).json({
+                success: false,
+                message: `Share percentages must sum to 10000 (100%). Current total: ${devBps + platBps}`
+            });
+        }
+        // Call the service
+        const result = yield (0, services_1.initializePlatformConfigService)(superAdminPubKey, platformWalletPubKey, devBps, platBps);
+        if (result.success) {
+            return res.status(200).json(result);
+        }
+        else {
+            return res.status(400).json(result);
+        }
+    }
+    catch (err) {
+        console.error('❌ Error in initialize platform config controller:', err);
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to initialize platform config',
+            error: err.message || err
+        });
+    }
+});
+exports.initializePlatformConfigController = initializePlatformConfigController;
+/**
+ * Controller to update platform configuration (super admin only)
+ */
+const updatePlatformConfigController = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const { superAdminPublicKey, developerShareBps, platformShareBps } = req.body;
+        // Validate required fields
+        if (!superAdminPublicKey) {
+            return res.status(400).json({
+                success: false,
+                message: 'Super admin public key is required'
+            });
+        }
+        if (developerShareBps === undefined || platformShareBps === undefined) {
+            return res.status(400).json({
+                success: false,
+                message: 'Both developer and platform share percentages are required'
+            });
+        }
+        // Validate public key format
+        let superAdminPubKey;
+        try {
+            superAdminPubKey = new web3_js_1.PublicKey(superAdminPublicKey);
+        }
+        catch (err) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid super admin public key format'
+            });
+        }
+        // Validate share percentages
+        const devBps = Number(developerShareBps);
+        const platBps = Number(platformShareBps);
+        if (isNaN(devBps) || isNaN(platBps)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Share percentages must be valid numbers'
+            });
+        }
+        if (devBps + platBps !== 10000) {
+            return res.status(400).json({
+                success: false,
+                message: `Share percentages must sum to 10000 (100%). Current total: ${devBps + platBps}`
+            });
+        }
+        // Call the service
+        const result = yield (0, services_1.updatePlatformConfigService)(superAdminPubKey, devBps, platBps);
+        if (result.success) {
+            return res.status(200).json(result);
+        }
+        else {
+            return res.status(400).json(result);
+        }
+    }
+    catch (err) {
+        console.error('❌ Error in update platform config controller:', err);
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to update platform config',
+            error: err.message || err
+        });
+    }
+});
+exports.updatePlatformConfigController = updatePlatformConfigController;
+/**
+ * Controller to update platform wallet (super admin only)
+ */
+const updatePlatformWalletController = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const { superAdminPublicKey, newPlatformWalletPublicKey } = req.body;
+        // Validate required fields
+        if (!superAdminPublicKey) {
+            return res.status(400).json({
+                success: false,
+                message: 'Super admin public key is required'
+            });
+        }
+        if (!newPlatformWalletPublicKey) {
+            return res.status(400).json({
+                success: false,
+                message: 'New platform wallet public key is required'
+            });
+        }
+        // Validate public key formats
+        let superAdminPubKey;
+        let newPlatformWalletPubKey;
+        try {
+            superAdminPubKey = new web3_js_1.PublicKey(superAdminPublicKey);
+            newPlatformWalletPubKey = new web3_js_1.PublicKey(newPlatformWalletPublicKey);
+        }
+        catch (err) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid public key format'
+            });
+        }
+        // Call the service
+        const result = yield (0, services_1.updatePlatformWalletService)(superAdminPubKey, newPlatformWalletPubKey);
+        if (result.success) {
+            return res.status(200).json(result);
+        }
+        else {
+            return res.status(400).json(result);
+        }
+    }
+    catch (err) {
+        console.error('❌ Error in update platform wallet controller:', err);
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to update platform wallet',
+            error: err.message || err
+        });
+    }
+});
+exports.updatePlatformWalletController = updatePlatformWalletController;
+/**
+ * Controller to transfer super admin role (super admin only)
+ */
+const transferSuperAdminController = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const { superAdminPublicKey, newSuperAdminPublicKey } = req.body;
+        // Validate required fields
+        if (!superAdminPublicKey) {
+            return res.status(400).json({
+                success: false,
+                message: 'Current super admin public key is required'
+            });
+        }
+        if (!newSuperAdminPublicKey) {
+            return res.status(400).json({
+                success: false,
+                message: 'New super admin public key is required'
+            });
+        }
+        // Validate public key formats
+        let superAdminPubKey;
+        let newSuperAdminPubKey;
+        try {
+            superAdminPubKey = new web3_js_1.PublicKey(superAdminPublicKey);
+            newSuperAdminPubKey = new web3_js_1.PublicKey(newSuperAdminPublicKey);
+        }
+        catch (err) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid public key format'
+            });
+        }
+        // Call the service
+        const result = yield (0, services_1.transferSuperAdminService)(superAdminPubKey, newSuperAdminPubKey);
+        if (result.success) {
+            return res.status(200).json(result);
+        }
+        else {
+            return res.status(400).json(result);
+        }
+    }
+    catch (err) {
+        console.error('❌ Error in transfer super admin controller:', err);
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to transfer super admin',
+            error: err.message || err
+        });
+    }
+});
+exports.transferSuperAdminController = transferSuperAdminController;
+/**
+ * Controller to get platform configuration
+ */
+const getPlatformConfigController = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        // Call the service
+        const result = yield (0, services_1.getPlatformConfigService)();
+        if (result.success) {
+            return res.status(200).json(result);
+        }
+        else {
+            return res.status(404).json(result);
+        }
+    }
+    catch (err) {
+        console.error('❌ Error in get platform config controller:', err);
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to fetch platform config',
+            error: err.message || err
+        });
+    }
+});
+exports.getPlatformConfigController = getPlatformConfigController;
 //# sourceMappingURL=adminDashboardController.js.map

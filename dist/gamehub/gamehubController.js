@@ -30,6 +30,7 @@ const services_1 = require("./services");
 const leaderboardService_1 = require("./leaderboardService");
 const adminLeaderboardService_1 = require("./adminLeaderboardService");
 const web3_js_1 = require("@solana/web3.js");
+const bs58_1 = __importDefault(require("bs58"));
 const node_schedule_1 = __importDefault(require("node-schedule"));
 const getPDAs_1 = require("../utils/getPDAs");
 const services_2 = require("../staking/services");
@@ -351,9 +352,47 @@ const registerForTournamentController = (req, res) => __awaiter(void 0, void 0, 
                 message: "Tournament does not have an adminPublicKey",
             });
         }
-        const userPubKey = new web3_js_1.PublicKey(userPublicKey);
+        // Validate and create PublicKey objects
+        let userPubKey;
+        let adminPubKey;
+        try {
+            userPubKey = new web3_js_1.PublicKey(userPublicKey);
+            // Validate the public key is on curve
+            if (!web3_js_1.PublicKey.isOnCurve(userPubKey.toBytes())) {
+                return res.status(400).json({
+                    success: false,
+                    message: `Invalid user public key: ${userPublicKey}. The public key must be a valid ed25519 point on the curve.`,
+                    error: "INVALID_USER_PUBLIC_KEY"
+                });
+            }
+        }
+        catch (error) {
+            return res.status(400).json({
+                success: false,
+                message: `Invalid user public key format: ${error.message}`,
+                error: "INVALID_USER_PUBLIC_KEY_FORMAT"
+            });
+        }
+        try {
+            adminPubKey = new web3_js_1.PublicKey(adminPublicKey);
+            // Validate the admin public key is on curve
+            if (!web3_js_1.PublicKey.isOnCurve(adminPubKey.toBytes())) {
+                return res.status(400).json({
+                    success: false,
+                    message: `Invalid admin public key: ${adminPublicKey}. The public key must be a valid ed25519 point on the curve.`,
+                    error: "INVALID_ADMIN_PUBLIC_KEY"
+                });
+            }
+        }
+        catch (error) {
+            return res.status(400).json({
+                success: false,
+                message: `Invalid admin public key format: ${error.message}`,
+                error: "INVALID_ADMIN_PUBLIC_KEY_FORMAT"
+            });
+        }
         // Create transaction for blockchain registration (don't add to Firebase yet)
-        const blockchainResult = yield (0, services_1.registerForTournamentService)(tournamentId, userPubKey, new web3_js_1.PublicKey(adminPublicKey), tt);
+        const blockchainResult = yield (0, services_1.registerForTournamentService)(tournamentId, userPubKey, adminPubKey, tt);
         // Return transaction - participant will be added to Firebase after transaction is confirmed
         if (blockchainResult.success) {
             return res.status(200).json(blockchainResult);
@@ -410,8 +449,73 @@ const confirmParticipationController = (req, res) => __awaiter(void 0, void 0, v
         const adminPubKey = new web3_js_1.PublicKey(adminPublicKey);
         // Verify transaction exists on blockchain and was successful
         const { connection, program } = (0, services_2.getProgram)();
+        let actualTransactionSignature = transactionSignature;
+        // Check if transactionSignature is a signed transaction (base64/base58) or a transaction signature (base58)
+        // Signed transactions are typically longer (>100 chars)
+        // Transaction signatures are shorter (88 chars base58)
+        // Phantom returns signed transactions in base58 format
+        const isLongTransaction = transactionSignature.length > 100;
+        if (isLongTransaction) {
+            // This is likely a signed transaction - try to deserialize and send it
+            try {
+                let txBuffer;
+                let signedTx;
+                // Try base58 first (Phantom's format), then base64
+                try {
+                    txBuffer = Buffer.from(bs58_1.default.decode(transactionSignature));
+                    console.log('Decoded as base58');
+                }
+                catch (base58Error) {
+                    // If base58 fails, try base64
+                    try {
+                        txBuffer = Buffer.from(transactionSignature, 'base64');
+                        console.log('Decoded as base64');
+                    }
+                    catch (base64Error) {
+                        throw new Error(`Could not decode transaction: base58 error: ${base58Error.message}, base64 error: ${base64Error.message}`);
+                    }
+                }
+                // Try VersionedTransaction first, then fall back to Transaction
+                try {
+                    signedTx = web3_js_1.VersionedTransaction.deserialize(txBuffer);
+                    console.log('Deserialized as VersionedTransaction');
+                }
+                catch (_b) {
+                    signedTx = web3_js_1.Transaction.from(txBuffer);
+                    console.log('Deserialized as Legacy Transaction');
+                }
+                // Send the signed transaction
+                console.log('Sending signed transaction to blockchain...');
+                const signature = yield connection.sendRawTransaction(signedTx.serialize(), {
+                    skipPreflight: false,
+                    maxRetries: 3,
+                });
+                // Wait for confirmation
+                console.log('Waiting for transaction confirmation:', signature);
+                const confirmation = yield connection.confirmTransaction(signature, 'confirmed');
+                if (confirmation.value.err) {
+                    return res.status(400).json({
+                        success: false,
+                        message: 'Transaction failed on blockchain',
+                        error: confirmation.value.err
+                    });
+                }
+                // Use the actual transaction signature for verification
+                actualTransactionSignature = signature;
+                console.log('Transaction sent successfully, signature:', signature);
+            }
+            catch (err) {
+                console.error('Error sending signed transaction:', err);
+                return res.status(400).json({
+                    success: false,
+                    message: 'Could not send transaction to blockchain',
+                    error: err.message
+                });
+            }
+        }
+        // Verify transaction exists on blockchain and was successful
         try {
-            const txInfo = yield connection.getTransaction(transactionSignature, {
+            const txInfo = yield connection.getTransaction(actualTransactionSignature, {
                 maxSupportedTransactionVersion: 0
             });
             if (!txInfo) {
@@ -468,10 +572,12 @@ const confirmParticipationController = (req, res) => __awaiter(void 0, void 0, v
                 message: "Participant already registered",
             });
         }
-        // Initialize the participant with a score of 0
+        // Initialize the participant with default fields
         participants[userPublicKey] = {
+            joinedAt: new Date().toISOString(),
             score: 0,
-            joinedAt: new Date().toISOString()
+            hasPlayed: false,
+            scoreSubmittedAt: null,
         };
         yield (0, database_1.update)(tournamentRef, {
             participants,
