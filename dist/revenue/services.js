@@ -55,7 +55,7 @@ const ensureTokenAccount = (connection, mintPublicKey, ownerPublicKey, payerPubl
 */
 const distributeTournamentRevenueService = (tournamentId_1, ...args_1) => __awaiter(void 0, [tournamentId_1, ...args_1], void 0, function* (tournamentId, prizePercentage = exports.DEFAULT_SPLITS.PRIZE_POOL, revenuePercentage = exports.DEFAULT_SPLITS.REVENUE_POOL, stakingPercentage = exports.DEFAULT_SPLITS.STAKING_REWARD_POOL, burnPercentage = exports.DEFAULT_SPLITS.BURN, adminPublicKey, tokenType) {
     try {
-        const { program, connection } = (0, services_2.getProgram)();
+        const { program, connection, platformAdmin } = (0, services_2.getProgram)();
         // 1. Verify tournament in Firebase
         console.log("Verifying tournament in Firebase...");
         const tournamentRef = (0, database_1.ref)(firebase_1.db, `tournaments/${tokenType}/${tournamentId}`);
@@ -102,9 +102,9 @@ const distributeTournamentRevenueService = (tournamentId_1, ...args_1) => __awai
         console.log("🔹 Tournament Pool PDA:", tournamentPoolPublicKey.toString());
         const prizePoolPublicKey = (0, getPDAs_1.getPrizePoolPDA)(tournamentPoolPublicKey);
         console.log("🔹 Prize Pool PDA:", prizePoolPublicKey.toString());
-        const stakingPoolPublicKey = (0, getPDAs_1.getStakingPoolPDA)(adminPublicKey, tokenType);
+        const stakingPoolPublicKey = (0, getPDAs_1.getStakingPoolPDA)(platformAdmin, tokenType);
         console.log("🔹 Staking Pool PDA:", stakingPoolPublicKey.toString());
-        const rewardPoolPublicKey = (0, getPDAs_1.getRewardPoolPDA)(adminPublicKey, tokenType);
+        const rewardPoolPublicKey = (0, getPDAs_1.getRewardPoolPDA)(platformAdmin, tokenType);
         console.log("🔹 Reward Pool PDA:", rewardPoolPublicKey.toString());
         // 4. Fetch tournament data from blockchain
         console.log("Fetching tournament data from blockchain...");

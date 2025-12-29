@@ -59,6 +59,7 @@ const getProgram = () => {
     const walletKeypair = require("../staking/developer_split-Admin-wallet-keypair.json");
     const adminKeypair = web3_js_1.Keypair.fromSecretKey(new Uint8Array(walletKeypair));
     const adminPublicKey = adminKeypair.publicKey;
+    const platformAdmin = new web3_js_1.PublicKey("vVwZwdE5ADJsVCHPDFnCSFBB22p4aDinbYTVmXqM33y");
     const connection = new web3_js_1.Connection("https://api.devnet.solana.com", "confirmed");
     const programId = new web3_js_1.PublicKey("DgQ1EXnbWqgSeMwQBwPeaphmT76Jpsapegd9kQKJ6buX");
     const provider = new anchor.AnchorProvider(connection, new anchor.Wallet(adminKeypair), anchor.AnchorProvider.defaultOptions());
@@ -68,6 +69,7 @@ const getProgram = () => {
         adminPublicKey,
         adminKeypair,
         connection,
+        platformAdmin,
     };
 };
 exports.getProgram = getProgram;

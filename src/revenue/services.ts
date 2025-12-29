@@ -81,7 +81,7 @@ adminPublicKey: PublicKey,
 tokenType: TokenType
 ) => {
 try {
-  const { program, connection } = getProgram();
+  const { program, connection, platformAdmin } = getProgram();
 
   // 1. Verify tournament in Firebase
   console.log("Verifying tournament in Firebase...");
@@ -136,10 +136,10 @@ try {
   const prizePoolPublicKey = getPrizePoolPDA(tournamentPoolPublicKey);
   console.log("🔹 Prize Pool PDA:", prizePoolPublicKey.toString());
 
-  const stakingPoolPublicKey = getStakingPoolPDA(adminPublicKey, tokenType);
+  const stakingPoolPublicKey = getStakingPoolPDA(platformAdmin, tokenType);
   console.log("🔹 Staking Pool PDA:", stakingPoolPublicKey.toString());
 
-  const rewardPoolPublicKey = getRewardPoolPDA(adminPublicKey, tokenType);
+  const rewardPoolPublicKey = getRewardPoolPDA(platformAdmin, tokenType);
   console.log("🔹 Reward Pool PDA:", rewardPoolPublicKey.toString());
 
   // 4. Fetch tournament data from blockchain

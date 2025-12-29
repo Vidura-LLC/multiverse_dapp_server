@@ -40,6 +40,8 @@ export const getProgram = () => {
   const adminKeypair = Keypair.fromSecretKey(new Uint8Array(walletKeypair));
   const adminPublicKey = adminKeypair.publicKey;
 
+  const platformAdmin = new PublicKey("vVwZwdE5ADJsVCHPDFnCSFBB22p4aDinbYTVmXqM33y");
+
 
   const connection = new Connection("https://api.devnet.solana.com", "confirmed");
 
@@ -59,6 +61,7 @@ export const getProgram = () => {
     adminPublicKey,
     adminKeypair,
     connection,    
+    platformAdmin,
   };
 };
 
