@@ -826,45 +826,70 @@ export async function getPlatformSummary(days: number): Promise<PlatformSummary>
 
   while (currentDate <= endDate) {
     const dateStr = getDateString(currentDate.getTime());
-    const platformRef = ref(db, `analytics/platformDaily/${dateStr}`);
-    const snapshot = await get(platformRef);
+    
+    try {
+      const platformRef = ref(db, `analytics/platformDaily/${dateStr}`);
+      const snapshot = await get(platformRef);
 
-    if (snapshot.exists()) {
-      const data = snapshot.val() as PlatformDailyAggregates;
-      summary.totalInitializations += data.totalInitializations || 0;
-      summary.totalInitFailures += data.totalInitFailures || 0;
-      summary.totalWalletConnections += data.totalWalletConnections || 0;
-      summary.totalWalletFailures += data.totalWalletFailures || 0;
-      summary.totalRegistrations += data.totalRegistrations || 0;
-      summary.totalRegistrationFailures += data.totalRegistrationFailures || 0;
-      summary.totalScoreSubmissions += data.totalScoreSubmissions || 0;
-      summary.totalScoreFailures += data.totalScoreFailures || 0;
-      summary.splEvents += data.splEvents || 0;
-      summary.solEvents += data.solEvents || 0;
-    }
-
-    // Count unique sessions and wallets across all games
-    const sessionsRef = ref(db, `analytics/sessions`);
-    const sessionsSnapshot = await get(sessionsRef);
-    if (sessionsSnapshot.exists()) {
-      const sessions = sessionsSnapshot.val();
-      for (const gameId in sessions) {
-        activeGamesSet.add(gameId);
-        if (sessions[gameId][dateStr]) {
-          summary.totalSessions += Object.keys(sessions[gameId][dateStr]).length;
-        }
+      if (snapshot.exists()) {
+        const data = snapshot.val() as PlatformDailyAggregates;
+        summary.totalInitializations += data.totalInitializations || 0;
+        summary.totalInitFailures += data.totalInitFailures || 0;
+        summary.totalWalletConnections += data.totalWalletConnections || 0;
+        summary.totalWalletFailures += data.totalWalletFailures || 0;
+        summary.totalRegistrations += data.totalRegistrations || 0;
+        summary.totalRegistrationFailures += data.totalRegistrationFailures || 0;
+        summary.totalScoreSubmissions += data.totalScoreSubmissions || 0;
+        summary.totalScoreFailures += data.totalScoreFailures || 0;
+        summary.splEvents += data.splEvents || 0;
+        summary.solEvents += data.solEvents || 0;
+      }
+    } catch (error: any) {
+      if (error.code === 'PERMISSION_DENIED' || error.message?.includes('Permission denied')) {
+        console.warn(`[Analytics] Permission denied for analytics/platformDaily/${dateStr}`);
+      } else {
+        console.error(`[Analytics] Error reading platform daily data for ${dateStr}:`, error);
       }
     }
 
-    const walletsRef = ref(db, `analytics/wallets`);
-    const walletsSnapshot = await get(walletsRef);
-    if (walletsSnapshot.exists()) {
-      const wallets = walletsSnapshot.val();
-      for (const gameId in wallets) {
-        activeGamesSet.add(gameId);
-        if (wallets[gameId][dateStr]) {
-          summary.totalWallets += Object.keys(wallets[gameId][dateStr]).length;
+    // Count unique sessions and wallets across all games
+    try {
+      const sessionsRef = ref(db, `analytics/sessions`);
+      const sessionsSnapshot = await get(sessionsRef);
+      if (sessionsSnapshot.exists()) {
+        const sessions = sessionsSnapshot.val();
+        for (const gameId in sessions) {
+          activeGamesSet.add(gameId);
+          if (sessions[gameId][dateStr]) {
+            summary.totalSessions += Object.keys(sessions[gameId][dateStr]).length;
+          }
         }
+      }
+    } catch (error: any) {
+      if (error.code === 'PERMISSION_DENIED' || error.message?.includes('Permission denied')) {
+        console.warn(`[Analytics] Permission denied for analytics/sessions`);
+      } else {
+        console.error(`[Analytics] Error reading sessions for ${dateStr}:`, error);
+      }
+    }
+
+    try {
+      const walletsRef = ref(db, `analytics/wallets`);
+      const walletsSnapshot = await get(walletsRef);
+      if (walletsSnapshot.exists()) {
+        const wallets = walletsSnapshot.val();
+        for (const gameId in wallets) {
+          activeGamesSet.add(gameId);
+          if (wallets[gameId][dateStr]) {
+            summary.totalWallets += Object.keys(wallets[gameId][dateStr]).length;
+          }
+        }
+      }
+    } catch (error: any) {
+      if (error.code === 'PERMISSION_DENIED' || error.message?.includes('Permission denied')) {
+        console.warn(`[Analytics] Permission denied for analytics/wallets`);
+      } else {
+        console.error(`[Analytics] Error reading wallets for ${dateStr}:`, error);
       }
     }
 
@@ -896,9 +921,7 @@ export async function getPlatformTrends(days: number): Promise<TrendData[]> {
 
   while (currentDate <= endDate) {
     const dateStr = getDateString(currentDate.getTime());
-    const platformRef = ref(db, `analytics/platformDaily/${dateStr}`);
-    const snapshot = await get(platformRef);
-
+    
     const trend: TrendData = {
       date: dateStr,
       initializations: 0,
@@ -915,45 +938,72 @@ export async function getPlatformTrends(days: number): Promise<TrendData[]> {
       solEvents: 0,
     };
 
-    if (snapshot.exists()) {
-      const data = snapshot.val() as PlatformDailyAggregates;
-      trend.initializations = data.totalInitializations || 0;
-      trend.initFailures = data.totalInitFailures || 0;
-      trend.walletConnections = data.totalWalletConnections || 0;
-      trend.walletFailures = data.totalWalletFailures || 0;
-      trend.registrations = data.totalRegistrations || 0;
-      trend.registrationFailures = data.totalRegistrationFailures || 0;
-      trend.scoreSubmissions = data.totalScoreSubmissions || 0;
-      trend.scoreFailures = data.totalScoreFailures || 0;
-      trend.splEvents = data.splEvents || 0;
-      trend.solEvents = data.solEvents || 0;
+    try {
+      const platformRef = ref(db, `analytics/platformDaily/${dateStr}`);
+      const snapshot = await get(platformRef);
+
+      if (snapshot.exists()) {
+        const data = snapshot.val() as PlatformDailyAggregates;
+        trend.initializations = data.totalInitializations || 0;
+        trend.initFailures = data.totalInitFailures || 0;
+        trend.walletConnections = data.totalWalletConnections || 0;
+        trend.walletFailures = data.totalWalletFailures || 0;
+        trend.registrations = data.totalRegistrations || 0;
+        trend.registrationFailures = data.totalRegistrationFailures || 0;
+        trend.scoreSubmissions = data.totalScoreSubmissions || 0;
+        trend.scoreFailures = data.totalScoreFailures || 0;
+        trend.splEvents = data.splEvents || 0;
+        trend.solEvents = data.solEvents || 0;
+      }
+    } catch (error: any) {
+      if (error.code === 'PERMISSION_DENIED' || error.message?.includes('Permission denied')) {
+        console.warn(`[Analytics] Permission denied for analytics/platformDaily/${dateStr}`);
+      } else {
+        console.error(`[Analytics] Error reading platform trends for ${dateStr}:`, error);
+      }
     }
 
     // Count unique sessions and wallets across all games
-    const sessionsRef = ref(db, `analytics/sessions`);
-    const sessionsSnapshot = await get(sessionsRef);
-    if (sessionsSnapshot.exists()) {
-      const sessions = sessionsSnapshot.val();
-      let sessionCount = 0;
-      for (const gameId in sessions) {
-        if (sessions[gameId][dateStr]) {
-          sessionCount += Object.keys(sessions[gameId][dateStr]).length;
+    try {
+      const sessionsRef = ref(db, `analytics/sessions`);
+      const sessionsSnapshot = await get(sessionsRef);
+      if (sessionsSnapshot.exists()) {
+        const sessions = sessionsSnapshot.val();
+        let sessionCount = 0;
+        for (const gameId in sessions) {
+          if (sessions[gameId][dateStr]) {
+            sessionCount += Object.keys(sessions[gameId][dateStr]).length;
+          }
         }
+        trend.uniqueSessions = sessionCount;
       }
-      trend.uniqueSessions = sessionCount;
+    } catch (error: any) {
+      if (error.code === 'PERMISSION_DENIED' || error.message?.includes('Permission denied')) {
+        console.warn(`[Analytics] Permission denied for analytics/sessions`);
+      } else {
+        console.error(`[Analytics] Error reading sessions for ${dateStr}:`, error);
+      }
     }
 
-    const walletsRef = ref(db, `analytics/wallets`);
-    const walletsSnapshot = await get(walletsRef);
-    if (walletsSnapshot.exists()) {
-      const wallets = walletsSnapshot.val();
-      let walletCount = 0;
-      for (const gameId in wallets) {
-        if (wallets[gameId][dateStr]) {
-          walletCount += Object.keys(wallets[gameId][dateStr]).length;
+    try {
+      const walletsRef = ref(db, `analytics/wallets`);
+      const walletsSnapshot = await get(walletsRef);
+      if (walletsSnapshot.exists()) {
+        const wallets = walletsSnapshot.val();
+        let walletCount = 0;
+        for (const gameId in wallets) {
+          if (wallets[gameId][dateStr]) {
+            walletCount += Object.keys(wallets[gameId][dateStr]).length;
+          }
         }
+        trend.uniqueWallets = walletCount;
       }
-      trend.uniqueWallets = walletCount;
+    } catch (error: any) {
+      if (error.code === 'PERMISSION_DENIED' || error.message?.includes('Permission denied')) {
+        console.warn(`[Analytics] Permission denied for analytics/wallets`);
+      } else {
+        console.error(`[Analytics] Error reading wallets for ${dateStr}:`, error);
+      }
     }
 
     trends.push(trend);
@@ -1026,60 +1076,77 @@ export async function getGamesLeaderboard(days: number, limit: number): Promise<
 
   while (currentDate <= endDate) {
     const dateStr = getDateString(currentDate.getTime());
-    const dailyRef = ref(db, `analytics/daily`);
-    const snapshot = await get(dailyRef);
+    
+    try {
+      const dailyRef = ref(db, `analytics/daily`);
+      const snapshot = await get(dailyRef);
 
-    if (snapshot.exists()) {
-      const games = snapshot.val();
-      for (const gameId in games) {
-        if (games[gameId][dateStr]) {
-          const data = games[gameId][dateStr] as DailyAggregates;
+      if (snapshot.exists()) {
+        const games = snapshot.val();
+        for (const gameId in games) {
+          if (games[gameId][dateStr]) {
+            const data = games[gameId][dateStr] as DailyAggregates;
 
-          if (!gameMap.has(gameId)) {
-            gameMap.set(gameId, {
-              gameId,
-              initializations: 0,
-              walletConnections: 0,
-              registrations: 0,
-              scoreSubmissions: 0,
-              uniqueWallets: 0,
-              splEvents: 0,
-              solEvents: 0,
-            });
+            if (!gameMap.has(gameId)) {
+              gameMap.set(gameId, {
+                gameId,
+                initializations: 0,
+                walletConnections: 0,
+                registrations: 0,
+                scoreSubmissions: 0,
+                uniqueWallets: 0,
+                splEvents: 0,
+                solEvents: 0,
+              });
+            }
+
+            const game = gameMap.get(gameId)!;
+            game.initializations += data.initializations || 0;
+            game.walletConnections += data.walletConnections || 0;
+            game.registrations += data.registrations || 0;
+            game.scoreSubmissions += data.scoreSubmissions || 0;
+            game.splEvents += data.splEvents || 0;
+            game.solEvents += data.solEvents || 0;
           }
-
-          const game = gameMap.get(gameId)!;
-          game.initializations += data.initializations || 0;
-          game.walletConnections += data.walletConnections || 0;
-          game.registrations += data.registrations || 0;
-          game.scoreSubmissions += data.scoreSubmissions || 0;
-          game.splEvents += data.splEvents || 0;
-          game.solEvents += data.solEvents || 0;
         }
+      }
+    } catch (error: any) {
+      if (error.code === 'PERMISSION_DENIED' || error.message?.includes('Permission denied')) {
+        console.warn(`[Analytics] Permission denied for analytics/daily`);
+      } else {
+        console.error(`[Analytics] Error reading daily data for leaderboard ${dateStr}:`, error);
       }
     }
 
     // Count unique wallets
-    const walletsRef = ref(db, `analytics/wallets`);
-    const walletsSnapshot = await get(walletsRef);
-    if (walletsSnapshot.exists()) {
-      const wallets = walletsSnapshot.val();
-      for (const gameId in wallets) {
-        if (wallets[gameId][dateStr]) {
-          if (!gameMap.has(gameId)) {
-            gameMap.set(gameId, {
-              gameId,
-              initializations: 0,
-              walletConnections: 0,
-              registrations: 0,
-              scoreSubmissions: 0,
-              uniqueWallets: 0,
-              splEvents: 0,
-              solEvents: 0,
-            });
+    try {
+      const walletsRef = ref(db, `analytics/wallets`);
+      const walletsSnapshot = await get(walletsRef);
+      if (walletsSnapshot.exists()) {
+        const wallets = walletsSnapshot.val();
+        for (const gameId in wallets) {
+          if (wallets[gameId][dateStr]) {
+            if (!gameMap.has(gameId)) {
+              gameMap.set(gameId, {
+                gameId,
+                initializations: 0,
+                walletConnections: 0,
+                registrations: 0,
+                scoreSubmissions: 0,
+                uniqueWallets: 0,
+                splEvents: 0,
+                solEvents: 0,
+              });
+            }
+            gameMap.get(gameId)!.uniqueWallets += Object.keys(wallets[gameId][dateStr]).length;
           }
-          gameMap.get(gameId)!.uniqueWallets += Object.keys(wallets[gameId][dateStr]).length;
         }
+      }
+    } catch (error: any) {
+      if (error.code === 'PERMISSION_DENIED' || error.message?.includes('Permission denied')) {
+        console.warn(`[Analytics] Permission denied for analytics/wallets`);
+      } else {
+        console.error(`[Analytics] Error reading wallets for leaderboard ${dateStr}:`, error);
       }
     }
 
@@ -1104,33 +1171,42 @@ export async function getGamesWithIssues(days: number, minErrorRate: number): Pr
 
   while (currentDate <= endDate) {
     const dateStr = getDateString(currentDate.getTime());
-    const dailyRef = ref(db, `analytics/daily`);
-    const snapshot = await get(dailyRef);
+    
+    try {
+      const dailyRef = ref(db, `analytics/daily`);
+      const snapshot = await get(dailyRef);
 
-    if (snapshot.exists()) {
-      const games = snapshot.val();
-      for (const gameId in games) {
-        if (games[gameId][dateStr]) {
-          const data = games[gameId][dateStr] as DailyAggregates;
+      if (snapshot.exists()) {
+        const games = snapshot.val();
+        for (const gameId in games) {
+          if (games[gameId][dateStr]) {
+            const data = games[gameId][dateStr] as DailyAggregates;
 
-          if (!gameMap.has(gameId)) {
-            gameMap.set(gameId, {
-              gameId,
-              totalInits: 0,
-              initFailures: 0,
-              walletConnections: 0,
-              walletFailures: 0,
-              initErrorRate: 0,
-              walletErrorRate: 0,
-            });
+            if (!gameMap.has(gameId)) {
+              gameMap.set(gameId, {
+                gameId,
+                totalInits: 0,
+                initFailures: 0,
+                walletConnections: 0,
+                walletFailures: 0,
+                initErrorRate: 0,
+                walletErrorRate: 0,
+              });
+            }
+
+            const game = gameMap.get(gameId)!;
+            game.totalInits += (data.initializations || 0) + (data.initFailures || 0);
+            game.initFailures += data.initFailures || 0;
+            game.walletConnections += (data.walletConnections || 0) + (data.walletFailures || 0);
+            game.walletFailures += data.walletFailures || 0;
           }
-
-          const game = gameMap.get(gameId)!;
-          game.totalInits += (data.initializations || 0) + (data.initFailures || 0);
-          game.initFailures += data.initFailures || 0;
-          game.walletConnections += (data.walletConnections || 0) + (data.walletFailures || 0);
-          game.walletFailures += data.walletFailures || 0;
         }
+      }
+    } catch (error: any) {
+      if (error.code === 'PERMISSION_DENIED' || error.message?.includes('Permission denied')) {
+        console.warn(`[Analytics] Permission denied for analytics/daily`);
+      } else {
+        console.error(`[Analytics] Error reading daily data for issues ${dateStr}:`, error);
       }
     }
 
