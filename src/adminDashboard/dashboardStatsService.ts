@@ -224,18 +224,26 @@ export const getRevenuePoolStatsService = async (adminPublicKey: PublicKey, toke
 };
 
 
-export const getRewardPoolStatsService = async (adminPublicKey: PublicKey, tokenType: TokenType) => {
+export const getRewardPoolStatsService = async (tokenType: TokenType) => {
     try {
         const { program, connection } = getProgram();
 
-        // Use provided admin public key or default to program admin
-        const adminPubkey = adminPublicKey;
+        // Get super admin from platform config (pools are global, initialized by super admin)
+        const { getPlatformConfigService } = await import('./services');
+        const platformConfig = await getPlatformConfigService();
+        if (!platformConfig.success || !platformConfig.data) {
+            return {
+                success: false,
+                message: 'Platform config not initialized. Please initialize platform config first.'
+            };
+        }
 
+        const superAdminPublicKey = new PublicKey(platformConfig.data.superAdmin);
         console.log("Fetching Reward Pool Stats:");
-        console.log("Admin PublicKey:", adminPubkey.toBase58());
+        console.log("Using Super Admin PublicKey:", superAdminPublicKey.toBase58());
 
-        // Derive the reward pool PDA
-        const rewardPoolPublicKey = getRewardPoolPDA(adminPublicKey, tokenType);
+        // Derive the reward pool PDA using super admin
+        const rewardPoolPublicKey = getRewardPoolPDA(superAdminPublicKey, tokenType);
         // Derive the reward pool escrow account
         const rewardEscrowPublicKey = getRewardEscrowPDA(rewardPoolPublicKey);
 
@@ -292,10 +300,10 @@ export const getStakingStats = async (adminPublicKey: PublicKey, tokenType: Toke
     try {
         console.log("📊 Fetching comprehensive staking statistics...");
 
-        // Fetch all data in parallel
+        // Fetch all data in parallel (pools are global, use super admin from platform config)
         const [poolResult, stakersResult, apyResult] = await Promise.all([
-            getStakingPoolData(adminPublicKey, tokenType),
-            getActiveStakers(adminPublicKey, tokenType),
+            getStakingPoolData(tokenType),
+            getActiveStakers(undefined, tokenType), // getActiveStakers will use super admin internally
             calculateAPY()
         ]);
 
@@ -371,8 +379,8 @@ export const getDashboardData = async (adminPublicKey: PublicKey, tokenType: Tok
         // Fetch revenue pool stats
         const revenuePoolStats = await getRevenuePoolStatsService(adminPublicKey, tokenType);
 
-        // Fetch reward pool stats
-        const rewardPoolStats = await getRewardPoolStatsService(adminPublicKey, tokenType);
+        // Fetch reward pool stats (pools are global, use super admin from platform config)
+        const rewardPoolStats = await getRewardPoolStatsService(tokenType);
 
         // Fetch staking stats
         const stakingStats = await getStakingStats(adminPublicKey, tokenType);
