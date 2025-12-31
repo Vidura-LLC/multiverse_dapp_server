@@ -79,26 +79,66 @@ export async function getAllGames(req: Request, res: Response): Promise<void> {
             return;
         }
 
-        const gamesRef = ref(db, "games");
-        const gamesSnapshot = await get(gamesRef);
-        const gamesData = gamesSnapshot.val();
+        console.log(`[Game] Fetching games for adminPublicKey: ${adminPublicKey}`);
 
-        // Convert Firebase object to array format and filter by adminPublicKey
-        const allGames = gamesData ? Object.entries(gamesData).map(([firebaseKey, gameData]: [string, any]) => ({
-            ...gameData,
-            // Ensure the game has an id - use the provided id or fallback to Firebase key
-            id: gameData.id || firebaseKey
-        })) : [];
+        try {
+            const gamesRef = ref(db, "games");
+            const gamesSnapshot = await get(gamesRef);
+            
+            if (!gamesSnapshot.exists()) {
+                console.log(`[Game] No games found in database`);
+                res.status(200).json({ games: [] });
+                return;
+            }
 
-        // Filter games by the adminPublicKey (createdBy field)
-        const games = allGames.filter((game: any) => game.createdBy === adminPublicKey);
+            const gamesData = gamesSnapshot.val();
 
-        // console.log(`Fetched ${games.length} games for admin: ${adminPublicKey}`);
-        res.status(200).json({ games });
-        return;
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: "Internal Server Error" });
+            // Convert Firebase object to array format and filter by adminPublicKey
+            const allGames = gamesData && typeof gamesData === 'object' 
+                ? Object.entries(gamesData).map(([firebaseKey, gameData]: [string, any]) => {
+                    if (!gameData || typeof gameData !== 'object') {
+                        return null;
+                    }
+                    return {
+                        ...gameData,
+                        // Ensure the game has an id - use the provided id or fallback to Firebase key
+                        id: gameData.id || firebaseKey
+                    };
+                }).filter((game): game is any => game !== null)
+                : [];
+
+            console.log(`[Game] Total games in database: ${allGames.length}`);
+            
+            // Filter games by the adminPublicKey (createdBy field)
+            const games = allGames.filter((game: any) => {
+                const matches = game.createdBy === adminPublicKey;
+                if (!matches && game.createdBy) {
+                    console.log(`[Game] Game ${game.id} createdBy: ${game.createdBy}, expected: ${adminPublicKey}`);
+                }
+                return matches;
+            });
+
+            console.log(`[Game] Filtered games for admin ${adminPublicKey}: ${games.length} games`);
+            res.status(200).json({ games });
+            return;
+        } catch (dbError: any) {
+            // Handle Firebase permission errors
+            if (dbError.code === 'PERMISSION_DENIED' || dbError.message?.includes('Permission denied')) {
+                console.error('[Game] Permission denied reading games:', dbError);
+                res.status(403).json({ 
+                    message: "Permission denied: Unable to read games from database",
+                    error: "PERMISSION_DENIED"
+                });
+                return;
+            }
+            throw dbError; // Re-throw other errors
+        }
+    } catch (error: any) {
+        console.error('[Game] Error in getAllGames:', error);
+        res.status(500).json({ 
+            message: "Internal Server Error",
+            error: error.message || 'Unknown error'
+        });
         return;
     }
 }

@@ -834,6 +834,7 @@ function getAdminTournamentsLeaderboardsController(req, res) {
 // Get tournaments by game
 function getTournamentsByGameController(req, res) {
     return __awaiter(this, void 0, void 0, function* () {
+        var _a;
         try {
             const { gameId, tokenType } = req.params;
             if (!tokenType || tokenType === undefined || tokenType === null) {
@@ -846,19 +847,40 @@ function getTournamentsByGameController(req, res) {
             if (!gameId) {
                 return res.status(400).json({ message: "Game ID is required" });
             }
-            // Fetch from Firebase at tournaments/{tokenType} and filter by gameId
-            const tournamentsRef = (0, database_1.ref)(firebase_1.db, `tournaments/${tt}`);
-            const snapshot = yield (0, database_1.get)(tournamentsRef);
-            if (!snapshot.exists()) {
-                return res.status(200).json({ success: true, data: [] });
+            try {
+                // Fetch from Firebase at tournaments/{tokenType} and filter by gameId
+                const tournamentsRef = (0, database_1.ref)(firebase_1.db, `tournaments/${tt}`);
+                const snapshot = yield (0, database_1.get)(tournamentsRef);
+                if (!snapshot.exists()) {
+                    return res.status(200).json({ success: true, data: [] });
+                }
+                const all = snapshot.val();
+                if (!all || typeof all !== 'object') {
+                    return res.status(200).json({ success: true, data: [] });
+                }
+                const data = Object.values(all).filter((t) => t && t.gameId === gameId);
+                return res.status(200).json({ success: true, data });
             }
-            const all = snapshot.val();
-            const data = Object.values(all).filter((t) => t.gameId === gameId);
-            return res.status(200).json({ success: true, data });
+            catch (dbError) {
+                // Handle Firebase permission errors
+                if (dbError.code === 'PERMISSION_DENIED' || ((_a = dbError.message) === null || _a === void 0 ? void 0 : _a.includes('Permission denied'))) {
+                    console.error('[Gamehub] Permission denied reading tournaments:', dbError);
+                    return res.status(403).json({
+                        success: false,
+                        message: "Permission denied: Unable to read tournaments from database",
+                        error: "PERMISSION_DENIED"
+                    });
+                }
+                throw dbError; // Re-throw other errors
+            }
         }
         catch (error) {
             console.error("Error in getTournamentsByGameController:", error);
-            return res.status(500).json({ message: "Internal Server Error" });
+            return res.status(500).json({
+                success: false,
+                message: "Internal Server Error",
+                error: error.message || 'Unknown error'
+            });
         }
     });
 }

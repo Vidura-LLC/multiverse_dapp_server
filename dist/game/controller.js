@@ -76,6 +76,7 @@ const getPDAs_1 = require("../utils/getPDAs");
 // }
 function getAllGames(req, res) {
     return __awaiter(this, void 0, void 0, function* () {
+        var _a;
         try {
             const { adminPublicKey } = req.query;
             // Validate adminPublicKey parameter
@@ -83,22 +84,59 @@ function getAllGames(req, res) {
                 res.status(400).json({ message: "Missing required query parameter: adminPublicKey" });
                 return;
             }
-            const gamesRef = (0, database_1.ref)(firebase_1.db, "games");
-            const gamesSnapshot = yield (0, database_1.get)(gamesRef);
-            const gamesData = gamesSnapshot.val();
-            // Convert Firebase object to array format and filter by adminPublicKey
-            const allGames = gamesData ? Object.entries(gamesData).map(([firebaseKey, gameData]) => (Object.assign(Object.assign({}, gameData), { 
-                // Ensure the game has an id - use the provided id or fallback to Firebase key
-                id: gameData.id || firebaseKey }))) : [];
-            // Filter games by the adminPublicKey (createdBy field)
-            const games = allGames.filter((game) => game.createdBy === adminPublicKey);
-            // console.log(`Fetched ${games.length} games for admin: ${adminPublicKey}`);
-            res.status(200).json({ games });
-            return;
+            console.log(`[Game] Fetching games for adminPublicKey: ${adminPublicKey}`);
+            try {
+                const gamesRef = (0, database_1.ref)(firebase_1.db, "games");
+                const gamesSnapshot = yield (0, database_1.get)(gamesRef);
+                if (!gamesSnapshot.exists()) {
+                    console.log(`[Game] No games found in database`);
+                    res.status(200).json({ games: [] });
+                    return;
+                }
+                const gamesData = gamesSnapshot.val();
+                // Convert Firebase object to array format and filter by adminPublicKey
+                const allGames = gamesData && typeof gamesData === 'object'
+                    ? Object.entries(gamesData).map(([firebaseKey, gameData]) => {
+                        if (!gameData || typeof gameData !== 'object') {
+                            return null;
+                        }
+                        return Object.assign(Object.assign({}, gameData), { 
+                            // Ensure the game has an id - use the provided id or fallback to Firebase key
+                            id: gameData.id || firebaseKey });
+                    }).filter((game) => game !== null)
+                    : [];
+                console.log(`[Game] Total games in database: ${allGames.length}`);
+                // Filter games by the adminPublicKey (createdBy field)
+                const games = allGames.filter((game) => {
+                    const matches = game.createdBy === adminPublicKey;
+                    if (!matches && game.createdBy) {
+                        console.log(`[Game] Game ${game.id} createdBy: ${game.createdBy}, expected: ${adminPublicKey}`);
+                    }
+                    return matches;
+                });
+                console.log(`[Game] Filtered games for admin ${adminPublicKey}: ${games.length} games`);
+                res.status(200).json({ games });
+                return;
+            }
+            catch (dbError) {
+                // Handle Firebase permission errors
+                if (dbError.code === 'PERMISSION_DENIED' || ((_a = dbError.message) === null || _a === void 0 ? void 0 : _a.includes('Permission denied'))) {
+                    console.error('[Game] Permission denied reading games:', dbError);
+                    res.status(403).json({
+                        message: "Permission denied: Unable to read games from database",
+                        error: "PERMISSION_DENIED"
+                    });
+                    return;
+                }
+                throw dbError; // Re-throw other errors
+            }
         }
         catch (error) {
-            console.error(error);
-            res.status(500).json({ message: "Internal Server Error" });
+            console.error('[Game] Error in getAllGames:', error);
+            res.status(500).json({
+                message: "Internal Server Error",
+                error: error.message || 'Unknown error'
+            });
             return;
         }
     });

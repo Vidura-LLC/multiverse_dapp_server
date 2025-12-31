@@ -183,8 +183,8 @@ function getDateString(timestamp?: number): string {
 /**
  * Truncate wallet address to first 4 and last 4 characters
  */
-function truncateWallet(walletAddress?: string): string | undefined {
-  if (!walletAddress || walletAddress.length < 9) return walletAddress;
+function truncateWallet(walletAddress?: string): string | null {
+  if (!walletAddress || walletAddress.length < 9) return walletAddress || null;
   return `${walletAddress.slice(0, 4)}...${walletAddress.slice(-4)}`;
 }
 
@@ -216,6 +216,7 @@ export async function trackEvent(gameId: string, event: AnalyticsEvent): Promise
     const serverTimestamp = Date.now();
 
     // Prepare event data for storage
+    // Remove undefined values as Firebase doesn't allow them
     const eventData: any = {
       eventName: event.eventName,
       eventData: event.eventData || {},
@@ -226,10 +227,15 @@ export async function trackEvent(gameId: string, event: AnalyticsEvent): Promise
       environment: event.environment || '',
       tokenType: event.tokenType || '',
       sessionId: event.sessionId || '',
-      walletAddress: truncateWallet(event.walletAddress),
       clientTimestamp: event.clientTimestamp || serverTimestamp,
       serverTimestamp,
     };
+
+    // Only include walletAddress if it exists (not null/undefined)
+    const truncatedWallet = truncateWallet(event.walletAddress);
+    if (truncatedWallet !== null && truncatedWallet !== undefined) {
+      eventData.walletAddress = truncatedWallet;
+    }
 
     // Store raw event (90-day retention handled by cleanup job)
     const eventRef = ref(db, `analytics/events/${gameId}/${eventId}`);
@@ -426,7 +432,7 @@ async function trackSession(gameId: string, date: string, sessionId: string): Pr
  */
 async function trackUniqueWallet(gameId: string, date: string, walletAddress: string): Promise<void> {
   const truncated = truncateWallet(walletAddress);
-  if (!truncated) return;
+  if (!truncated || truncated === null) return;
 
   const walletHash = crypto.createHash('md5').update(truncated).digest('hex');
   const walletRef = ref(db, `analytics/wallets/${gameId}/${date}/${walletHash}`);
@@ -711,29 +717,45 @@ export async function getGameErrors(gameId: string, days: number): Promise<Error
 
   while (currentDate <= endDate) {
     const dateStr = getDateString(currentDate.getTime());
-    const errorsRef = ref(db, `analytics/errors/${gameId}/${dateStr}`);
-    const snapshot = await get(errorsRef);
+    
+    try {
+      const errorsRef = ref(db, `analytics/errors/${gameId}/${dateStr}`);
+      const snapshot = await get(errorsRef);
 
-    if (snapshot.exists()) {
-      const errors = snapshot.val();
-      for (const errorHash in errors) {
-        const error = errors[errorHash];
-        const key = `${error.eventName}:${error.errorMessage}`;
+      if (snapshot.exists()) {
+        const errors = snapshot.val();
+        if (errors && typeof errors === 'object') {
+          for (const errorHash in errors) {
+            const error = errors[errorHash];
+            if (!error || typeof error !== 'object') {
+              continue;
+            }
+            
+            const key = `${error.eventName || 'unknown'}:${error.errorMessage || 'unknown'}`;
 
-        if (errorMap.has(key)) {
-          const existing = errorMap.get(key)!;
-          existing.totalCount += error.count || 0;
-          existing.lastOccurred = Math.max(existing.lastOccurred, error.lastOccurred || 0);
-        } else {
-          errorMap.set(key, {
-            eventName: error.eventName,
-            errorMessage: error.errorMessage,
-            errorType: error.errorType || 'unknown',
-            totalCount: error.count || 0,
-            firstOccurred: error.firstOccurred || 0,
-            lastOccurred: error.lastOccurred || 0,
-          });
+            if (errorMap.has(key)) {
+              const existing = errorMap.get(key)!;
+              existing.totalCount += error.count || 0;
+              existing.lastOccurred = Math.max(existing.lastOccurred, error.lastOccurred || 0);
+            } else {
+              errorMap.set(key, {
+                eventName: error.eventName || 'unknown',
+                errorMessage: error.errorMessage || 'unknown',
+                errorType: error.errorType || 'unknown',
+                totalCount: error.count || 0,
+                firstOccurred: error.firstOccurred || 0,
+                lastOccurred: error.lastOccurred || 0,
+              });
+            }
+          }
         }
+      }
+    } catch (error: any) {
+      // Handle permission errors gracefully
+      if (error.code === 'PERMISSION_DENIED' || error.message?.includes('Permission denied')) {
+        console.warn(`[Analytics] Permission denied for analytics/errors/${gameId}/${dateStr}`);
+      } else {
+        console.error(`[Analytics] Error reading errors for ${dateStr}:`, error);
       }
     }
 
@@ -1026,41 +1048,73 @@ export async function getPlatformVersions(days: number): Promise<VersionData[]> 
 
   while (currentDate <= endDate) {
     const dateStr = getDateString(currentDate.getTime());
-    const versionsRef = ref(db, `analytics/versions/${dateStr}`);
-    const snapshot = await get(versionsRef);
+    
+    try {
+      const versionsRef = ref(db, `analytics/versions/${dateStr}`);
+      const snapshot = await get(versionsRef);
 
-    if (snapshot.exists()) {
-      const versions = snapshot.val();
-      for (const sdkVersion in versions) {
-        const version = versions[sdkVersion];
-        const gamesList = version.gamesList || {};
+      if (snapshot.exists()) {
+        const versions = snapshot.val();
+        if (versions && typeof versions === 'object') {
+          for (const sdkVersion in versions) {
+            const version = versions[sdkVersion];
+            if (!version || typeof version !== 'object') {
+              continue;
+            }
+            
+            const gamesList = version.gamesList || {};
+            const totalEvents = version.totalEvents || 0;
 
-        if (versionMap.has(sdkVersion)) {
-          const existing = versionMap.get(sdkVersion)!;
-          existing.totalEvents += version.totalEvents || 0;
-          Object.keys(gamesList).forEach(gameId => existing.gamesUsing.add(gameId));
-        } else {
-          versionMap.set(sdkVersion, {
-            totalEvents: version.totalEvents || 0,
-            gamesUsing: new Set(Object.keys(gamesList)),
-          });
+            if (versionMap.has(sdkVersion)) {
+              const existing = versionMap.get(sdkVersion)!;
+              existing.totalEvents += totalEvents;
+              if (gamesList && typeof gamesList === 'object') {
+                Object.keys(gamesList).forEach(gameId => existing.gamesUsing.add(gameId));
+              }
+            } else {
+              versionMap.set(sdkVersion, {
+                totalEvents,
+                gamesUsing: gamesList && typeof gamesList === 'object' 
+                  ? new Set(Object.keys(gamesList))
+                  : new Set(),
+              });
+            }
+          }
         }
+      }
+    } catch (error: any) {
+      // Handle permission errors gracefully
+      if (error.code === 'PERMISSION_DENIED' || error.message?.includes('Permission denied')) {
+        console.warn(`[Analytics] Permission denied for analytics/versions/${dateStr}`);
+      } else {
+        console.error(`[Analytics] Error reading versions for ${dateStr}:`, error);
       }
     }
 
     currentDate.setDate(currentDate.getDate() + 1);
   }
 
-  const totalEvents = Array.from(versionMap.values()).reduce((sum, v) => sum + v.totalEvents, 0);
+  try {
+    const totalEvents = Array.from(versionMap.values()).reduce((sum, v) => sum + (v?.totalEvents || 0), 0);
 
-  return Array.from(versionMap.entries())
-    .map(([sdkVersion, data]) => ({
-      sdkVersion,
-      totalEvents: data.totalEvents,
-      gamesUsing: data.gamesUsing.size,
-      percentage: totalEvents > 0 ? Math.round((data.totalEvents / totalEvents) * 100) : 0,
-    }))
-    .sort((a, b) => b.totalEvents - a.totalEvents);
+    return Array.from(versionMap.entries())
+      .map(([sdkVersion, data]) => {
+        if (!data || typeof data !== 'object') {
+          return null;
+        }
+        return {
+          sdkVersion,
+          totalEvents: data.totalEvents || 0,
+          gamesUsing: data.gamesUsing?.size || 0,
+          percentage: totalEvents > 0 ? Math.round(((data.totalEvents || 0) / totalEvents) * 100) : 0,
+        };
+      })
+      .filter((item): item is VersionData => item !== null)
+      .sort((a, b) => b.totalEvents - a.totalEvents);
+  } catch (error: any) {
+    console.error('[Analytics] Error processing platform versions:', error);
+    return []; // Return empty array on processing error
+  }
 }
 
 /**
