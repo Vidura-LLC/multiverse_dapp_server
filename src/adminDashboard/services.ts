@@ -263,9 +263,22 @@ export const initializeRewardPoolService = async (
 
   
  // ✅ Function to check pool status for staking and reward pools
- export const checkPoolStatus = async (adminPublicKey: PublicKey, tokenType: TokenType) => {
+ // Uses super admin from platform config (pools are global)
+ export const checkPoolStatus = async (tokenType: TokenType) => {
   try {
       const { program } = getProgram();
+
+      // Get super admin from platform config (pools are global, initialized by super admin)
+      const platformConfig = await getPlatformConfigService();
+      if (!platformConfig.success || !platformConfig.data) {
+          return {
+              success: false,
+              message: 'Platform config not initialized. Please initialize platform config first.'
+          };
+      }
+
+      const superAdminPublicKey = new PublicKey(platformConfig.data.superAdmin);
+      console.log("🔹 Using Super Admin for pool check:", superAdminPublicKey.toString());
 
       const result = {
           success: true,
@@ -277,11 +290,11 @@ export const initializeRewardPoolService = async (
             status: false, // false = needs initialization, true = exists
             tokenType: null as string | null,
         },
-          adminAddress: adminPublicKey.toString()
+          adminAddress: superAdminPublicKey.toString()
       };
 
-      // ✅ 1. Check Staking Pool
-      const stakingPoolPublicKey = getStakingPoolPDA(adminPublicKey, tokenType);
+      // ✅ 1. Check Staking Pool (using super admin)
+      const stakingPoolPublicKey = getStakingPoolPDA(superAdminPublicKey, tokenType);
       console.log("🔹 Checking Staking Pool PDA:", stakingPoolPublicKey.toString());
 
       const stakingPoolAccount = await program.account.stakingPool.fetchNullable(stakingPoolPublicKey) as StakingPoolAccount | null;
@@ -293,9 +306,8 @@ export const initializeRewardPoolService = async (
             null,
       };
 
-      // ✅ 2. Check Reward Pool
-      const rewardPoolPublicKey = getRewardPoolPDA(adminPublicKey, tokenType);
-
+      // ✅ 2. Check Reward Pool (using super admin)
+      const rewardPoolPublicKey = getRewardPoolPDA(superAdminPublicKey, tokenType);
 
     console.log("🔹 Checking Reward Pool PDA:", rewardPoolPublicKey.toString());
 
