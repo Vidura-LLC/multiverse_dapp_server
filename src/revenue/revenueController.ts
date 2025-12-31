@@ -907,6 +907,92 @@ export const confirmPrizeDistributionController = async (req: Request, res: Resp
 };
 
 /**
+ * Get aggregated developer revenue across all developers (admin only)
+ * GET /api/revenue/developer/all
+ */
+export const getAllDeveloperRevenueController = async (req: Request, res: Response) => {
+  try {
+    const developerRevenueRef = ref(db, `developerRevenue`);
+    const developerRevenueSnapshot = await get(developerRevenueRef);
+
+    if (!developerRevenueSnapshot.exists()) {
+      return res.status(200).json({
+        success: true,
+        data: {
+          totalEarned: { SOL: 0, SPL: 0 },
+          tournamentsCount: 0,
+          lastDistribution: null,
+          history: []
+        }
+      });
+    }
+
+    const allDeveloperData = developerRevenueSnapshot.val();
+    
+    let totalSOL = 0;
+    let totalSPL = 0;
+    let totalTournamentsCount = 0;
+    let lastDistribution: number | null = null;
+    const allHistory: any[] = [];
+
+    Object.values(allDeveloperData).forEach((developerData: any) => {
+      if (developerData && developerData.totalEarned) {
+        totalSOL += developerData.totalEarned.SOL || 0;
+        totalSPL += developerData.totalEarned.SPL || 0;
+        totalTournamentsCount += developerData.tournamentsCount || 0;
+        
+        if (developerData.lastDistribution) {
+          if (!lastDistribution || developerData.lastDistribution > lastDistribution) {
+            lastDistribution = developerData.lastDistribution;
+          }
+        }
+        
+        if (developerData.history && Array.isArray(developerData.history)) {
+          allHistory.push(...developerData.history);
+        }
+      }
+    });
+
+    allHistory.sort((a: any, b: any) => (b.timestamp || 0) - (a.timestamp || 0));
+
+    const tokenDecimals = 9;
+    const totalEarnedSOL = totalSOL / (10 ** tokenDecimals);
+    const totalEarnedSPL = totalSPL / (10 ** tokenDecimals);
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        totalEarned: {
+          SOL: totalEarnedSOL,
+          SPL: totalEarnedSPL
+        },
+        tournamentsCount: totalTournamentsCount,
+        lastDistribution: lastDistribution,
+        history: allHistory
+      }
+    });
+  } catch (err: any) {
+    console.error('Error fetching all developer revenue:', err);
+    if (err.message && err.message.includes('Permission denied')) {
+      return res.status(200).json({
+        success: true,
+        data: {
+          totalEarned: { SOL: 0, SPL: 0 },
+          tournamentsCount: 0,
+          lastDistribution: null,
+          history: []
+        }
+      });
+    }
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch all developer revenue',
+      error: err.message || err
+    });
+  }
+};
+
+/**
  * Get developer revenue statistics
  * GET /api/revenue/developer/:developerPublicKey
  */
