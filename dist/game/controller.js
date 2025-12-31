@@ -17,6 +17,7 @@ const database_1 = require("firebase/database");
 const firebase_1 = require("../config/firebase"); // Adjust import path
 const s3Service_1 = require("./s3Service");
 const getPDAs_1 = require("../utils/getPDAs");
+const middleware_1 = require("../gamehub/middleware");
 // export async function createGame(req: Request, res: Response): Promise<void> {
 //     try {
 //         const { id, name, description, userId, status, adminPublicKey, image } = req.body;
@@ -74,6 +75,28 @@ const getPDAs_1 = require("../utils/getPDAs");
 //         return;
 //     }
 // }
+/**
+ * Check if a user is an admin by checking their role in the database
+ */
+function isAdmin(publicKey) {
+    return __awaiter(this, void 0, void 0, function* () {
+        try {
+            if (!publicKey) {
+                return false;
+            }
+            // Check user role from database
+            const user = yield (0, middleware_1.checkUser)(publicKey);
+            if (user && (user.role === 'admin' || user.role === 'super_admin')) {
+                return true;
+            }
+            return false;
+        }
+        catch (error) {
+            console.error('[Game] Error checking admin status:', error);
+            return false;
+        }
+    });
+}
 function getAllGames(req, res) {
     return __awaiter(this, void 0, void 0, function* () {
         var _a;
@@ -85,6 +108,9 @@ function getAllGames(req, res) {
                 return;
             }
             console.log(`[Game] Fetching games for adminPublicKey: ${adminPublicKey}`);
+            // Check if user is admin
+            const userIsAdmin = yield isAdmin(adminPublicKey);
+            console.log(`[Game] User is admin: ${userIsAdmin}`);
             try {
                 const gamesRef = (0, database_1.ref)(firebase_1.db, "games");
                 const gamesSnapshot = yield (0, database_1.get)(gamesRef);
@@ -94,7 +120,7 @@ function getAllGames(req, res) {
                     return;
                 }
                 const gamesData = gamesSnapshot.val();
-                // Convert Firebase object to array format and filter by adminPublicKey
+                // Convert Firebase object to array format
                 const allGames = gamesData && typeof gamesData === 'object'
                     ? Object.entries(gamesData).map(([firebaseKey, gameData]) => {
                         if (!gameData || typeof gameData !== 'object') {
@@ -106,15 +132,23 @@ function getAllGames(req, res) {
                     }).filter((game) => game !== null)
                     : [];
                 console.log(`[Game] Total games in database: ${allGames.length}`);
-                // Filter games by the adminPublicKey (createdBy field)
-                const games = allGames.filter((game) => {
-                    const matches = game.createdBy === adminPublicKey;
-                    if (!matches && game.createdBy) {
-                        console.log(`[Game] Game ${game.id} createdBy: ${game.createdBy}, expected: ${adminPublicKey}`);
-                    }
-                    return matches;
-                });
-                console.log(`[Game] Filtered games for admin ${adminPublicKey}: ${games.length} games`);
+                // If user is admin, return all games. Otherwise, filter by createdBy
+                let games;
+                if (userIsAdmin) {
+                    games = allGames;
+                    console.log(`[Game] Admin access: returning all ${games.length} games`);
+                }
+                else {
+                    // Filter games by the adminPublicKey (createdBy field) for developers
+                    games = allGames.filter((game) => {
+                        const matches = game.createdBy === adminPublicKey;
+                        if (!matches && game.createdBy) {
+                            console.log(`[Game] Game ${game.id} createdBy: ${game.createdBy}, expected: ${adminPublicKey}`);
+                        }
+                        return matches;
+                    });
+                    console.log(`[Game] Developer access: filtered to ${games.length} games`);
+                }
                 res.status(200).json({ games });
                 return;
             }
