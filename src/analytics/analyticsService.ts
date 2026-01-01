@@ -520,6 +520,10 @@ async function trackVersion(date: string, sdkVersion: string, gameId: string): P
 /**
  * Get game summary for a date range
  */
+/**
+ * Get game summary for a date range
+ * OPTIMIZED: Parallel queries and single fetch for sessions/wallets
+ */
 export async function getGameSummary(gameId: string, days: number): Promise<GameSummary> {
   const endDate = new Date();
   const startDate = new Date();
@@ -540,67 +544,82 @@ export async function getGameSummary(gameId: string, days: number): Promise<Game
     solEvents: 0,
   };
 
-  // Iterate through each date in range
+  // Generate all date strings upfront
+  const dateStrings: string[] = [];
   const currentDate = new Date(startDate);
   while (currentDate <= endDate) {
-    const dateStr = getDateString(currentDate.getTime());
-    
-    try {
-      const dailyRef = ref(db, `analytics/daily/${gameId}/${dateStr}`);
-      const snapshot = await get(dailyRef);
+    dateStrings.push(getDateString(currentDate.getTime()));
+    currentDate.setDate(currentDate.getDate() + 1);
+  }
 
-      if (snapshot.exists()) {
-        const data = snapshot.val() as DailyAggregates;
-        summary.totalInitializations += data.initializations || 0;
-        summary.totalInitFailures += data.initFailures || 0;
-        summary.totalWalletConnections += data.walletConnections || 0;
-        summary.totalWalletFailures += data.walletFailures || 0;
-        summary.totalRegistrations += data.registrations || 0;
-        summary.totalRegistrationFailures += data.registrationFailures || 0;
-        summary.totalScoreSubmissions += data.scoreSubmissions || 0;
-        summary.totalScoreFailures += data.scoreFailures || 0;
-        summary.splEvents += data.splEvents || 0;
-        summary.solEvents += data.solEvents || 0;
-      }
-    } catch (error: any) {
-      // Handle permission errors gracefully
+  // Fetch all daily data in parallel
+  const dailyPromises = dateStrings.map((dateStr): Promise<any> => {
+    const dailyRef = ref(db, `analytics/daily/${gameId}/${dateStr}`);
+    return get(dailyRef).catch((error: any): any => {
       if (error.code === 'PERMISSION_DENIED' || error.message?.includes('Permission denied')) {
-        console.warn(`[Analytics] Permission denied for analytics/daily/${gameId}/${dateStr}. This may be due to Firebase security rules.`);
+        console.warn(`[Analytics] Permission denied for analytics/daily/${gameId}/${dateStr}`);
       } else {
         console.error(`[Analytics] Error reading daily data for ${dateStr}:`, error);
       }
-    }
+      return null;
+    });
+  });
 
-    try {
-      // Count unique sessions and wallets
-      const sessionsRef = ref(db, `analytics/sessions/${gameId}/${dateStr}`);
-      const sessionsSnapshot = await get(sessionsRef);
-      if (sessionsSnapshot.exists()) {
-        summary.totalSessions += Object.keys(sessionsSnapshot.val()).length;
-      }
-    } catch (error: any) {
+  // Fetch sessions and wallets ONCE (not in loop)
+  const [sessionsSnapshot, walletsSnapshot, ...dailySnapshots] = await Promise.all([
+    get(ref(db, `analytics/sessions/${gameId}`)).catch((error: any): any => {
       if (error.code === 'PERMISSION_DENIED' || error.message?.includes('Permission denied')) {
-        console.warn(`[Analytics] Permission denied for analytics/sessions/${gameId}/${dateStr}`);
+        console.warn(`[Analytics] Permission denied for analytics/sessions/${gameId}`);
       } else {
-        console.error(`[Analytics] Error reading sessions for ${dateStr}:`, error);
+        console.error(`[Analytics] Error reading sessions:`, error);
       }
-    }
-
-    try {
-      const walletsRef = ref(db, `analytics/wallets/${gameId}/${dateStr}`);
-      const walletsSnapshot = await get(walletsRef);
-      if (walletsSnapshot.exists()) {
-        summary.totalWallets += Object.keys(walletsSnapshot.val()).length;
-      }
-    } catch (error: any) {
+      return null;
+    }),
+    get(ref(db, `analytics/wallets/${gameId}`)).catch((error: any): any => {
       if (error.code === 'PERMISSION_DENIED' || error.message?.includes('Permission denied')) {
-        console.warn(`[Analytics] Permission denied for analytics/wallets/${gameId}/${dateStr}`);
+        console.warn(`[Analytics] Permission denied for analytics/wallets/${gameId}`);
       } else {
-        console.error(`[Analytics] Error reading wallets for ${dateStr}:`, error);
+        console.error(`[Analytics] Error reading wallets:`, error);
+      }
+      return null;
+    }),
+    ...dailyPromises,
+  ]);
+
+  // Process daily data
+  dailySnapshots.forEach((snapshot) => {
+    if (snapshot?.exists()) {
+      const data = snapshot.val() as DailyAggregates;
+      summary.totalInitializations += data.initializations || 0;
+      summary.totalInitFailures += data.initFailures || 0;
+      summary.totalWalletConnections += data.walletConnections || 0;
+      summary.totalWalletFailures += data.walletFailures || 0;
+      summary.totalRegistrations += data.registrations || 0;
+      summary.totalRegistrationFailures += data.registrationFailures || 0;
+      summary.totalScoreSubmissions += data.scoreSubmissions || 0;
+      summary.totalScoreFailures += data.scoreFailures || 0;
+      summary.splEvents += data.splEvents || 0;
+      summary.solEvents += data.solEvents || 0;
+    }
+  });
+
+  // Process sessions and wallets ONCE for all dates
+  if (sessionsSnapshot?.exists()) {
+    const sessions = sessionsSnapshot.val();
+    for (const dateStr of dateStrings) {
+      if (sessions[dateStr]) {
+        summary.totalSessions += Object.keys(sessions[dateStr]).length;
       }
     }
+  }
 
-    currentDate.setDate(currentDate.getDate() + 1);
+  if (walletsSnapshot?.exists()) {
+    const wallets = walletsSnapshot.val();
+    for (const dateStr of dateStrings) {
+      if (wallets[dateStr]) {
+        summary.totalWallets += Object.keys(wallets[dateStr]).length;
+      }
+    }
   }
 
   return {
@@ -615,18 +634,61 @@ export async function getGameSummary(gameId: string, days: number): Promise<Game
 
 /**
  * Get game trends for a date range
+ * OPTIMIZED: Parallel queries and single fetch for sessions/wallets
  */
 export async function getGameTrends(gameId: string, days: number): Promise<TrendData[]> {
   const endDate = new Date();
   const startDate = new Date();
   startDate.setDate(startDate.getDate() - days);
 
-  const trends: TrendData[] = [];
+  // Generate all date strings upfront
+  const dateStrings: string[] = [];
   const currentDate = new Date(startDate);
-
   while (currentDate <= endDate) {
-    const dateStr = getDateString(currentDate.getTime());
-    
+    dateStrings.push(getDateString(currentDate.getTime()));
+    currentDate.setDate(currentDate.getDate() + 1);
+  }
+
+  // Fetch all daily data in parallel
+  const dailyPromises = dateStrings.map((dateStr): Promise<any> => {
+    const dailyRef = ref(db, `analytics/daily/${gameId}/${dateStr}`);
+    return get(dailyRef).catch((error: any): any => {
+      if (error.code === 'PERMISSION_DENIED' || error.message?.includes('Permission denied')) {
+        console.warn(`[Analytics] Permission denied for analytics/daily/${gameId}/${dateStr}`);
+      } else {
+        console.error(`[Analytics] Error reading daily trends for ${dateStr}:`, error);
+      }
+      return null;
+    });
+  });
+
+  // Fetch sessions and wallets ONCE (not in loop)
+  const [sessionsSnapshot, walletsSnapshot, ...dailySnapshots] = await Promise.all([
+    get(ref(db, `analytics/sessions/${gameId}`)).catch((error: any): any => {
+      if (error.code === 'PERMISSION_DENIED' || error.message?.includes('Permission denied')) {
+        console.warn(`[Analytics] Permission denied for analytics/sessions/${gameId}`);
+      } else {
+        console.error(`[Analytics] Error reading sessions:`, error);
+      }
+      return null;
+    }),
+    get(ref(db, `analytics/wallets/${gameId}`)).catch((error: any): any => {
+      if (error.code === 'PERMISSION_DENIED' || error.message?.includes('Permission denied')) {
+        console.warn(`[Analytics] Permission denied for analytics/wallets/${gameId}`);
+      } else {
+        console.error(`[Analytics] Error reading wallets:`, error);
+      }
+      return null;
+    }),
+    ...dailyPromises,
+  ]);
+
+  // Pre-process sessions and wallets data for quick lookup
+  const sessionsData = sessionsSnapshot?.exists() ? sessionsSnapshot.val() : {};
+  const walletsData = walletsSnapshot?.exists() ? walletsSnapshot.val() : {};
+
+  // Build trends array
+  const trends: TrendData[] = dateStrings.map((dateStr, index) => {
     const trend: TrendData = {
       date: dateStr,
       initializations: 0,
@@ -643,69 +705,39 @@ export async function getGameTrends(gameId: string, days: number): Promise<Trend
       solEvents: 0,
     };
 
-    try {
-      const dailyRef = ref(db, `analytics/daily/${gameId}/${dateStr}`);
-      const snapshot = await get(dailyRef);
-
-      if (snapshot.exists()) {
-        const data = snapshot.val() as DailyAggregates;
-        trend.initializations = data.initializations || 0;
-        trend.initFailures = data.initFailures || 0;
-        trend.walletConnections = data.walletConnections || 0;
-        trend.walletFailures = data.walletFailures || 0;
-        trend.registrations = data.registrations || 0;
-        trend.registrationFailures = data.registrationFailures || 0;
-        trend.scoreSubmissions = data.scoreSubmissions || 0;
-        trend.scoreFailures = data.scoreFailures || 0;
-        trend.splEvents = data.splEvents || 0;
-        trend.solEvents = data.solEvents || 0;
-      }
-    } catch (error: any) {
-      if (error.code === 'PERMISSION_DENIED' || error.message?.includes('Permission denied')) {
-        console.warn(`[Analytics] Permission denied for analytics/daily/${gameId}/${dateStr}`);
-      } else {
-        console.error(`[Analytics] Error reading daily trends for ${dateStr}:`, error);
-      }
+    // Process daily data
+    const snapshot = dailySnapshots[index];
+    if (snapshot?.exists()) {
+      const data = snapshot.val() as DailyAggregates;
+      trend.initializations = data.initializations || 0;
+      trend.initFailures = data.initFailures || 0;
+      trend.walletConnections = data.walletConnections || 0;
+      trend.walletFailures = data.walletFailures || 0;
+      trend.registrations = data.registrations || 0;
+      trend.registrationFailures = data.registrationFailures || 0;
+      trend.scoreSubmissions = data.scoreSubmissions || 0;
+      trend.scoreFailures = data.scoreFailures || 0;
+      trend.splEvents = data.splEvents || 0;
+      trend.solEvents = data.solEvents || 0;
     }
 
-    // Count unique sessions and wallets
-    try {
-      const sessionsRef = ref(db, `analytics/sessions/${gameId}/${dateStr}`);
-      const sessionsSnapshot = await get(sessionsRef);
-      if (sessionsSnapshot.exists()) {
-        trend.uniqueSessions = Object.keys(sessionsSnapshot.val()).length;
-      }
-    } catch (error: any) {
-      if (error.code === 'PERMISSION_DENIED' || error.message?.includes('Permission denied')) {
-        console.warn(`[Analytics] Permission denied for analytics/sessions/${gameId}/${dateStr}`);
-      } else {
-        console.error(`[Analytics] Error reading sessions for ${dateStr}:`, error);
-      }
+    // Process sessions and wallets from pre-fetched data
+    if (sessionsData[dateStr]) {
+      trend.uniqueSessions = Object.keys(sessionsData[dateStr]).length;
+    }
+    if (walletsData[dateStr]) {
+      trend.uniqueWallets = Object.keys(walletsData[dateStr]).length;
     }
 
-    try {
-      const walletsRef = ref(db, `analytics/wallets/${gameId}/${dateStr}`);
-      const walletsSnapshot = await get(walletsRef);
-      if (walletsSnapshot.exists()) {
-        trend.uniqueWallets = Object.keys(walletsSnapshot.val()).length;
-      }
-    } catch (error: any) {
-      if (error.code === 'PERMISSION_DENIED' || error.message?.includes('Permission denied')) {
-        console.warn(`[Analytics] Permission denied for analytics/wallets/${gameId}/${dateStr}`);
-      } else {
-        console.error(`[Analytics] Error reading wallets for ${dateStr}:`, error);
-      }
-    }
-
-    trends.push(trend);
-    currentDate.setDate(currentDate.getDate() + 1);
-  }
+    return trend;
+  });
 
   return trends;
 }
 
 /**
  * Get game errors for a date range
+ * OPTIMIZED: Parallel queries
  */
 export async function getGameErrors(gameId: string, days: number): Promise<ErrorData[]> {
   const endDate = new Date();
@@ -713,60 +745,68 @@ export async function getGameErrors(gameId: string, days: number): Promise<Error
   startDate.setDate(startDate.getDate() - days);
 
   const errorMap = new Map<string, ErrorData>();
+
+  // Generate all date strings upfront
+  const dateStrings: string[] = [];
   const currentDate = new Date(startDate);
-
   while (currentDate <= endDate) {
-    const dateStr = getDateString(currentDate.getTime());
-    
-    try {
-      const errorsRef = ref(db, `analytics/errors/${gameId}/${dateStr}`);
-      const snapshot = await get(errorsRef);
+    dateStrings.push(getDateString(currentDate.getTime()));
+    currentDate.setDate(currentDate.getDate() + 1);
+  }
 
-      if (snapshot.exists()) {
-        const errors = snapshot.val();
-        if (errors && typeof errors === 'object') {
-          for (const errorHash in errors) {
-            const error = errors[errorHash];
-            if (!error || typeof error !== 'object') {
-              continue;
-            }
-            
-            const key = `${error.eventName || 'unknown'}:${error.errorMessage || 'unknown'}`;
-
-            if (errorMap.has(key)) {
-              const existing = errorMap.get(key)!;
-              existing.totalCount += error.count || 0;
-              existing.lastOccurred = Math.max(existing.lastOccurred, error.lastOccurred || 0);
-            } else {
-              errorMap.set(key, {
-                eventName: error.eventName || 'unknown',
-                errorMessage: error.errorMessage || 'unknown',
-                errorType: error.errorType || 'unknown',
-                totalCount: error.count || 0,
-                firstOccurred: error.firstOccurred || 0,
-                lastOccurred: error.lastOccurred || 0,
-              });
-            }
-          }
-        }
-      }
-    } catch (error: any) {
-      // Handle permission errors gracefully
+  // Fetch all error data in parallel
+  const errorPromises = dateStrings.map((dateStr): Promise<any> => {
+    const errorsRef = ref(db, `analytics/errors/${gameId}/${dateStr}`);
+    return get(errorsRef).catch((error: any): any => {
       if (error.code === 'PERMISSION_DENIED' || error.message?.includes('Permission denied')) {
         console.warn(`[Analytics] Permission denied for analytics/errors/${gameId}/${dateStr}`);
       } else {
         console.error(`[Analytics] Error reading errors for ${dateStr}:`, error);
       }
-    }
+      return null;
+    });
+  });
 
-    currentDate.setDate(currentDate.getDate() + 1);
-  }
+  const errorSnapshots = await Promise.all(errorPromises);
+
+  // Process all error data
+  errorSnapshots.forEach((snapshot) => {
+    if (snapshot?.exists()) {
+      const errors = snapshot.val();
+      if (errors && typeof errors === 'object') {
+        for (const errorHash in errors) {
+          const error = errors[errorHash];
+          if (!error || typeof error !== 'object') {
+            continue;
+          }
+          
+          const key = `${error.eventName || 'unknown'}:${error.errorMessage || 'unknown'}`;
+
+          if (errorMap.has(key)) {
+            const existing = errorMap.get(key)!;
+            existing.totalCount += error.count || 0;
+            existing.lastOccurred = Math.max(existing.lastOccurred, error.lastOccurred || 0);
+          } else {
+            errorMap.set(key, {
+              eventName: error.eventName || 'unknown',
+              errorMessage: error.errorMessage || 'unknown',
+              errorType: error.errorType || 'unknown',
+              totalCount: error.count || 0,
+              firstOccurred: error.firstOccurred || 0,
+              lastOccurred: error.lastOccurred || 0,
+            });
+          }
+        }
+      }
+    }
+  });
 
   return Array.from(errorMap.values()).sort((a, b) => b.totalCount - a.totalCount);
 }
 
 /**
  * Get game SDK versions for a date range
+ * OPTIMIZED: Parallel queries
  */
 export async function getGameVersions(gameId: string, days: number): Promise<VersionData[]> {
   const endDate = new Date();
@@ -774,14 +814,33 @@ export async function getGameVersions(gameId: string, days: number): Promise<Ver
   startDate.setDate(startDate.getDate() - days);
 
   const versionMap = new Map<string, { totalEvents: number; gamesUsing: Set<string> }>();
+
+  // Generate all date strings upfront
+  const dateStrings: string[] = [];
   const currentDate = new Date(startDate);
-
   while (currentDate <= endDate) {
-    const dateStr = getDateString(currentDate.getTime());
-    const versionsRef = ref(db, `analytics/versions/${dateStr}`);
-    const snapshot = await get(versionsRef);
+    dateStrings.push(getDateString(currentDate.getTime()));
+    currentDate.setDate(currentDate.getDate() + 1);
+  }
 
-    if (snapshot.exists()) {
+  // Fetch all version data in parallel
+  const versionPromises = dateStrings.map((dateStr): Promise<any> => {
+    const versionsRef = ref(db, `analytics/versions/${dateStr}`);
+    return get(versionsRef).catch((error: any): any => {
+      if (error.code === 'PERMISSION_DENIED' || error.message?.includes('Permission denied')) {
+        console.warn(`[Analytics] Permission denied for analytics/versions/${dateStr}`);
+      } else {
+        console.error(`[Analytics] Error reading versions for ${dateStr}:`, error);
+      }
+      return null;
+    });
+  });
+
+  const versionSnapshots = await Promise.all(versionPromises);
+
+  // Process all version data
+  versionSnapshots.forEach((snapshot) => {
+    if (snapshot?.exists()) {
       const versions = snapshot.val();
       for (const sdkVersion in versions) {
         const version = versions[sdkVersion];
@@ -799,9 +858,7 @@ export async function getGameVersions(gameId: string, days: number): Promise<Ver
         }
       }
     }
-
-    currentDate.setDate(currentDate.getDate() + 1);
-  }
+  });
 
   const totalEvents = Array.from(versionMap.values()).reduce((sum, v) => sum + v.totalEvents, 0);
 
