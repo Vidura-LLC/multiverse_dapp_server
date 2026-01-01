@@ -36,14 +36,28 @@ export const formatTokenAmount = (amount: number, decimals: number = 9): number 
 
 /**
  * Get the staking pool data from the blockchain
+ * Uses super admin from platform config (pools are global)
  */
-export const getStakingPoolData = async (adminPublicKey: PublicKey, tokenType: TokenType) => {
+export const getStakingPoolData = async (tokenType: TokenType) => {
     try {
         const { program, connection } = getProgram();
 
-        // Derive the staking pool PDA
+        // Get super admin from platform config (pools are global, initialized by super admin)
+        const { getPlatformConfigService } = await import('./services');
+        const platformConfig = await getPlatformConfigService();
+        if (!platformConfig.success || !platformConfig.data) {
+            return {
+                success: false,
+                message: 'Platform config not initialized. Please initialize platform config first.'
+            };
+        }
+
+        const superAdminPublicKey = new PublicKey(platformConfig.data.superAdmin);
+        console.log("🔹 Using Super Admin for staking pool:", superAdminPublicKey.toString());
+
+        // Derive the staking pool PDA using super admin
         const [stakingPoolPublicKey] = PublicKey.findProgramAddressSync(
-            [Buffer.from(SEEDS.STAKING_POOL), adminPublicKey.toBuffer(), Buffer.from([tokenType])],
+            [Buffer.from(SEEDS.STAKING_POOL), superAdminPublicKey.toBuffer(), Buffer.from([tokenType])],
             program.programId
         );
 
@@ -139,8 +153,21 @@ export const getActiveStakers = async (adminPublicKey?: PublicKey, tokenType?: T
     try {
         const { program } = getProgram();
 
-        // Derive the staking pool PDA for the given tokenType
-        const stakingPoolPublicKey = getStakingPoolPDA(adminPublicKey, tokenType);
+        // Get super admin from platform config (pools are global, initialized by super admin)
+        const { getPlatformConfigService } = await import('./services');
+        const platformConfig = await getPlatformConfigService();
+        if (!platformConfig.success || !platformConfig.data) {
+            return {
+                success: false,
+                message: 'Platform config not initialized. Please initialize platform config first.'
+            };
+        }
+
+        const superAdminPublicKey = new PublicKey(platformConfig.data.superAdmin);
+        console.log("🔹 Using Super Admin for active stakers:", superAdminPublicKey.toString());
+
+        // Derive the staking pool PDA for the given tokenType using super admin
+        const stakingPoolPublicKey = getStakingPoolPDA(superAdminPublicKey, tokenType);
         
         console.log(`🔹 Filtering stakers for pool: ${stakingPoolPublicKey.toBase58()}`);
         console.log(`🔹 Token Type: ${tokenType === TokenType.SPL ? 'SPL' : 'SOL'}`);

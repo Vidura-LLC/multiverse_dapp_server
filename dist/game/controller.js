@@ -17,6 +17,7 @@ const database_1 = require("firebase/database");
 const firebase_1 = require("../config/firebase"); // Adjust import path
 const s3Service_1 = require("./s3Service");
 const getPDAs_1 = require("../utils/getPDAs");
+const middleware_1 = require("../gamehub/middleware");
 // export async function createGame(req: Request, res: Response): Promise<void> {
 //     try {
 //         const { id, name, description, userId, status, adminPublicKey, image } = req.body;
@@ -74,8 +75,31 @@ const getPDAs_1 = require("../utils/getPDAs");
 //         return;
 //     }
 // }
+/**
+ * Check if a user is an admin by checking their role in the database
+ */
+function isAdmin(publicKey) {
+    return __awaiter(this, void 0, void 0, function* () {
+        try {
+            if (!publicKey) {
+                return false;
+            }
+            // Check user role from database
+            const user = yield (0, middleware_1.checkUser)(publicKey);
+            if (user && (user.role === 'admin' || user.role === 'super_admin')) {
+                return true;
+            }
+            return false;
+        }
+        catch (error) {
+            console.error('[Game] Error checking admin status:', error);
+            return false;
+        }
+    });
+}
 function getAllGames(req, res) {
     return __awaiter(this, void 0, void 0, function* () {
+        var _a;
         try {
             const { adminPublicKey } = req.query;
             // Validate adminPublicKey parameter
@@ -83,22 +107,70 @@ function getAllGames(req, res) {
                 res.status(400).json({ message: "Missing required query parameter: adminPublicKey" });
                 return;
             }
-            const gamesRef = (0, database_1.ref)(firebase_1.db, "games");
-            const gamesSnapshot = yield (0, database_1.get)(gamesRef);
-            const gamesData = gamesSnapshot.val();
-            // Convert Firebase object to array format and filter by adminPublicKey
-            const allGames = gamesData ? Object.entries(gamesData).map(([firebaseKey, gameData]) => (Object.assign(Object.assign({}, gameData), { 
-                // Ensure the game has an id - use the provided id or fallback to Firebase key
-                id: gameData.id || firebaseKey }))) : [];
-            // Filter games by the adminPublicKey (createdBy field)
-            const games = allGames.filter((game) => game.createdBy === adminPublicKey);
-            // console.log(`Fetched ${games.length} games for admin: ${adminPublicKey}`);
-            res.status(200).json({ games });
-            return;
+            console.log(`[Game] Fetching games for adminPublicKey: ${adminPublicKey}`);
+            // Check if user is admin
+            const userIsAdmin = yield isAdmin(adminPublicKey);
+            console.log(`[Game] User is admin: ${userIsAdmin}`);
+            try {
+                const gamesRef = (0, database_1.ref)(firebase_1.db, "games");
+                const gamesSnapshot = yield (0, database_1.get)(gamesRef);
+                if (!gamesSnapshot.exists()) {
+                    console.log(`[Game] No games found in database`);
+                    res.status(200).json({ games: [] });
+                    return;
+                }
+                const gamesData = gamesSnapshot.val();
+                // Convert Firebase object to array format
+                const allGames = gamesData && typeof gamesData === 'object'
+                    ? Object.entries(gamesData).map(([firebaseKey, gameData]) => {
+                        if (!gameData || typeof gameData !== 'object') {
+                            return null;
+                        }
+                        return Object.assign(Object.assign({}, gameData), { 
+                            // Ensure the game has an id - use the provided id or fallback to Firebase key
+                            id: gameData.id || firebaseKey });
+                    }).filter((game) => game !== null)
+                    : [];
+                console.log(`[Game] Total games in database: ${allGames.length}`);
+                // If user is admin, return all games. Otherwise, filter by createdBy
+                let games;
+                if (userIsAdmin) {
+                    games = allGames;
+                    console.log(`[Game] Admin access: returning all ${games.length} games`);
+                }
+                else {
+                    // Filter games by the adminPublicKey (createdBy field) for developers
+                    games = allGames.filter((game) => {
+                        const matches = game.createdBy === adminPublicKey;
+                        if (!matches && game.createdBy) {
+                            console.log(`[Game] Game ${game.id} createdBy: ${game.createdBy}, expected: ${adminPublicKey}`);
+                        }
+                        return matches;
+                    });
+                    console.log(`[Game] Developer access: filtered to ${games.length} games`);
+                }
+                res.status(200).json({ games });
+                return;
+            }
+            catch (dbError) {
+                // Handle Firebase permission errors
+                if (dbError.code === 'PERMISSION_DENIED' || ((_a = dbError.message) === null || _a === void 0 ? void 0 : _a.includes('Permission denied'))) {
+                    console.error('[Game] Permission denied reading games:', dbError);
+                    res.status(403).json({
+                        message: "Permission denied: Unable to read games from database",
+                        error: "PERMISSION_DENIED"
+                    });
+                    return;
+                }
+                throw dbError; // Re-throw other errors
+            }
         }
         catch (error) {
-            console.error(error);
-            res.status(500).json({ message: "Internal Server Error" });
+            console.error('[Game] Error in getAllGames:', error);
+            res.status(500).json({
+                message: "Internal Server Error",
+                error: error.message || 'Unknown error'
+            });
             return;
         }
     });

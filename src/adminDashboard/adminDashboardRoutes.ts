@@ -5,8 +5,8 @@ import { checkPoolStatusController, getActiveStakersController, getAPYController
 
 const router = Router();
 
-// Route for checking the staking pool status
-router.get('/check-pool-status/:adminPublicKey', checkPoolStatusController as unknown as RequestHandler);
+// Route for checking the staking pool status (pools are global, uses super admin from platform config)
+router.get('/check-pool-status', checkPoolStatusController as unknown as RequestHandler);
 
 // Route for initializing the staking pool
 router.post('/initialize-staking-pool', initializeStakingPoolController as unknown as RequestHandler);
@@ -24,8 +24,8 @@ router.post('/confirm-prize-pool', confirmPrizePoolController as unknown as Requ
 // Main route to get comprehensive staking statistics (for your dashboard)
 router.get('/staking/stats/:adminPublicKey', getStakingStatsController as unknown as RequestHandler);
 
-// Route to get staking pool data only
-router.get('/staking/pool-data/:adminPublicKey', getStakingPoolController as unknown as RequestHandler);
+// Route to get staking pool data only (pools are global, uses super admin from platform config)
+router.get('/staking/pool-data', getStakingPoolController as unknown as RequestHandler);
 
 // Route to get active stakers count and basic info
 router.get('/staking/active-stakers', getActiveStakersController as unknown as RequestHandler);
