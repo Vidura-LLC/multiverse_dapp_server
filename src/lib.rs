@@ -215,57 +215,57 @@ pub mod multiversed_dapp {
         Ok(())
     }
 
-/// Pay developer onboarding fee - called during developer onboarding
-/// Transfers SOL from developer to platform wallet
-pub fn pay_developer_onboarding_fee(
-    ctx: Context<PayDeveloperOnboardingFee>,
-) -> Result<()> {
-    let platform_config = &ctx.accounts.platform_config;
-    let onboarding_record = &mut ctx.accounts.onboarding_record;
+    /// Pay developer onboarding fee - called during developer onboarding
+    /// Transfers SOL from developer to platform wallet
+    pub fn pay_developer_onboarding_fee(
+        ctx: Context<PayDeveloperOnboardingFee>,
+    ) -> Result<()> {
+        let platform_config = &ctx.accounts.platform_config;
+        let onboarding_record = &mut ctx.accounts.onboarding_record;
 
-    // Check if fees are enabled
-    if !platform_config.onboarding_fee_enabled {
-        // Record onboarding even if fees disabled (fee_paid = 0)
+        // Check if fees are enabled
+        if !platform_config.onboarding_fee_enabled {
+            // Record onboarding even if fees disabled (fee_paid = 0)
+            onboarding_record.developer = ctx.accounts.developer.key();
+            onboarding_record.fee_paid = 0;
+            onboarding_record.timestamp = Clock::get()?.unix_timestamp;
+            onboarding_record.bump = ctx.bumps.onboarding_record;
+
+            msg!("✅ Developer onboarding completed (fees disabled)");
+            msg!("   Developer: {}", ctx.accounts.developer.key());
+            return Ok(());
+        }
+
+        let fee_amount = platform_config.developer_onboarding_fee;
+
+        // Transfer SOL if fee > 0
+        if fee_amount > 0 {
+            system_program::transfer(
+                CpiContext::new(
+                    ctx.accounts.system_program.to_account_info(),
+                    system_program::Transfer {
+                        from: ctx.accounts.developer.to_account_info(),
+                        to: ctx.accounts.platform_wallet.to_account_info(),
+                    },
+                ),
+                fee_amount,
+            )?;
+
+            msg!("✅ Developer onboarding fee paid: {} lamports", fee_amount);
+        }
+
+        // Record onboarding
         onboarding_record.developer = ctx.accounts.developer.key();
-        onboarding_record.fee_paid = 0;
+        onboarding_record.fee_paid = fee_amount;
         onboarding_record.timestamp = Clock::get()?.unix_timestamp;
         onboarding_record.bump = ctx.bumps.onboarding_record;
 
-        msg!("✅ Developer onboarding completed (fees disabled)");
+        msg!("✅ Developer onboarding completed");
         msg!("   Developer: {}", ctx.accounts.developer.key());
-        return Ok(());
+        msg!("   Fee paid: {} lamports", fee_amount);
+
+        Ok(())
     }
-
-    let fee_amount = platform_config.developer_onboarding_fee;
-
-    // Transfer SOL if fee > 0
-    if fee_amount > 0 {
-        system_program::transfer(
-            CpiContext::new(
-                ctx.accounts.system_program.to_account_info(),
-                system_program::Transfer {
-                    from: ctx.accounts.developer.to_account_info(),
-                    to: ctx.accounts.platform_wallet.to_account_info(),
-                },
-            ),
-            fee_amount,
-        )?;
-
-        msg!("✅ Developer onboarding fee paid: {} lamports", fee_amount);
-    }
-
-    // Record onboarding
-    onboarding_record.developer = ctx.accounts.developer.key();
-    onboarding_record.fee_paid = fee_amount;
-    onboarding_record.timestamp = Clock::get()?.unix_timestamp;
-    onboarding_record.bump = ctx.bumps.onboarding_record;
-
-    msg!("✅ Developer onboarding completed");
-    msg!("   Developer: {}", ctx.accounts.developer.key());
-    msg!("   Fee paid: {} lamports", fee_amount);
-
-    Ok(())
-}
 
 
     // ==============================
@@ -1718,7 +1718,8 @@ pub struct UpdateDeveloperOnboardingFee<'info> {
         mut,
         seeds = [SEED_PLATFORM_CONFIG],
         bump = platform_config.bump,
-        constraint = platform_config.super_admin == super_admin.key() @ PlatformError::Unauthorized
+        constraint = platform_config.super_admin == super_admin.key() @ PlatformError::Unauthorized,
+        constraint = platform_config.is_initialized @ PlatformError::NotInitialized
     )]
     pub platform_config: Account<'info, PlatformConfig>,
 
