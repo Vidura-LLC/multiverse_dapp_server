@@ -7,9 +7,7 @@ use solana_program::program::invoke;
 use solana_program::program::invoke_signed; // ✅ ADD THIS
 use solana_program::system_instruction; // ✅ ADD THIS
 
-declare_id!("A5sbJW4hgVtaYU8TvfJc8bxeWsvFgapc88qX1VruTfq4");
-
-// creating a commit to connect to the github repo
+declare_id!("C1tiBNKdWaH1p2RCpy2w3UetstzgwxKE7mBNUQyHyx2a");
 
 // ==============================
 // SEED CONSTANTS
@@ -26,6 +24,7 @@ pub const SEED_REWARD_POOL: &[u8] = b"reward_pool";
 pub const SEED_REWARD_ESCROW: &[u8] = b"reward_escrow";
 pub const SEED_SOL_VAULT: &[u8] = b"sol_vault";
 pub const SEED_PLATFORM_CONFIG: &[u8] = b"platform_config";
+pub const SEED_DEVELOPER_ONBOARDING: &[u8] = b"developer_onboarding";
 
 // ==============================
 // PROTOCOL LIMITS & CONSTANTS
@@ -115,6 +114,7 @@ pub mod multiversed_dapp {
         ctx: Context<InitializePlatformConfig>,
         developer_share_bps: u16,
         platform_share_bps: u16,
+        developer_onboarding_fee: u64,
     ) -> Result<()> {
         // Validate shares sum to 100%
         require!(
@@ -131,16 +131,15 @@ pub mod multiversed_dapp {
         config.platform_wallet = ctx.accounts.platform_wallet.key();
         config.developer_share_bps = developer_share_bps;
         config.platform_share_bps = platform_share_bps;
+        config.developer_onboarding_fee = developer_onboarding_fee;
+        config.onboarding_fee_enabled = true;
         config.is_initialized = true;
         config.bump = ctx.bumps.platform_config;
 
-        msg!(
-            "✅ Platform config initialized: {}% developer, {}% platform",
-            developer_share_bps / 100,
-            platform_share_bps / 100
-        );
-        msg!("   Super Admin: {}", config.super_admin);
-        msg!("   Platform Wallet: {}", config.platform_wallet);
+        msg!("✅ Platform config initialized");
+        msg!("   Developer share: {}%", developer_share_bps / 100);
+        msg!("   Platform share: {}%", platform_share_bps / 100);
+        msg!("   Developer onboarding fee: {} lamports", developer_onboarding_fee);
 
         Ok(())
     }
@@ -194,6 +193,79 @@ pub mod multiversed_dapp {
 
         Ok(())
     }
+
+    /// Update developer onboarding fee configuration (super admin only)
+    pub fn update_developer_onboarding_fee(
+        ctx: Context<UpdateDeveloperOnboardingFee>,
+        developer_onboarding_fee: u64,
+        onboarding_fee_enabled: bool,
+    ) -> Result<()> {
+        let config = &mut ctx.accounts.platform_config;
+
+        config.developer_onboarding_fee = developer_onboarding_fee;
+        config.onboarding_fee_enabled = onboarding_fee_enabled;
+
+        msg!("✅ Developer onboarding fee updated");
+        msg!("   Fee: {} lamports ({} SOL)", 
+            developer_onboarding_fee,
+            developer_onboarding_fee as f64 / 1_000_000_000.0
+        );
+        msg!("   Fees enabled: {}", onboarding_fee_enabled);
+
+        Ok(())
+    }
+
+/// Pay developer onboarding fee - called during developer onboarding
+/// Transfers SOL from developer to platform wallet
+pub fn pay_developer_onboarding_fee(
+    ctx: Context<PayDeveloperOnboardingFee>,
+) -> Result<()> {
+    let platform_config = &ctx.accounts.platform_config;
+    let onboarding_record = &mut ctx.accounts.onboarding_record;
+
+    // Check if fees are enabled
+    if !platform_config.onboarding_fee_enabled {
+        // Record onboarding even if fees disabled (fee_paid = 0)
+        onboarding_record.developer = ctx.accounts.developer.key();
+        onboarding_record.fee_paid = 0;
+        onboarding_record.timestamp = Clock::get()?.unix_timestamp;
+        onboarding_record.bump = ctx.bumps.onboarding_record;
+
+        msg!("✅ Developer onboarding completed (fees disabled)");
+        msg!("   Developer: {}", ctx.accounts.developer.key());
+        return Ok(());
+    }
+
+    let fee_amount = platform_config.developer_onboarding_fee;
+
+    // Transfer SOL if fee > 0
+    if fee_amount > 0 {
+        system_program::transfer(
+            CpiContext::new(
+                ctx.accounts.system_program.to_account_info(),
+                system_program::Transfer {
+                    from: ctx.accounts.developer.to_account_info(),
+                    to: ctx.accounts.platform_wallet.to_account_info(),
+                },
+            ),
+            fee_amount,
+        )?;
+
+        msg!("✅ Developer onboarding fee paid: {} lamports", fee_amount);
+    }
+
+    // Record onboarding
+    onboarding_record.developer = ctx.accounts.developer.key();
+    onboarding_record.fee_paid = fee_amount;
+    onboarding_record.timestamp = Clock::get()?.unix_timestamp;
+    onboarding_record.bump = ctx.bumps.onboarding_record;
+
+    msg!("✅ Developer onboarding completed");
+    msg!("   Developer: {}", ctx.accounts.developer.key());
+    msg!("   Fee paid: {} lamports", fee_amount);
+
+    Ok(())
+}
 
 
     // ==============================
@@ -1640,6 +1712,50 @@ pub struct TransferSuperAdmin<'info> {
     pub super_admin: Signer<'info>,
 }
 
+#[derive(Accounts)]
+pub struct UpdateDeveloperOnboardingFee<'info> {
+    #[account(
+        mut,
+        seeds = [SEED_PLATFORM_CONFIG],
+        bump = platform_config.bump,
+        constraint = platform_config.super_admin == super_admin.key() @ PlatformError::Unauthorized
+    )]
+    pub platform_config: Account<'info, PlatformConfig>,
+
+    pub super_admin: Signer<'info>,
+}
+
+#[derive(Accounts)]
+pub struct PayDeveloperOnboardingFee<'info> {
+    #[account(mut)]
+    pub developer: Signer<'info>,
+
+    #[account(
+        seeds = [SEED_PLATFORM_CONFIG],
+        bump = platform_config.bump,
+        constraint = platform_config.is_initialized @ PlatformError::NotInitialized
+    )]
+    pub platform_config: Account<'info, PlatformConfig>,
+
+    /// CHECK: Platform wallet to receive fee - validated against config
+    #[account(
+        mut,
+        constraint = platform_wallet.key() == platform_config.platform_wallet @ PlatformError::InvalidPlatformWallet
+    )]
+    pub platform_wallet: UncheckedAccount<'info>,
+
+    #[account(
+        init,
+        payer = developer,
+        space = DeveloperOnboardingRecord::LEN,
+        seeds = [SEED_DEVELOPER_ONBOARDING, developer.key().as_ref()],
+        bump
+    )]
+    pub onboarding_record: Account<'info, DeveloperOnboardingRecord>,
+
+    pub system_program: Program<'info, System>,
+}
+
 // ==============================
 // STAKING POOL INITIALIZATION
 // ==============================
@@ -2230,16 +2346,34 @@ impl RewardPool {
 // ==============================
 #[account]
 pub struct PlatformConfig {
-    pub super_admin: Pubkey,
-    pub platform_wallet: Pubkey,
-    pub developer_share_bps: u16,  // 9000 = 90%
-    pub platform_share_bps: u16,   // 1000 = 10%
-    pub is_initialized: bool,
-    pub bump: u8,
+    pub super_admin: Pubkey,              // 32 bytes
+    pub platform_wallet: Pubkey,          // 32 bytes
+    pub developer_share_bps: u16,         // 2 bytes
+    pub platform_share_bps: u16,          // 2 bytes
+    pub developer_onboarding_fee: u64,    // 8 bytes - NEW (in lamports)
+    pub onboarding_fee_enabled: bool,     // 1 byte - NEW (toggle on/off)
+    pub is_initialized: bool,             // 1 byte
+    pub bump: u8,                         // 1 byte
 }
 
 impl PlatformConfig {
-    pub const LEN: usize = 8 + 32 + 32 + 2 + 2 + 1 + 1; // 78 bytes
+    // Updated LEN: 8 (discriminator) + 32 + 32 + 2 + 2 + 8 + 1 + 1 + 1 = 87 bytes
+    pub const LEN: usize = 8 + 32 + 32 + 2 + 2 + 8 + 1 + 1 + 1;
+}
+
+// ==============================
+// Developer Onboarding Record
+// ==============================
+#[account]
+pub struct DeveloperOnboardingRecord {
+    pub developer: Pubkey,      // 32 bytes - Developer wallet
+    pub fee_paid: u64,          // 8 bytes - Amount paid (in lamports)
+    pub timestamp: i64,         // 8 bytes - When onboarding was completed
+    pub bump: u8,               // 1 byte
+}
+
+impl DeveloperOnboardingRecord {
+    pub const LEN: usize = 8 + 32 + 8 + 8 + 1; // 57 bytes
 }
 
 // ==============================
@@ -2362,4 +2496,15 @@ pub enum PlatformError {
 
     #[msg("Invalid platform wallet provided")]
     InvalidPlatformWallet,
+}
+#[error_code]
+pub enum OnboardingError {
+    #[msg("Developer has already completed onboarding")]
+    AlreadyOnboarded,
+
+    #[msg("Onboarding fee is currently disabled")]
+    OnboardingFeeDisabled,
+
+    #[msg("Insufficient SOL balance to pay onboarding fee")]
+    InsufficientFunds,
 }
