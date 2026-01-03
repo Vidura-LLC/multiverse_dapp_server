@@ -6,7 +6,9 @@ import {
     buildPayDeveloperOnboardingFeeTransaction,
     checkDeveloperOnboardingStatus,
     getAllOnboardedDevelopers,
-    buildCloseDeveloperOnboardingRecordTransaction,
+    buildFlushDeveloperTransaction,
+    confirmFlushDeveloper,
+    getFlushDeveloperInfo,
 } from "./onboardingService";
 
 // ==============================
@@ -376,52 +378,31 @@ export const getAllOnboardedDevelopersController = async (
 };
 
 // ==============================
-// CLOSE DEVELOPER ONBOARDING RECORD (Admin)
+// FLUSH DEVELOPER - BUILD TRANSACTION
 // ==============================
 
 /**
- * POST /api/onboarding/admin/close-record
+ * POST /api/onboarding/admin/flush-developer/build
  * 
- * Builds a transaction to close/flush a developer's onboarding record.
- * Only the super_admin can sign this transaction.
- * 
- * Request Body:
- * {
- *   adminPublicKey: string,
- *   developerPublicKey: string,
- *   rentRecipient?: string  // Optional - defaults to admin
- * }
- * 
- * Response:
- * {
- *   success: boolean,
- *   transaction: string,      // base64 encoded transaction
- *   onboardingRecordPda: string
- * }
+ * Step 1: Builds the Solana transaction and returns developer info
+ * for the complete flush operation
  */
-export const closeDeveloperOnboardingRecordController = async (
+export const buildFlushDeveloperController = async (
     req: Request,
     res: Response
 ) => {
     try {
-        const { adminPublicKey, developerPublicKey, rentRecipient } = req.body;
+        const { adminPublicKey, developerPublicKey } = req.body;
 
-        console.log("🗑️ POST /api/onboarding/admin/close-record");
+        console.log("🗑️ POST /api/onboarding/admin/flush-developer/build");
         console.log("   Admin:", adminPublicKey);
         console.log("   Developer:", developerPublicKey);
 
         // Validation
-        if (!adminPublicKey) {
+        if (!adminPublicKey || !developerPublicKey) {
             return res.status(400).json({
                 success: false,
-                message: "Admin public key is required",
-            });
-        }
-
-        if (!developerPublicKey) {
-            return res.status(400).json({
-                success: false,
-                message: "Developer public key is required",
+                message: "Admin and developer public keys are required",
             });
         }
 
@@ -429,7 +410,6 @@ export const closeDeveloperOnboardingRecordController = async (
         try {
             new PublicKey(adminPublicKey);
             new PublicKey(developerPublicKey);
-            if (rentRecipient) new PublicKey(rentRecipient);
         } catch {
             return res.status(400).json({
                 success: false,
@@ -437,10 +417,9 @@ export const closeDeveloperOnboardingRecordController = async (
             });
         }
 
-        const result = await buildCloseDeveloperOnboardingRecordTransaction(
+        const result = await buildFlushDeveloperTransaction(
             new PublicKey(adminPublicKey),
-            new PublicKey(developerPublicKey),
-            rentRecipient ? new PublicKey(rentRecipient) : undefined
+            new PublicKey(developerPublicKey)
         );
 
         if (result.success) {
@@ -448,10 +427,10 @@ export const closeDeveloperOnboardingRecordController = async (
                 success: true,
                 transaction: result.transaction,
                 onboardingRecordPda: result.onboardingRecordPda,
+                developerInfo: result.developerInfo,
             });
         }
 
-        // Check for "not found" error
         if (result.message?.includes("not found")) {
             return res.status(404).json({
                 success: false,
@@ -465,7 +444,98 @@ export const closeDeveloperOnboardingRecordController = async (
             message: result.message,
         });
     } catch (error: any) {
-        console.error("❌ Error in closeDeveloperOnboardingRecordController:", error);
+        console.error("❌ Error in buildFlushDeveloperController:", error);
+        return res.status(500).json({
+            success: false,
+            message: "Internal server error",
+            error: error.message,
+        });
+    }
+};
+
+// ==============================
+// FLUSH DEVELOPER - CONFIRM & CLEANUP
+// ==============================
+
+/**
+ * POST /api/onboarding/admin/flush-developer/confirm
+ * 
+ * Step 2: After Solana tx is confirmed, clean up Firebase and Clerk
+ */
+export const confirmFlushDeveloperController = async (
+    req: Request,
+    res: Response
+) => {
+    try {
+        const { 
+            developerPublicKey, 
+            clerkUserId, 
+            firebaseKey,
+            solanaSignature  // For logging/verification
+        } = req.body;
+
+        console.log("✅ POST /api/onboarding/admin/flush-developer/confirm");
+        console.log("   Developer:", developerPublicKey);
+        console.log("   Solana Signature:", solanaSignature);
+        console.log("   Clerk User ID:", clerkUserId);
+        console.log("   Firebase Key:", firebaseKey);
+
+        // Validation
+        if (!developerPublicKey) {
+            return res.status(400).json({
+                success: false,
+                message: "Developer public key is required",
+            });
+        }
+
+        const result = await confirmFlushDeveloper(
+            developerPublicKey,
+            clerkUserId,
+            firebaseKey
+        );
+
+        return res.status(result.success ? 200 : 207).json(result);
+    } catch (error: any) {
+        console.error("❌ Error in confirmFlushDeveloperController:", error);
+        return res.status(500).json({
+            success: false,
+            message: "Internal server error",
+            error: error.message,
+        });
+    }
+};
+
+// ==============================
+// GET FLUSH INFO (Optional helper)
+// ==============================
+
+/**
+ * GET /api/onboarding/admin/flush-developer/info/:developerPublicKey
+ * 
+ * Gets information about what will be flushed for a developer
+ */
+export const getFlushDeveloperInfoController = async (
+    req: Request,
+    res: Response
+) => {
+    try {
+        const { developerPublicKey } = req.params;
+
+        console.log("ℹ️ GET /api/onboarding/admin/flush-developer/info");
+        console.log("   Developer:", developerPublicKey);
+
+        if (!developerPublicKey) {
+            return res.status(400).json({
+                success: false,
+                message: "Developer public key is required",
+            });
+        }
+
+        const result = await getFlushDeveloperInfo(developerPublicKey);
+
+        return res.status(200).json(result);
+    } catch (error: any) {
+        console.error("❌ Error in getFlushDeveloperInfoController:", error);
         return res.status(500).json({
             success: false,
             message: "Internal server error",
