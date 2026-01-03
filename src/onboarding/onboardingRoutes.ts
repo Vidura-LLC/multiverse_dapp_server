@@ -5,6 +5,7 @@ import {
     payDeveloperOnboardingFeeController,
     checkDeveloperOnboardingStatusController,
     getAllOnboardedDevelopersController,
+    closeDeveloperOnboardingRecordController,
 } from "./onboardingController";
 
 const router = express.Router();
@@ -46,6 +47,12 @@ router.post("/admin/update-fee", updateDeveloperOnboardingFeeController as unkno
  * Get all onboarded developers (for analytics)
  */
 router.get("/admin/developers", getAllOnboardedDevelopersController as unknown as RequestHandler);
+
+/**
+ * POST /api/onboarding/admin/close-record
+ * Build transaction to close/flush a developer's onboarding record
+ */
+router.post("/admin/close-record", closeDeveloperOnboardingRecordController as unknown as RequestHandler);
 
 export default router;
 
