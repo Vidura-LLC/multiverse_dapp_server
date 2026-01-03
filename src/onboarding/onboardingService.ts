@@ -352,3 +352,88 @@ export const getAllOnboardedDevelopers = async (): Promise<{
     }
 };
 
+// ==============================
+// CLOSE DEVELOPER ONBOARDING RECORD (Admin)
+// ==============================
+
+/**
+ * Builds a transaction to close/flush a developer's onboarding record
+ * Only callable by super_admin
+ * 
+ * @param adminPublicKey - The super admin's public key
+ * @param developerPublicKey - The developer whose record to close
+ * @param rentRecipient - Account to receive rent (defaults to admin)
+ */
+export const buildCloseDeveloperOnboardingRecordTransaction = async (
+    adminPublicKey: PublicKey,
+    developerPublicKey: PublicKey,
+    rentRecipient?: PublicKey
+): Promise<{
+    success: boolean;
+    transaction?: string;
+    onboardingRecordPda?: string;
+    message?: string;
+}> => {
+    try {
+        const { program, connection } = getProgram();
+
+        // Derive PlatformConfig PDA
+        const platformConfigPda = getPlatformConfigPDA();
+
+        // Derive DeveloperOnboardingRecord PDA
+        const onboardingRecordPda = getDeveloperOnboardingRecordPDA(developerPublicKey);
+
+        // Check if record exists
+        try {
+            await program.account.developerOnboardingRecord.fetch(onboardingRecordPda);
+        } catch {
+            return {
+                success: false,
+                message: "Developer onboarding record not found",
+            };
+        }
+
+        console.log("🗑️ Building close onboarding record transaction...");
+        console.log("   Admin:", adminPublicKey.toBase58());
+        console.log("   Developer:", developerPublicKey.toBase58());
+        console.log("   Record PDA:", onboardingRecordPda.toBase58());
+        console.log("   Rent Recipient:", (rentRecipient || adminPublicKey).toBase58());
+
+        // Get latest blockhash
+        const { blockhash } = await connection.getLatestBlockhash("finalized");
+
+        // Build the transaction
+        const transaction = await program.methods
+            .closeDeveloperOnboardingRecord()
+            .accounts({
+                superAdmin: adminPublicKey,
+                platformConfig: platformConfigPda,
+                developer: developerPublicKey,
+                onboardingRecord: onboardingRecordPda,
+                rentRecipient: rentRecipient || adminPublicKey,
+                systemProgram: SystemProgram.programId,
+            })
+            .transaction();
+
+        transaction.recentBlockhash = blockhash;
+        transaction.feePayer = adminPublicKey;
+
+        // Serialize for frontend signing
+        const serializedTx = transaction.serialize({
+            requireAllSignatures: false,
+        }).toString("base64");
+
+        return {
+            success: true,
+            transaction: serializedTx,
+            onboardingRecordPda: onboardingRecordPda.toBase58(),
+        };
+    } catch (error: any) {
+        console.error("❌ Error building close onboarding record transaction:", error);
+        return {
+            success: false,
+            message: error.message || "Failed to build transaction",
+        };
+    }
+};
+
