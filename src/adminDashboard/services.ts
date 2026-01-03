@@ -41,7 +41,16 @@ export interface PlatformConfigAccount {
     platformWallet: PublicKey;
     developerShareBps: anchor.BN;
     platformShareBps: anchor.BN;
+    developerOnboardingFee: anchor.BN;
+    onboardingFeeEnabled: boolean;
     isInitialized: boolean;
+    bump: number;
+}
+
+export interface DeveloperOnboardingRecordAccount {
+    developer: PublicKey;
+    feePaid: anchor.BN;
+    timestamp: anchor.BN;
     bump: number;
 }
       
@@ -343,7 +352,8 @@ export const initializePlatformConfigService = async (
   superAdminPublicKey: PublicKey,
   platformWalletPublicKey: PublicKey,
   developerShareBps: number = 9000,
-  platformShareBps: number = 1000
+  platformShareBps: number = 1000,
+  developerOnboardingFee: number = 0  // In lamports, default 0
 ) => {
   try {
     const { program, connection } = getProgram();
@@ -366,25 +376,38 @@ export const initializePlatformConfigService = async (
       };
     }
 
+    // Validate onboarding fee
+    if (developerOnboardingFee < 0) {
+      return {
+        success: false,
+        message: "Developer onboarding fee cannot be negative"
+      };
+    }
+
     console.log("Initializing Platform Config:");
     console.log("🔹 Platform Config PDA:", platformConfigPDA.toString());
     console.log("🔹 Super Admin:", superAdminPublicKey.toString());
     console.log("🔹 Platform Wallet:", platformWalletPublicKey.toString());
     console.log(`🔹 Developer Share: ${developerShareBps / 100}%`);
     console.log(`🔹 Platform Share: ${platformShareBps / 100}%`);
+    console.log(`🔹 Developer Onboarding Fee: ${developerOnboardingFee} lamports`);
 
-    const instruction = await program.methods
-      .initializePlatformConfig(developerShareBps, platformShareBps)
+    const { blockhash } = await connection.getLatestBlockhash("finalized");
+
+    const transaction = await program.methods
+      .initializePlatformConfig(
+        developerShareBps, 
+        platformShareBps,
+        new anchor.BN(developerOnboardingFee)
+      )
       .accounts({
         platformConfig: platformConfigPDA,
         platformWallet: platformWalletPublicKey,
         superAdmin: superAdminPublicKey,
         systemProgram: SystemProgram.programId,
       })
-      .instruction();
+      .transaction();
 
-    const transaction = new Transaction().add(instruction);
-    const { blockhash } = await connection.getLatestBlockhash("finalized");
     transaction.recentBlockhash = blockhash;
     transaction.feePayer = superAdminPublicKey;
 
@@ -573,6 +596,8 @@ export const getPlatformConfigService = async () => {
         platformShareBps: Number(config.platformShareBps),
         developerSharePercent: Number(config.developerShareBps) / 100,
         platformSharePercent: Number(config.platformShareBps) / 100,
+        developerOnboardingFee: Number(config.developerOnboardingFee),
+        onboardingFeeEnabled: config.onboardingFeeEnabled,
         isInitialized: config.isInitialized,
         bump: config.bump,
       } as {
@@ -582,6 +607,8 @@ export const getPlatformConfigService = async () => {
         platformShareBps: number;
         developerSharePercent: number;
         platformSharePercent: number;
+        developerOnboardingFee: number;
+        onboardingFeeEnabled: boolean;
         isInitialized: boolean;
         bump: number;
       }
