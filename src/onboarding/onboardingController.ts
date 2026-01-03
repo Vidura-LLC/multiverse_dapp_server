@@ -6,6 +6,7 @@ import {
     buildPayDeveloperOnboardingFeeTransaction,
     checkDeveloperOnboardingStatus,
     getAllOnboardedDevelopers,
+    buildCloseDeveloperOnboardingRecordTransaction,
 } from "./onboardingService";
 
 // ==============================
@@ -366,6 +367,105 @@ export const getAllOnboardedDevelopersController = async (
         });
     } catch (error: any) {
         console.error("❌ Error in getAllOnboardedDevelopersController:", error);
+        return res.status(500).json({
+            success: false,
+            message: "Internal server error",
+            error: error.message,
+        });
+    }
+};
+
+// ==============================
+// CLOSE DEVELOPER ONBOARDING RECORD (Admin)
+// ==============================
+
+/**
+ * POST /api/onboarding/admin/close-record
+ * 
+ * Builds a transaction to close/flush a developer's onboarding record.
+ * Only the super_admin can sign this transaction.
+ * 
+ * Request Body:
+ * {
+ *   adminPublicKey: string,
+ *   developerPublicKey: string,
+ *   rentRecipient?: string  // Optional - defaults to admin
+ * }
+ * 
+ * Response:
+ * {
+ *   success: boolean,
+ *   transaction: string,      // base64 encoded transaction
+ *   onboardingRecordPda: string
+ * }
+ */
+export const closeDeveloperOnboardingRecordController = async (
+    req: Request,
+    res: Response
+) => {
+    try {
+        const { adminPublicKey, developerPublicKey, rentRecipient } = req.body;
+
+        console.log("🗑️ POST /api/onboarding/admin/close-record");
+        console.log("   Admin:", adminPublicKey);
+        console.log("   Developer:", developerPublicKey);
+
+        // Validation
+        if (!adminPublicKey) {
+            return res.status(400).json({
+                success: false,
+                message: "Admin public key is required",
+            });
+        }
+
+        if (!developerPublicKey) {
+            return res.status(400).json({
+                success: false,
+                message: "Developer public key is required",
+            });
+        }
+
+        // Validate public key formats
+        try {
+            new PublicKey(adminPublicKey);
+            new PublicKey(developerPublicKey);
+            if (rentRecipient) new PublicKey(rentRecipient);
+        } catch {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid public key format",
+            });
+        }
+
+        const result = await buildCloseDeveloperOnboardingRecordTransaction(
+            new PublicKey(adminPublicKey),
+            new PublicKey(developerPublicKey),
+            rentRecipient ? new PublicKey(rentRecipient) : undefined
+        );
+
+        if (result.success) {
+            return res.status(200).json({
+                success: true,
+                transaction: result.transaction,
+                onboardingRecordPda: result.onboardingRecordPda,
+            });
+        }
+
+        // Check for "not found" error
+        if (result.message?.includes("not found")) {
+            return res.status(404).json({
+                success: false,
+                message: result.message,
+                code: "RECORD_NOT_FOUND",
+            });
+        }
+
+        return res.status(500).json({
+            success: false,
+            message: result.message,
+        });
+    } catch (error: any) {
+        console.error("❌ Error in closeDeveloperOnboardingRecordController:", error);
         return res.status(500).json({
             success: false,
             message: "Internal server error",
