@@ -3,6 +3,9 @@ import * as anchor from "@project-serum/anchor";
 import { getProgram } from "../staking/services";
 import { getPlatformConfigPDA, getDeveloperOnboardingRecordPDA, SEEDS } from "../utils/getPDAs";
 import { DeveloperOnboardingRecordAccount, PlatformConfigAccount } from "../adminDashboard/services";
+import { createClerkClient } from "@clerk/backend";
+import { db } from "../config/firebase";
+import { ref, get, remove } from "firebase/database";
 
 // ==============================
 // TYPES
@@ -353,56 +356,121 @@ export const getAllOnboardedDevelopers = async (): Promise<{
 };
 
 // ==============================
-// CLOSE DEVELOPER ONBOARDING RECORD (Admin)
+// TYPES FOR FLUSH OPERATION
+// ==============================
+
+export interface FlushDeveloperResult {
+    success: boolean;
+    message?: string;
+    details?: {
+        solana: { success: boolean; signature?: string; error?: string };
+        firebase: { success: boolean; error?: string };
+        clerk: { success: boolean; error?: string };
+    };
+}
+
+export interface DeveloperFlushInfo {
+    clerkUserId?: string;
+    firebaseKey?: string;
+    email?: string;
+}
+
+// ==============================
+// COMPLETE FLUSH DEVELOPER RECORD
 // ==============================
 
 /**
- * Builds a transaction to close/flush a developer's onboarding record
- * Only callable by super_admin
- * 
- * @param adminPublicKey - The super admin's public key
- * @param developerPublicKey - The developer whose record to close
- * @param rentRecipient - Account to receive rent (defaults to admin)
+ * Step 1: Build the Solana transaction and gather developer info
+ * from Firebase and Clerk
  */
-export const buildCloseDeveloperOnboardingRecordTransaction = async (
+export const buildFlushDeveloperTransaction = async (
     adminPublicKey: PublicKey,
-    developerPublicKey: PublicKey,
-    rentRecipient?: PublicKey
+    developerPublicKey: PublicKey
 ): Promise<{
     success: boolean;
     transaction?: string;
     onboardingRecordPda?: string;
+    developerInfo?: DeveloperFlushInfo;
     message?: string;
 }> => {
     try {
         const { program, connection } = getProgram();
 
-        // Derive PlatformConfig PDA
+        // Derive PDAs
         const platformConfigPda = getPlatformConfigPDA();
-
-        // Derive DeveloperOnboardingRecord PDA
         const onboardingRecordPda = getDeveloperOnboardingRecordPDA(developerPublicKey);
 
-        // Check if record exists
+        // 1. Check if on-chain record exists
+        let onChainRecord;
         try {
-            await program.account.developerOnboardingRecord.fetch(onboardingRecordPda);
+            onChainRecord = await program.account.developerOnboardingRecord.fetch(onboardingRecordPda);
         } catch {
             return {
                 success: false,
-                message: "Developer onboarding record not found",
+                message: "Developer onboarding record not found on-chain",
             };
         }
 
-        console.log("🗑️ Building close onboarding record transaction...");
+        // 2. Find developer in Firebase by publicKey
+        let firebaseKey: string | undefined;
+        let clerkUserId: string | undefined;
+        let developerEmail: string | undefined;
+
+        try {
+            const usersRef = ref(db, "users");
+            const snapshot = await get(usersRef);
+
+            if (snapshot.exists()) {
+                const data = snapshot.val();
+                const targetPublicKey = developerPublicKey.toBase58();
+                
+                // Search through all users to find matching publicKey
+                for (const key in data) {
+                    if (data[key].publicKey === targetPublicKey) {
+                        firebaseKey = key;
+                        const developerData = data[key];
+                        clerkUserId = developerData.id; // Clerk user ID stored in Firebase
+                        developerEmail = developerData.email;
+                        break;
+                    }
+                }
+            }
+        } catch (error) {
+            console.warn("Could not find developer in Firebase:", error);
+            // Continue anyway - Firebase record might not exist
+        }
+
+        // 3. If we have email but no clerkUserId, try to find by email using Clerk
+        if (!clerkUserId && developerEmail) {
+            try {
+                if (!process.env.CLERK_SECRET_KEY) {
+                    console.warn("CLERK_SECRET_KEY not found in environment variables");
+                } else {
+                    const clerkClient = createClerkClient({
+                        secretKey: process.env.CLERK_SECRET_KEY,
+                    });
+                    const users = await clerkClient.users.getUserList({
+                        emailAddress: [developerEmail],
+                    });
+                    if (users.data.length > 0) {
+                        clerkUserId = users.data[0].id;
+                    }
+                }
+            } catch (error) {
+                console.warn("Could not find Clerk user:", error);
+            }
+        }
+
+        // 4. Build Solana transaction
+        console.log("🗑️ Building flush developer transaction...");
         console.log("   Admin:", adminPublicKey.toBase58());
         console.log("   Developer:", developerPublicKey.toBase58());
         console.log("   Record PDA:", onboardingRecordPda.toBase58());
-        console.log("   Rent Recipient:", (rentRecipient || adminPublicKey).toBase58());
+        console.log("   Firebase Key:", firebaseKey || "not found");
+        console.log("   Clerk User ID:", clerkUserId || "not found");
 
-        // Get latest blockhash
         const { blockhash } = await connection.getLatestBlockhash("finalized");
 
-        // Build the transaction
         const transaction = await program.methods
             .closeDeveloperOnboardingRecord()
             .accounts({
@@ -410,7 +478,7 @@ export const buildCloseDeveloperOnboardingRecordTransaction = async (
                 platformConfig: platformConfigPda,
                 developer: developerPublicKey,
                 onboardingRecord: onboardingRecordPda,
-                rentRecipient: rentRecipient || adminPublicKey,
+                rentRecipient: adminPublicKey,
                 systemProgram: SystemProgram.programId,
             })
             .transaction();
@@ -418,7 +486,6 @@ export const buildCloseDeveloperOnboardingRecordTransaction = async (
         transaction.recentBlockhash = blockhash;
         transaction.feePayer = adminPublicKey;
 
-        // Serialize for frontend signing
         const serializedTx = transaction.serialize({
             requireAllSignatures: false,
         }).toString("base64");
@@ -427,12 +494,243 @@ export const buildCloseDeveloperOnboardingRecordTransaction = async (
             success: true,
             transaction: serializedTx,
             onboardingRecordPda: onboardingRecordPda.toBase58(),
+            developerInfo: {
+                clerkUserId,
+                firebaseKey,
+                email: developerEmail,
+            },
         };
     } catch (error: any) {
-        console.error("❌ Error building close onboarding record transaction:", error);
+        console.error("❌ Error building flush transaction:", error);
         return {
             success: false,
             message: error.message || "Failed to build transaction",
+        };
+    }
+};
+
+/**
+ * Step 2: After Solana transaction is confirmed, clean up Firebase and Clerk
+ */
+export const confirmFlushDeveloper = async (
+    developerPublicKey: string,
+    clerkUserId?: string,
+    firebaseKey?: string
+): Promise<FlushDeveloperResult> => {
+    const details = {
+        solana: { success: true }, // Already confirmed by frontend
+        firebase: { success: false, error: undefined as string | undefined },
+        clerk: { success: false, error: undefined as string | undefined },
+    };
+
+    // 1. Clean up Firebase
+    if (firebaseKey) {
+        try {
+            const developerRef = ref(db, `users/${firebaseKey}`);
+            await remove(developerRef);
+            details.firebase.success = true;
+            console.log("✅ Firebase record removed:", firebaseKey);
+        } catch (error: any) {
+            details.firebase.error = error.message;
+            console.error("❌ Failed to remove Firebase record:", error);
+        }
+    } else {
+        // Try to find and remove by publicKey
+        try {
+            const usersRef = ref(db, "users");
+            const snapshot = await get(usersRef);
+
+            if (snapshot.exists()) {
+                const data = snapshot.val();
+                let foundKey: string | null = null;
+                
+                // Search through all users to find matching publicKey
+                for (const key in data) {
+                    if (data[key].publicKey === developerPublicKey) {
+                        foundKey = key;
+                        break;
+                    }
+                }
+
+                if (foundKey) {
+                    await remove(ref(db, `users/${foundKey}`));
+                    details.firebase.success = true;
+                    console.log("✅ Firebase record found and removed:", foundKey);
+                } else {
+                    details.firebase.success = true; // No record to remove
+                    console.log("ℹ️ No Firebase record found for developer");
+                }
+            } else {
+                details.firebase.success = true; // No record to remove
+                console.log("ℹ️ No Firebase record found for developer");
+            }
+        } catch (error: any) {
+            details.firebase.error = error.message;
+            console.error("❌ Failed to search/remove Firebase record:", error);
+        }
+    }
+
+    // 2. Reset Clerk user metadata
+    if (clerkUserId) {
+        try {
+            if (!process.env.CLERK_SECRET_KEY) {
+                details.clerk.error = "CLERK_SECRET_KEY not found in environment variables. Please add it to your .env file and restart the server.";
+                console.error("❌ CLERK_SECRET_KEY not found in environment variables");
+            } else {
+                const clerkClient = createClerkClient({
+                    secretKey: process.env.CLERK_SECRET_KEY,
+                });
+                await clerkClient.users.updateUserMetadata(clerkUserId, {
+                    publicMetadata: {
+                        onboarded: false,
+                        publicKey: null,
+                        professionalDetails: null,
+                        // Keep role as "developer" so they can re-onboard as developer
+                    },
+                });
+                details.clerk.success = true;
+                console.log("✅ Clerk metadata reset for user:", clerkUserId);
+            }
+        } catch (error: any) {
+            details.clerk.error = error.message || "Failed to reset Clerk metadata";
+            console.error("❌ Failed to reset Clerk metadata:", error);
+        }
+    } else {
+        // Try to find user by searching Firebase for email, then lookup in Clerk
+        try {
+            const usersRef = ref(db, "users");
+            const snapshot = await get(usersRef);
+
+            if (snapshot.exists()) {
+                const data = snapshot.val();
+                let userData: any = null;
+                
+                // Search through all users to find matching publicKey
+                for (const key in data) {
+                    if (data[key].publicKey === developerPublicKey) {
+                        userData = data[key];
+                        break;
+                    }
+                }
+
+                if (userData) {
+                    const foundClerkUserId = userData.id;
+
+                    if (foundClerkUserId) {
+                        if (!process.env.CLERK_SECRET_KEY) {
+                            details.clerk.error = "CLERK_SECRET_KEY not found in environment variables. Please add it to your .env file and restart the server.";
+                            console.error("❌ CLERK_SECRET_KEY not found in environment variables");
+                        } else {
+                            const clerkClient = createClerkClient({
+                                secretKey: process.env.CLERK_SECRET_KEY,
+                            });
+                            await clerkClient.users.updateUserMetadata(foundClerkUserId, {
+                                publicMetadata: {
+                                    onboarded: false,
+                                    publicKey: null,
+                                    professionalDetails: null,
+                                },
+                            });
+                            details.clerk.success = true;
+                            console.log("✅ Clerk metadata reset for user:", foundClerkUserId);
+                        }
+                    } else {
+                        details.clerk.success = true; // Can't update without ID
+                        console.log("ℹ️ No Clerk user ID found, skipping Clerk cleanup");
+                    }
+                } else {
+                    details.clerk.success = true; // No record to update
+                    console.log("ℹ️ No Firebase record found, skipping Clerk cleanup");
+                }
+            } else {
+                details.clerk.success = true; // No record to update
+                console.log("ℹ️ No Firebase record found, skipping Clerk cleanup");
+            }
+        } catch (error: any) {
+            details.clerk.error = error.message;
+            console.error("❌ Failed to reset Clerk metadata:", error);
+        }
+    }
+
+    // Determine overall success
+    const allSuccess = details.firebase.success && details.clerk.success;
+
+    return {
+        success: allSuccess,
+        message: allSuccess
+            ? "Developer record flushed from all systems"
+            : "Partial success - some systems may need manual cleanup",
+        details,
+    };
+};
+
+/**
+ * Optional: Get information about what will be flushed for a developer
+ */
+export const getFlushDeveloperInfo = async (
+    developerPublicKey: string
+): Promise<{
+    success: boolean;
+    clerkUserId?: string;
+    firebaseKey?: string;
+    email?: string;
+    hasOnChainRecord: boolean;
+    message?: string;
+}> => {
+    try {
+        const { program } = getProgram();
+        const devPubkey = new PublicKey(developerPublicKey);
+
+        // Check on-chain record
+        const onboardingRecordPda = getDeveloperOnboardingRecordPDA(devPubkey);
+
+        let hasOnChainRecord = false;
+        try {
+            await program.account.developerOnboardingRecord.fetch(onboardingRecordPda);
+            hasOnChainRecord = true;
+        } catch {
+            hasOnChainRecord = false;
+        }
+
+        // Find in Firebase
+        let firebaseKey: string | undefined;
+        let clerkUserId: string | undefined;
+        let email: string | undefined;
+
+        try {
+            const usersRef = ref(db, "users");
+            const snapshot = await get(usersRef);
+
+            if (snapshot.exists()) {
+                const data = snapshot.val();
+                
+                // Search through all users to find matching publicKey
+                for (const key in data) {
+                    if (data[key].publicKey === developerPublicKey) {
+                        firebaseKey = key;
+                        const developerData = data[key];
+                        clerkUserId = developerData.id;
+                        email = developerData.email;
+                        break;
+                    }
+                }
+            }
+        } catch (error) {
+            console.warn("Firebase lookup failed:", error);
+        }
+
+        return {
+            success: true,
+            clerkUserId,
+            firebaseKey,
+            email,
+            hasOnChainRecord,
+        };
+    } catch (error: any) {
+        return {
+            success: false,
+            hasOnChainRecord: false,
+            message: error.message,
         };
     }
 };
