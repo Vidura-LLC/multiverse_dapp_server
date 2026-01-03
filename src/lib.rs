@@ -267,6 +267,27 @@ pub mod multiversed_dapp {
         Ok(())
     }
 
+    /// Close/flush a developer's onboarding record
+    /// This allows the developer to re-onboard and pay the fee again
+    /// Only callable by super_admin
+    /// Rent is returned to the admin (or optionally to the developer)
+    pub fn close_developer_onboarding_record(
+        ctx: Context<CloseDeveloperOnboardingRecord>,
+    ) -> Result<()> {
+        let onboarding_record = &ctx.accounts.onboarding_record;
+        
+        msg!("✅ Developer onboarding record closed");
+        msg!("   Developer: {}", onboarding_record.developer);
+        msg!("   Original Fee Paid: {} lamports", onboarding_record.fee_paid);
+        msg!("   Original Timestamp: {}", onboarding_record.timestamp);
+        msg!("   Closed By: {}", ctx.accounts.super_admin.key());
+        msg!("   Rent returned to: {}", ctx.accounts.rent_recipient.key());
+
+        // Account closure is handled by Anchor's `close` constraint
+        // Rent lamports are transferred to rent_recipient
+
+        Ok(())
+    }
 
     // ==============================
     // GLOBAL POOL INITIALIZATION
@@ -1757,6 +1778,45 @@ pub struct PayDeveloperOnboardingFee<'info> {
     pub system_program: Program<'info, System>,
 }
 
+#[derive(Accounts)]
+pub struct CloseDeveloperOnboardingRecord<'info> {
+    /// Super admin closing the record
+    #[account(mut)]
+    pub super_admin: Signer<'info>,
+
+    /// Platform configuration - verify super_admin authority
+    #[account(
+        seeds = [SEED_PLATFORM_CONFIG],
+        bump = platform_config.bump,
+        constraint = platform_config.super_admin == super_admin.key() @ PlatformError::Unauthorized,
+        constraint = platform_config.is_initialized @ PlatformError::NotInitialized
+    )]
+    pub platform_config: Account<'info, PlatformConfig>,
+
+    /// The developer whose record is being closed
+    /// CHECK: This is just used to derive the PDA, not modified
+    pub developer: UncheckedAccount<'info>,
+
+    /// The onboarding record to close
+    /// Rent will be returned to rent_recipient
+    #[account(
+        mut,
+        seeds = [SEED_DEVELOPER_ONBOARDING, developer.key().as_ref()],
+        bump = onboarding_record.bump,
+        close = rent_recipient,
+        constraint = onboarding_record.developer == developer.key() @ OnboardingError::InvalidDeveloper
+    )]
+    pub onboarding_record: Account<'info, DeveloperOnboardingRecord>,
+
+    /// Account to receive the rent from closed account
+    /// Can be super_admin or the developer
+    /// CHECK: Any account can receive rent
+    #[account(mut)]
+    pub rent_recipient: UncheckedAccount<'info>,
+
+    pub system_program: Program<'info, System>,
+}
+
 // ==============================
 // STAKING POOL INITIALIZATION
 // ==============================
@@ -2508,4 +2568,7 @@ pub enum OnboardingError {
 
     #[msg("Insufficient SOL balance to pay onboarding fee")]
     InsufficientFunds,
+
+    #[msg("Invalid developer address for this onboarding record")]
+    InvalidDeveloper,
 }
