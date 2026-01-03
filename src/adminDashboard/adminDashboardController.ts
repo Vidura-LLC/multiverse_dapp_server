@@ -674,7 +674,8 @@ export const initializePlatformConfigController = async (req: Request, res: Resp
             superAdminPublicKey, 
             platformWalletPublicKey, 
             developerShareBps = 9000, 
-            platformShareBps = 1000 
+            platformShareBps = 1000,
+            developerOnboardingFee = 0  // In lamports, default 0
         } = req.body;
 
         // Validate required fields
@@ -723,12 +724,22 @@ export const initializePlatformConfigController = async (req: Request, res: Resp
             });
         }
 
+        // Validate onboarding fee
+        const onboardingFee = Number(developerOnboardingFee);
+        if (isNaN(onboardingFee) || onboardingFee < 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'Developer onboarding fee must be a valid non-negative number'
+            });
+        }
+
         // Call the service
         const result = await initializePlatformConfigService(
             superAdminPubKey,
             platformWalletPubKey,
             devBps,
-            platBps
+            platBps,
+            onboardingFee
         );
 
         if (result.success) {
