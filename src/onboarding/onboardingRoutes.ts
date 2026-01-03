@@ -5,7 +5,9 @@ import {
     payDeveloperOnboardingFeeController,
     checkDeveloperOnboardingStatusController,
     getAllOnboardedDevelopersController,
-    closeDeveloperOnboardingRecordController,
+    buildFlushDeveloperController,
+    confirmFlushDeveloperController,
+    getFlushDeveloperInfoController,
 } from "./onboardingController";
 
 const router = express.Router();
@@ -48,11 +50,30 @@ router.post("/admin/update-fee", updateDeveloperOnboardingFeeController as unkno
  */
 router.get("/admin/developers", getAllOnboardedDevelopersController as unknown as RequestHandler);
 
+// ==============================
+// FLUSH DEVELOPER ROUTES (Admin)
+// ==============================
+
 /**
- * POST /api/onboarding/admin/close-record
- * Build transaction to close/flush a developer's onboarding record
+ * GET /api/onboarding/admin/flush-developer/info/:developerPublicKey
+ * Get info about what will be flushed
  */
-router.post("/admin/close-record", closeDeveloperOnboardingRecordController as unknown as RequestHandler);
+router.get(
+    "/admin/flush-developer/info/:developerPublicKey",
+    getFlushDeveloperInfoController as unknown as RequestHandler
+);
+
+/**
+ * POST /api/onboarding/admin/flush-developer/build
+ * Build the Solana transaction for flushing
+ */
+router.post("/admin/flush-developer/build", buildFlushDeveloperController as unknown as RequestHandler);
+
+/**
+ * POST /api/onboarding/admin/flush-developer/confirm
+ * Confirm Solana tx and clean up Firebase + Clerk
+ */
+router.post("/admin/flush-developer/confirm", confirmFlushDeveloperController as unknown as RequestHandler);
 
 export default router;
 
