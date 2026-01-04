@@ -130,7 +130,7 @@ export async function getGameById(req: Request, res: Response): Promise<void> {
 
 export async function getGamePerformanceMetrics(req: Request, res: Response): Promise<void> {
     try {
-        const { tokenType } = req.query;
+        const { tokenType, adminPublicKey } = req.query;
         if (!tokenType || tokenType === undefined || tokenType === null) {
             res.status(400).json({ message: "tokenType is required" });
             return;
@@ -139,11 +139,20 @@ export async function getGamePerformanceMetrics(req: Request, res: Response): Pr
         if (tt !== TokenType.SPL && tt !== TokenType.SOL) {
             res.status(400).json({ message: "tokenType must be 0 (SPL) or 1 (SOL)" });
         }
+
+        // Check if user is admin to determine if we show all games or just developer's games
+        const userIsAdmin = adminPublicKey ? await isAdmin(adminPublicKey as string) : false;
+
         // Get all games
         const gamesRef = ref(db, `games`);
         const gamesSnapshot = await get(gamesRef);
         const gamesData = gamesSnapshot.val();
-        const games = gamesData ? Object.values(gamesData) as Game[] : [];
+        let games = gamesData ? Object.values(gamesData) as Game[] : [];
+
+        // Filter games by developer if not admin
+        if (adminPublicKey && !userIsAdmin) {
+            games = games.filter((game: Game) => game.createdBy === adminPublicKey);
+        }
 
         // Get all tournaments
         const tournamentsRef = ref(db, `tournaments/${tt as TokenType}`);
