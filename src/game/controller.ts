@@ -4,70 +4,29 @@ import { db } from '../config/firebase'; // Adjust import path
 import { S3Service } from './s3Service';
 import { Game, TGameStatus } from '../types/game'; // Adjust import path
 import { TokenType } from '../utils/getPDAs';
+import { checkUser } from '../gamehub/middleware';
 
-// export async function createGame(req: Request, res: Response): Promise<void> {
-//     try {
-//         const { id, name, description, userId, status, adminPublicKey, image } = req.body;
-
-//         // Validate required fields
-//         if (!id || !name || !description || !userId || !status || !adminPublicKey) {
-//             res.status(400).json({
-//                 message: "Missing required fields: id, name, description, userId, status, adminPublicKey"
-//             });
-//             return;
-//         }
-
-//         // Validate status field  
-//         const validStatuses = ["draft", "published"];
-//         if (!validStatuses.includes(status)) {
-//             res.status(400).json({
-//                 message: "Invalid status. Must be one of: draft, published"
-//             });
-//             return;
-//         }
-
-//         // Create game object
-//         const game: Game = {
-//             id,
-//             gameId: id as string,
-//             userId,
-//             name,
-//             description,
-//             image: image || "",
-//             status: status as TGameStatus,
-//             createdAt: new Date(),
-//             updatedAt: new Date(),
-//             createdBy: adminPublicKey,
-//         };
-
-//         // Save to Firebase
-//         try {
-//             const gameRef = ref(db, "games");
-//             const newGameRef = push(gameRef);
-//             const gameId = newGameRef.key;
-
-//             await set(newGameRef, game);
-
-//             res.status(201).json({
-//                 message: "Game created successfully",
-//                 gameId,
-//                 game: {
-//                     ...game,
-//                     firebaseId: gameId
-//                 }
-//             });
-//             return;
-//         } catch (dbError) {
-//             console.error('Error saving to Firebase:', dbError);
-//             res.status(500).json({ message: "Failed to save game to database" });
-//             return;
-//         }
-//     } catch (error) {
-//         console.error('Unexpected error in createGame:', error);
-//         res.status(500).json({ message: "Internal Server Error" });
-//         return;
-//     }
-// }
+/**
+ * Check if a user is an admin by checking their role in the database
+ */
+async function isAdmin(publicKey: string): Promise<boolean> {
+    try {
+        if (!publicKey) {
+            return false;
+        }
+        
+        // Check user role from database
+        const user = await checkUser(publicKey);
+        if (user && (user.role === 'admin' || user.role === 'super_admin')) {
+            return true;
+        }
+        
+        return false;
+    } catch (error) {
+        console.error('[Game] Error checking admin status:', error);
+        return false;
+    }
+}
 
 export async function getAllGames(req: Request, res: Response): Promise<void> {
     try {
@@ -79,26 +38,77 @@ export async function getAllGames(req: Request, res: Response): Promise<void> {
             return;
         }
 
-        const gamesRef = ref(db, "games");
-        const gamesSnapshot = await get(gamesRef);
-        const gamesData = gamesSnapshot.val();
+        console.log(`[Game] Fetching games for adminPublicKey: ${adminPublicKey}`);
 
-        // Convert Firebase object to array format and filter by adminPublicKey
-        const allGames = gamesData ? Object.entries(gamesData).map(([firebaseKey, gameData]: [string, any]) => ({
-            ...gameData,
-            // Ensure the game has an id - use the provided id or fallback to Firebase key
-            id: gameData.id || firebaseKey
-        })) : [];
+        // Check if user is admin
+        const userIsAdmin = await isAdmin(adminPublicKey);
+        console.log(`[Game] User is admin: ${userIsAdmin}`);
 
-        // Filter games by the adminPublicKey (createdBy field)
-        const games = allGames.filter((game: any) => game.createdBy === adminPublicKey);
+        try {
+            const gamesRef = ref(db, "games");
+            const gamesSnapshot = await get(gamesRef);
+            
+            if (!gamesSnapshot.exists()) {
+                console.log(`[Game] No games found in database`);
+                res.status(200).json({ games: [] });
+                return;
+            }
 
-        // console.log(`Fetched ${games.length} games for admin: ${adminPublicKey}`);
-        res.status(200).json({ games });
-        return;
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: "Internal Server Error" });
+            const gamesData = gamesSnapshot.val();
+
+            // Convert Firebase object to array format
+            const allGames = gamesData && typeof gamesData === 'object' 
+                ? Object.entries(gamesData).map(([firebaseKey, gameData]: [string, any]) => {
+                    if (!gameData || typeof gameData !== 'object') {
+                        return null;
+                    }
+                    return {
+                        ...gameData,
+                        // Ensure the game has an id - use the provided id or fallback to Firebase key
+                        id: gameData.id || firebaseKey
+                    };
+                }).filter((game): game is any => game !== null)
+                : [];
+
+            console.log(`[Game] Total games in database: ${allGames.length}`);
+            
+            // If user is admin, return all games. Otherwise, filter by createdBy
+            let games;
+            if (userIsAdmin) {
+                games = allGames;
+                console.log(`[Game] Admin access: returning all ${games.length} games`);
+            } else {
+                // Filter games by the adminPublicKey (createdBy field) for developers
+                games = allGames.filter((game: any) => {
+                    const matches = game.createdBy === adminPublicKey;
+                    if (!matches && game.createdBy) {
+                        console.log(`[Game] Game ${game.id} createdBy: ${game.createdBy}, expected: ${adminPublicKey}`);
+                    }
+                    return matches;
+                });
+                console.log(`[Game] Developer access: filtered to ${games.length} games`);
+            }
+
+            res.status(200).json({ games });
+            return;
+        } catch (dbError: any) {
+            // Handle Firebase permission errors
+            if (dbError.code === 'PERMISSION_DENIED' || dbError.message?.includes('Permission denied')) {
+                console.error('[Game] Permission denied reading games:', dbError);
+                res.status(403).json({ 
+                    message: "Permission denied: Unable to read games from database",
+                    error: "PERMISSION_DENIED"
+                });
+                return;
+            }
+            throw dbError; // Re-throw other errors
+        }
+    } catch (error: any) {
+        console.error('[Game] Error in getAllGames:', error);
+        res.status(500).json({ 
+            message: "Internal Server Error",
+            error: error.message || 'Unknown error'
+        });
         return;
     }
 }
@@ -120,7 +130,7 @@ export async function getGameById(req: Request, res: Response): Promise<void> {
 
 export async function getGamePerformanceMetrics(req: Request, res: Response): Promise<void> {
     try {
-        const { tokenType } = req.query;
+        const { tokenType, adminPublicKey } = req.query;
         if (!tokenType || tokenType === undefined || tokenType === null) {
             res.status(400).json({ message: "tokenType is required" });
             return;
@@ -129,11 +139,20 @@ export async function getGamePerformanceMetrics(req: Request, res: Response): Pr
         if (tt !== TokenType.SPL && tt !== TokenType.SOL) {
             res.status(400).json({ message: "tokenType must be 0 (SPL) or 1 (SOL)" });
         }
+
+        // Check if user is admin to determine if we show all games or just developer's games
+        const userIsAdmin = adminPublicKey ? await isAdmin(adminPublicKey as string) : false;
+
         // Get all games
         const gamesRef = ref(db, `games`);
         const gamesSnapshot = await get(gamesRef);
         const gamesData = gamesSnapshot.val();
-        const games = gamesData ? Object.values(gamesData) as Game[] : [];
+        let games = gamesData ? Object.values(gamesData) as Game[] : [];
+
+        // Filter games by developer if not admin
+        if (adminPublicKey && !userIsAdmin) {
+            games = games.filter((game: Game) => game.createdBy === adminPublicKey);
+        }
 
         // Get all tournaments
         const tournamentsRef = ref(db, `tournaments/${tt as TokenType}`);

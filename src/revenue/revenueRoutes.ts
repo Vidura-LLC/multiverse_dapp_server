@@ -11,6 +11,7 @@ import {
   getAdminDistributionTotalsController,
   getDeveloperRevenueController,
   getDeveloperRevenueHistoryController,
+  getAllDeveloperRevenueController,
   getPlatformRevenueController,
   getPlatformRevenueHistoryController,
   getPlatformRevenueByDeveloperController
@@ -57,6 +58,11 @@ router.get('/admin/distribution-totals/:adminPubKey',
 // ==============================
 // DEVELOPER REVENUE ENDPOINTS
 // ==============================
+
+// Get aggregated developer revenue across all developers (admin only) - MUST come before parameterized routes
+router.get('/developer/all',
+  getAllDeveloperRevenueController as unknown as RequestHandler
+);
 
 // Get developer revenue history (paginated) - MUST come before the general route
 router.get('/developer/:developerPublicKey/history',

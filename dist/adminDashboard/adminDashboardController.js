@@ -21,23 +21,12 @@ const database_1 = require("firebase/database");
 const firebase_1 = require("../config/firebase");
 const checkPoolStatusController = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const { adminPublicKey } = req.params;
         const { tokenType } = req.query;
-        // Validate the admin public key
-        if (!adminPublicKey || !tokenType) {
+        // Validate token type
+        if (!tokenType) {
             return res.status(400).json({
                 success: false,
-                error: 'Admin public key and token type are required'
-            });
-        }
-        // Validate public key format
-        try {
-            new web3_js_1.PublicKey(adminPublicKey);
-        }
-        catch (error) {
-            return res.status(400).json({
-                success: false,
-                error: 'Invalid admin public key format'
+                error: 'Token type is required'
             });
         }
         // Check staking pool status (expect 0 or 1)
@@ -45,10 +34,17 @@ const checkPoolStatusController = (req, res) => __awaiter(void 0, void 0, void 0
         if (tt !== getPDAs_1.TokenType.SPL && tt !== getPDAs_1.TokenType.SOL) {
             return res.status(400).json({ success: false, error: 'tokenType must be 0 (SPL) or 1 (SOL)' });
         }
-        const result = yield (0, services_1.checkPoolStatus)(new web3_js_1.PublicKey(adminPublicKey), tt);
+        // Pool status check uses super admin from platform config (pools are global)
+        const result = yield (0, services_1.checkPoolStatus)(tt);
         if (result.success) {
             return res.status(200).json({
                 data: result
+            });
+        }
+        else {
+            return res.status(400).json({
+                success: false,
+                error: ('message' in result ? result.message : 'Failed to check pool status')
             });
         }
     }
@@ -334,10 +330,10 @@ exports.getStakingStatsController = getStakingStatsController;
  */
 const getStakingPoolController = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const { adminPublicKey } = req.params;
         const { tokenType } = req.query;
         console.log('🏦 Fetching staking pool data...');
-        const result = yield (0, stakingStatsService_1.getStakingPoolData)(new web3_js_1.PublicKey(adminPublicKey), Number(tokenType));
+        // Pool data uses super admin from platform config (pools are global)
+        const result = yield (0, stakingStatsService_1.getStakingPoolData)(Number(tokenType));
         if (result.success) {
             return res.status(200).json({
                 success: true,
@@ -633,7 +629,8 @@ exports.getDashboardStatsController = getDashboardStatsController;
  */
 const initializePlatformConfigController = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const { superAdminPublicKey, platformWalletPublicKey, developerShareBps = 9000, platformShareBps = 1000 } = req.body;
+        const { superAdminPublicKey, platformWalletPublicKey, developerShareBps = 9000, platformShareBps = 1000, developerOnboardingFee = 0 // In lamports, default 0
+         } = req.body;
         // Validate required fields
         if (!superAdminPublicKey) {
             return res.status(400).json({
@@ -675,8 +672,16 @@ const initializePlatformConfigController = (req, res) => __awaiter(void 0, void 
                 message: `Share percentages must sum to 10000 (100%). Current total: ${devBps + platBps}`
             });
         }
+        // Validate onboarding fee
+        const onboardingFee = Number(developerOnboardingFee);
+        if (isNaN(onboardingFee) || onboardingFee < 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'Developer onboarding fee must be a valid non-negative number'
+            });
+        }
         // Call the service
-        const result = yield (0, services_1.initializePlatformConfigService)(superAdminPubKey, platformWalletPubKey, devBps, platBps);
+        const result = yield (0, services_1.initializePlatformConfigService)(superAdminPubKey, platformWalletPubKey, devBps, platBps, onboardingFee);
         if (result.success) {
             return res.status(200).json(result);
         }

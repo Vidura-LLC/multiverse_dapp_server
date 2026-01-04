@@ -45,6 +45,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.getDashboardData = exports.getStakingStats = exports.getRewardPoolStatsService = exports.getRevenuePoolStatsService = void 0;
 exports.getTournamentStats = getTournamentStats;
+const web3_js_1 = require("@solana/web3.js");
 const anchor = __importStar(require("@project-serum/anchor"));
 const database_1 = require("firebase/database");
 const firebase_1 = require("../config/firebase");
@@ -224,15 +225,23 @@ const getRevenuePoolStatsService = (adminPublicKey, tokenType) => __awaiter(void
     }
 });
 exports.getRevenuePoolStatsService = getRevenuePoolStatsService;
-const getRewardPoolStatsService = (adminPublicKey, tokenType) => __awaiter(void 0, void 0, void 0, function* () {
+const getRewardPoolStatsService = (tokenType) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { program, connection } = (0, services_1.getProgram)();
-        // Use provided admin public key or default to program admin
-        const adminPubkey = adminPublicKey;
+        // Get super admin from platform config (pools are global, initialized by super admin)
+        const { getPlatformConfigService } = yield Promise.resolve().then(() => __importStar(require('./services')));
+        const platformConfig = yield getPlatformConfigService();
+        if (!platformConfig.success || !platformConfig.data) {
+            return {
+                success: false,
+                message: 'Platform config not initialized. Please initialize platform config first.'
+            };
+        }
+        const superAdminPublicKey = new web3_js_1.PublicKey(platformConfig.data.superAdmin);
         console.log("Fetching Reward Pool Stats:");
-        console.log("Admin PublicKey:", adminPubkey.toBase58());
-        // Derive the reward pool PDA
-        const rewardPoolPublicKey = (0, getPDAs_1.getRewardPoolPDA)(adminPublicKey, tokenType);
+        console.log("Using Super Admin PublicKey:", superAdminPublicKey.toBase58());
+        // Derive the reward pool PDA using super admin
+        const rewardPoolPublicKey = (0, getPDAs_1.getRewardPoolPDA)(superAdminPublicKey, tokenType);
         // Derive the reward pool escrow account
         const rewardEscrowPublicKey = (0, getPDAs_1.getRewardEscrowPDA)(rewardPoolPublicKey);
         // Check if the reward account exists
@@ -279,10 +288,10 @@ exports.getRewardPoolStatsService = getRewardPoolStatsService;
 const getStakingStats = (adminPublicKey, tokenType) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         console.log("📊 Fetching comprehensive staking statistics...");
-        // Fetch all data in parallel
+        // Fetch all data in parallel (pools are global, use super admin from platform config)
         const [poolResult, stakersResult, apyResult] = yield Promise.all([
-            (0, stakingStatsService_1.getStakingPoolData)(adminPublicKey, tokenType),
-            (0, stakingStatsService_1.getActiveStakers)(adminPublicKey, tokenType),
+            (0, stakingStatsService_1.getStakingPoolData)(tokenType),
+            (0, stakingStatsService_1.getActiveStakers)(undefined, tokenType), // getActiveStakers will use super admin internally
             (0, stakingStatsService_1.calculateAPY)()
         ]);
         // Check if any requests failed
@@ -345,8 +354,8 @@ const getDashboardData = (adminPublicKey, tokenType) => __awaiter(void 0, void 0
         const tournamentStats = yield getTournamentStats(tokenType);
         // Fetch revenue pool stats
         const revenuePoolStats = yield (0, exports.getRevenuePoolStatsService)(adminPublicKey, tokenType);
-        // Fetch reward pool stats
-        const rewardPoolStats = yield (0, exports.getRewardPoolStatsService)(adminPublicKey, tokenType);
+        // Fetch reward pool stats (pools are global, use super admin from platform config)
+        const rewardPoolStats = yield (0, exports.getRewardPoolStatsService)(tokenType);
         // Fetch staking stats
         const stakingStats = yield (0, exports.getStakingStats)(adminPublicKey, tokenType);
         return {

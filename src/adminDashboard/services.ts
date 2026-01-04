@@ -41,7 +41,16 @@ export interface PlatformConfigAccount {
     platformWallet: PublicKey;
     developerShareBps: anchor.BN;
     platformShareBps: anchor.BN;
+    developerOnboardingFee: anchor.BN;
+    onboardingFeeEnabled: boolean;
     isInitialized: boolean;
+    bump: number;
+}
+
+export interface DeveloperOnboardingRecordAccount {
+    developer: PublicKey;
+    feePaid: anchor.BN;
+    timestamp: anchor.BN;
     bump: number;
 }
       
@@ -263,9 +272,22 @@ export const initializeRewardPoolService = async (
 
   
  // ✅ Function to check pool status for staking and reward pools
- export const checkPoolStatus = async (adminPublicKey: PublicKey, tokenType: TokenType) => {
+ // Uses super admin from platform config (pools are global)
+ export const checkPoolStatus = async (tokenType: TokenType) => {
   try {
       const { program } = getProgram();
+
+      // Get super admin from platform config (pools are global, initialized by super admin)
+      const platformConfig = await getPlatformConfigService();
+      if (!platformConfig.success || !platformConfig.data) {
+          return {
+              success: false,
+              message: 'Platform config not initialized. Please initialize platform config first.'
+          };
+      }
+
+      const superAdminPublicKey = new PublicKey(platformConfig.data.superAdmin);
+      console.log("🔹 Using Super Admin for pool check:", superAdminPublicKey.toString());
 
       const result = {
           success: true,
@@ -277,11 +299,11 @@ export const initializeRewardPoolService = async (
             status: false, // false = needs initialization, true = exists
             tokenType: null as string | null,
         },
-          adminAddress: adminPublicKey.toString()
+          adminAddress: superAdminPublicKey.toString()
       };
 
-      // ✅ 1. Check Staking Pool
-      const stakingPoolPublicKey = getStakingPoolPDA(adminPublicKey, tokenType);
+      // ✅ 1. Check Staking Pool (using super admin)
+      const stakingPoolPublicKey = getStakingPoolPDA(superAdminPublicKey, tokenType);
       console.log("🔹 Checking Staking Pool PDA:", stakingPoolPublicKey.toString());
 
       const stakingPoolAccount = await program.account.stakingPool.fetchNullable(stakingPoolPublicKey) as StakingPoolAccount | null;
@@ -293,9 +315,8 @@ export const initializeRewardPoolService = async (
             null,
       };
 
-      // ✅ 2. Check Reward Pool
-      const rewardPoolPublicKey = getRewardPoolPDA(adminPublicKey, tokenType);
-
+      // ✅ 2. Check Reward Pool (using super admin)
+      const rewardPoolPublicKey = getRewardPoolPDA(superAdminPublicKey, tokenType);
 
     console.log("🔹 Checking Reward Pool PDA:", rewardPoolPublicKey.toString());
 
@@ -331,7 +352,8 @@ export const initializePlatformConfigService = async (
   superAdminPublicKey: PublicKey,
   platformWalletPublicKey: PublicKey,
   developerShareBps: number = 9000,
-  platformShareBps: number = 1000
+  platformShareBps: number = 1000,
+  developerOnboardingFee: number = 0  // In lamports, default 0
 ) => {
   try {
     const { program, connection } = getProgram();
@@ -354,25 +376,38 @@ export const initializePlatformConfigService = async (
       };
     }
 
+    // Validate onboarding fee
+    if (developerOnboardingFee < 0) {
+      return {
+        success: false,
+        message: "Developer onboarding fee cannot be negative"
+      };
+    }
+
     console.log("Initializing Platform Config:");
     console.log("🔹 Platform Config PDA:", platformConfigPDA.toString());
     console.log("🔹 Super Admin:", superAdminPublicKey.toString());
     console.log("🔹 Platform Wallet:", platformWalletPublicKey.toString());
     console.log(`🔹 Developer Share: ${developerShareBps / 100}%`);
     console.log(`🔹 Platform Share: ${platformShareBps / 100}%`);
+    console.log(`🔹 Developer Onboarding Fee: ${developerOnboardingFee} lamports`);
 
-    const instruction = await program.methods
-      .initializePlatformConfig(developerShareBps, platformShareBps)
+    const { blockhash } = await connection.getLatestBlockhash("finalized");
+
+    const transaction = await program.methods
+      .initializePlatformConfig(
+        developerShareBps, 
+        platformShareBps,
+        new anchor.BN(developerOnboardingFee)
+      )
       .accounts({
         platformConfig: platformConfigPDA,
         platformWallet: platformWalletPublicKey,
         superAdmin: superAdminPublicKey,
         systemProgram: SystemProgram.programId,
       })
-      .instruction();
+      .transaction();
 
-    const transaction = new Transaction().add(instruction);
-    const { blockhash } = await connection.getLatestBlockhash("finalized");
     transaction.recentBlockhash = blockhash;
     transaction.feePayer = superAdminPublicKey;
 
@@ -561,6 +596,8 @@ export const getPlatformConfigService = async () => {
         platformShareBps: Number(config.platformShareBps),
         developerSharePercent: Number(config.developerShareBps) / 100,
         platformSharePercent: Number(config.platformShareBps) / 100,
+        developerOnboardingFee: Number(config.developerOnboardingFee),
+        onboardingFeeEnabled: config.onboardingFeeEnabled,
         isInitialized: config.isInitialized,
         bump: config.bump,
       } as {
@@ -570,6 +607,8 @@ export const getPlatformConfigService = async () => {
         platformShareBps: number;
         developerSharePercent: number;
         platformSharePercent: number;
+        developerOnboardingFee: number;
+        onboardingFeeEnabled: boolean;
         isInitialized: boolean;
         bump: number;
       }

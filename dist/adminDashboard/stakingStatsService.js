@@ -75,12 +75,24 @@ const formatTokenAmount = (amount, decimals = 9) => {
 exports.formatTokenAmount = formatTokenAmount;
 /**
  * Get the staking pool data from the blockchain
+ * Uses super admin from platform config (pools are global)
  */
-const getStakingPoolData = (adminPublicKey, tokenType) => __awaiter(void 0, void 0, void 0, function* () {
+const getStakingPoolData = (tokenType) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { program, connection } = (0, services_1.getProgram)();
-        // Derive the staking pool PDA
-        const [stakingPoolPublicKey] = web3_js_1.PublicKey.findProgramAddressSync([Buffer.from(getPDAs_1.SEEDS.STAKING_POOL), adminPublicKey.toBuffer(), Buffer.from([tokenType])], program.programId);
+        // Get super admin from platform config (pools are global, initialized by super admin)
+        const { getPlatformConfigService } = yield Promise.resolve().then(() => __importStar(require('./services')));
+        const platformConfig = yield getPlatformConfigService();
+        if (!platformConfig.success || !platformConfig.data) {
+            return {
+                success: false,
+                message: 'Platform config not initialized. Please initialize platform config first.'
+            };
+        }
+        const superAdminPublicKey = new web3_js_1.PublicKey(platformConfig.data.superAdmin);
+        console.log("🔹 Using Super Admin for staking pool:", superAdminPublicKey.toString());
+        // Derive the staking pool PDA using super admin
+        const [stakingPoolPublicKey] = web3_js_1.PublicKey.findProgramAddressSync([Buffer.from(getPDAs_1.SEEDS.STAKING_POOL), superAdminPublicKey.toBuffer(), Buffer.from([tokenType])], program.programId);
         // Derive the staking pool escrow account (consistent seed)
         const [stakingEscrowPublicKey] = web3_js_1.PublicKey.findProgramAddressSync([Buffer.from(getPDAs_1.SEEDS.STAKING_POOL_ESCROW), stakingPoolPublicKey.toBuffer()], program.programId);
         console.log("🔹 Fetching Staking Pool PDA:", stakingPoolPublicKey.toString());
@@ -163,8 +175,19 @@ const getActiveStakers = (adminPublicKey, tokenType) => __awaiter(void 0, void 0
     // New behavior: filter by tokenType
     try {
         const { program } = (0, services_1.getProgram)();
-        // Derive the staking pool PDA for the given tokenType
-        const stakingPoolPublicKey = (0, getPDAs_1.getStakingPoolPDA)(adminPublicKey, tokenType);
+        // Get super admin from platform config (pools are global, initialized by super admin)
+        const { getPlatformConfigService } = yield Promise.resolve().then(() => __importStar(require('./services')));
+        const platformConfig = yield getPlatformConfigService();
+        if (!platformConfig.success || !platformConfig.data) {
+            return {
+                success: false,
+                message: 'Platform config not initialized. Please initialize platform config first.'
+            };
+        }
+        const superAdminPublicKey = new web3_js_1.PublicKey(platformConfig.data.superAdmin);
+        console.log("🔹 Using Super Admin for active stakers:", superAdminPublicKey.toString());
+        // Derive the staking pool PDA for the given tokenType using super admin
+        const stakingPoolPublicKey = (0, getPDAs_1.getStakingPoolPDA)(superAdminPublicKey, tokenType);
         console.log(`🔹 Filtering stakers for pool: ${stakingPoolPublicKey.toBase58()}`);
         console.log(`🔹 Token Type: ${tokenType === getPDAs_1.TokenType.SPL ? 'SPL' : 'SOL'}`);
         // Get all program accounts of type UserStakingAccount

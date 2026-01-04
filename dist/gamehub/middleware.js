@@ -16,6 +16,10 @@ const firebase_1 = require("../config/firebase"); // Assuming db is your Firebas
 // Function to check if user exists and matches with the provided publicKey
 const checkUser = (publicKey) => __awaiter(void 0, void 0, void 0, function* () {
     try {
+        if (!publicKey) {
+            console.log("checkUser: No publicKey provided");
+            return null;
+        }
         // Reference to the users node in the Firebase Realtime Database
         const usersRef = (0, database_1.ref)(firebase_1.db, 'users');
         // Get all users data
@@ -23,18 +27,21 @@ const checkUser = (publicKey) => __awaiter(void 0, void 0, void 0, function* () 
         if (snapshot.exists()) {
             const usersData = snapshot.val(); // This will return all users as a JS object
             // Loop through all users to check if the provided publicKey matches
+            // Check both PublicKey (uppercase) and publicKey (lowercase) for compatibility
             for (const userId in usersData) {
-                if (usersData[userId].PublicKey === publicKey) {
-                    // If a match is found, return the user data
-                    return usersData[userId];
+                const user = usersData[userId];
+                const userPublicKey = user.PublicKey || user.publicKey;
+                if (userPublicKey === publicKey) {
+                    // If a match is found, return the user data with userId attached
+                    return Object.assign(Object.assign({}, user), { id: userId });
                 }
             }
             // If no match is found, return null
-            console.log("User not found with the given publicKey");
+            console.log(`checkUser: User not found with publicKey: ${publicKey.substring(0, 8)}...`);
             return null;
         }
         else {
-            console.log("No users found in the database");
+            console.log("checkUser: No users found in the database");
             return null;
         }
     }

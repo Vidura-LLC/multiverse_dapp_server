@@ -34,8 +34,8 @@ export interface UserStakingAccount {
 
   // Helper function to get the program
 export const getProgram = () => {
-  const idl = require("../staking/idl_developer_split.json");
-  const walletKeypair = require("../staking/developer_split-Admin-wallet-keypair.json");
+  const idl = require("../staking/idl_onboarding_fee.json");
+  const walletKeypair = require("../staking/onboarding_admin-wallet-keypair.json");
 
   const adminKeypair = Keypair.fromSecretKey(new Uint8Array(walletKeypair));
   const adminPublicKey = adminKeypair.publicKey;
@@ -46,7 +46,7 @@ export const getProgram = () => {
   const connection = new Connection("https://api.devnet.solana.com", "confirmed");
 
   const programId = new PublicKey(
-    "DgQ1EXnbWqgSeMwQBwPeaphmT76Jpsapegd9kQKJ6buX"
+    "C1tiBNKdWaH1p2RCpy2w3UetstzgwxKE7mBNUQyHyx2a"
   );
 
   const provider = new anchor.AnchorProvider(

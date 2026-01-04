@@ -17,24 +17,13 @@ import { db } from '../config/firebase';
 
 export const checkPoolStatusController = async (req: Request, res: Response,) => {
     try {
-        const { adminPublicKey } = req.params;
         const { tokenType } = req.query;
 
-        // Validate the admin public key
-        if (!adminPublicKey || !tokenType) {
+        // Validate token type
+        if (!tokenType) {
             return res.status(400).json({
                 success: false,
-                error: 'Admin public key and token type are required'
-            });
-        }
-
-        // Validate public key format
-        try {
-            new PublicKey(adminPublicKey);
-        } catch (error) {
-            return res.status(400).json({
-                success: false,
-                error: 'Invalid admin public key format'
+                error: 'Token type is required'
             });
         }
 
@@ -43,14 +32,21 @@ export const checkPoolStatusController = async (req: Request, res: Response,) =>
         if (tt !== TokenType.SPL && tt !== TokenType.SOL) {
             return res.status(400).json({ success: false, error: 'tokenType must be 0 (SPL) or 1 (SOL)' });
         }
-        const result = await checkPoolStatus(new PublicKey(adminPublicKey), tt as TokenType);
+        
+        // Pool status check uses super admin from platform config (pools are global)
+        const result = await checkPoolStatus(tt as TokenType);
 
         if (result.success) {
             return res.status(200).json({
                 data: result
             });
-        } 
-    } catch (err) {
+        } else {
+            return res.status(400).json({
+                success: false,
+                error: ('message' in result ? result.message : 'Failed to check pool status')
+            });
+        }
+    } catch (err: any) {
         console.error('Error in check staking pool status controller:', err);
         return res.status(500).json({
             success: false,
@@ -363,11 +359,11 @@ export const getStakingStatsController = async (req: Request, res: Response) => 
 export const getStakingPoolController = async (req: Request, res: Response) => {
     try {
 
-        const { adminPublicKey } = req.params;
         const { tokenType } = req.query;
         console.log('🏦 Fetching staking pool data...');
 
-        const result = await getStakingPoolData(new PublicKey(adminPublicKey), Number(tokenType) as TokenType);
+        // Pool data uses super admin from platform config (pools are global)
+        const result = await getStakingPoolData(Number(tokenType) as TokenType);
 
         if (result.success) {
             return res.status(200).json({
@@ -678,7 +674,8 @@ export const initializePlatformConfigController = async (req: Request, res: Resp
             superAdminPublicKey, 
             platformWalletPublicKey, 
             developerShareBps = 9000, 
-            platformShareBps = 1000 
+            platformShareBps = 1000,
+            developerOnboardingFee = 0  // In lamports, default 0
         } = req.body;
 
         // Validate required fields
@@ -727,12 +724,22 @@ export const initializePlatformConfigController = async (req: Request, res: Resp
             });
         }
 
+        // Validate onboarding fee
+        const onboardingFee = Number(developerOnboardingFee);
+        if (isNaN(onboardingFee) || onboardingFee < 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'Developer onboarding fee must be a valid non-negative number'
+            });
+        }
+
         // Call the service
         const result = await initializePlatformConfigService(
             superAdminPubKey,
             platformWalletPubKey,
             devBps,
-            platBps
+            platBps,
+            onboardingFee
         );
 
         if (result.success) {
