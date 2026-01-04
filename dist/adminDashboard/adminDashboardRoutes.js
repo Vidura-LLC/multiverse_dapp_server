@@ -4,8 +4,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const adminDashboardController_1 = require("./adminDashboardController");
 const router = (0, express_1.Router)();
-// Route for checking the staking pool status
-router.get('/check-pool-status/:adminPublicKey', adminDashboardController_1.checkPoolStatusController);
+// Route for checking the staking pool status (pools are global, uses super admin from platform config)
+router.get('/check-pool-status', adminDashboardController_1.checkPoolStatusController);
 // Route for initializing the staking pool
 router.post('/initialize-staking-pool', adminDashboardController_1.initializeStakingPoolController);
 // Route for initializing the reward pool
@@ -16,8 +16,8 @@ router.post('/initialize-prize-pool', adminDashboardController_1.initializePrize
 router.post('/confirm-prize-pool', adminDashboardController_1.confirmPrizePoolController);
 // Main route to get comprehensive staking statistics (for your dashboard)
 router.get('/staking/stats/:adminPublicKey', adminDashboardController_1.getStakingStatsController);
-// Route to get staking pool data only
-router.get('/staking/pool-data/:adminPublicKey', adminDashboardController_1.getStakingPoolController);
+// Route to get staking pool data only (pools are global, uses super admin from platform config)
+router.get('/staking/pool-data', adminDashboardController_1.getStakingPoolController);
 // Route to get active stakers count and basic info
 router.get('/staking/active-stakers', adminDashboardController_1.getActiveStakersController);
 // Route to get current APY calculation

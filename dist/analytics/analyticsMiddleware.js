@@ -91,17 +91,17 @@ exports.requireGameOwnership = requireGameOwnership;
 const requireAdmin = (req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const publicKey = req.headers['public-key'];
-        const adminPublicKey = process.env.ADMIN_PUBLIC_KEY || process.env.NEXT_PUBLIC_ADMIN_PUBLIC_KEY;
-        // Check if public key matches admin public key
-        if (publicKey && adminPublicKey && publicKey === adminPublicKey) {
-            return next();
+        if (!publicKey) {
+            return res.status(401).json({
+                success: false,
+                error: 'UNAUTHORIZED',
+                message: 'Authentication required: public-key header missing',
+            });
         }
-        // Alternatively, check user role from database
-        if (publicKey) {
-            const user = yield (0, middleware_1.checkUser)(publicKey);
-            if (user && (user.role === 'admin' || user.role === 'super_admin')) {
-                return next();
-            }
+        // Check user role from database
+        const user = yield (0, middleware_1.checkUser)(publicKey);
+        if (user && (user.role === 'admin' || user.role === 'super_admin')) {
+            return next();
         }
         return res.status(403).json({
             success: false,

@@ -10,7 +10,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getPlatformRevenueByDeveloperController = exports.getPlatformRevenueHistoryController = exports.getPlatformRevenueController = exports.getDeveloperRevenueHistoryController = exports.getDeveloperRevenueController = exports.confirmPrizeDistributionController = exports.confirmDistributionController = exports.getAdminDistributionTotalsController = exports.getAdminPrizesDistributedController = exports.getTournamentPrizesDistributionController = exports.distributeTournamentPrizesController = exports.getTournamentDistributionController = exports.distributeTournamentRevenueController = void 0;
+exports.getPlatformRevenueByDeveloperController = exports.getPlatformRevenueHistoryController = exports.getPlatformRevenueController = exports.getDeveloperRevenueHistoryController = exports.getDeveloperRevenueController = exports.getAllDeveloperRevenueController = exports.confirmPrizeDistributionController = exports.confirmDistributionController = exports.getAdminDistributionTotalsController = exports.getAdminPrizesDistributedController = exports.getTournamentPrizesDistributionController = exports.distributeTournamentPrizesController = exports.getTournamentDistributionController = exports.distributeTournamentRevenueController = void 0;
 const database_1 = require("firebase/database");
 const firebase_1 = require("../config/firebase");
 const web3_js_1 = require("@solana/web3.js");
@@ -799,6 +799,84 @@ const confirmPrizeDistributionController = (req, res) => __awaiter(void 0, void 
     }
 });
 exports.confirmPrizeDistributionController = confirmPrizeDistributionController;
+/**
+ * Get aggregated developer revenue across all developers (admin only)
+ * GET /api/revenue/developer/all
+ */
+const getAllDeveloperRevenueController = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const developerRevenueRef = (0, database_1.ref)(firebase_1.db, `developerRevenue`);
+        const developerRevenueSnapshot = yield (0, database_1.get)(developerRevenueRef);
+        if (!developerRevenueSnapshot.exists()) {
+            return res.status(200).json({
+                success: true,
+                data: {
+                    totalEarned: { SOL: 0, SPL: 0 },
+                    tournamentsCount: 0,
+                    lastDistribution: null,
+                    history: []
+                }
+            });
+        }
+        const allDeveloperData = developerRevenueSnapshot.val();
+        let totalSOL = 0;
+        let totalSPL = 0;
+        let totalTournamentsCount = 0;
+        let lastDistribution = null;
+        const allHistory = [];
+        Object.values(allDeveloperData).forEach((developerData) => {
+            if (developerData && developerData.totalEarned) {
+                totalSOL += developerData.totalEarned.SOL || 0;
+                totalSPL += developerData.totalEarned.SPL || 0;
+                totalTournamentsCount += developerData.tournamentsCount || 0;
+                if (developerData.lastDistribution) {
+                    if (!lastDistribution || developerData.lastDistribution > lastDistribution) {
+                        lastDistribution = developerData.lastDistribution;
+                    }
+                }
+                if (developerData.history && Array.isArray(developerData.history)) {
+                    allHistory.push(...developerData.history);
+                }
+            }
+        });
+        allHistory.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+        const tokenDecimals = 9;
+        const totalEarnedSOL = totalSOL / (Math.pow(10, tokenDecimals));
+        const totalEarnedSPL = totalSPL / (Math.pow(10, tokenDecimals));
+        return res.status(200).json({
+            success: true,
+            data: {
+                totalEarned: {
+                    SOL: totalEarnedSOL,
+                    SPL: totalEarnedSPL
+                },
+                tournamentsCount: totalTournamentsCount,
+                lastDistribution: lastDistribution,
+                history: allHistory
+            }
+        });
+    }
+    catch (err) {
+        console.error('Error fetching all developer revenue:', err);
+        if (err.message && err.message.includes('Permission denied')) {
+            return res.status(200).json({
+                success: true,
+                data: {
+                    totalEarned: { SOL: 0, SPL: 0 },
+                    tournamentsCount: 0,
+                    lastDistribution: null,
+                    history: []
+                }
+            });
+        }
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to fetch all developer revenue',
+            error: err.message || err
+        });
+    }
+});
+exports.getAllDeveloperRevenueController = getAllDeveloperRevenueController;
 /**
  * Get developer revenue statistics
  * GET /api/revenue/developer/:developerPublicKey

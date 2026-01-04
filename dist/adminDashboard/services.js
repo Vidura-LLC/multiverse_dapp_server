@@ -1,5 +1,38 @@
 "use strict";
 //src/adminDashboard/services.ts
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
     function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
     return new (P || (P = Promise))(function (resolve, reject) {
@@ -19,6 +52,7 @@ const spl_token_1 = require("@solana/spl-token");
 const dotenv_1 = __importDefault(require("dotenv"));
 const services_1 = require("../staking/services");
 dotenv_1.default.config();
+const anchor = __importStar(require("@project-serum/anchor"));
 const getPDAs_1 = require("../utils/getPDAs");
 // ✅ Function to initialize the staking pool and escrow account
 const initializeStakingPoolService = (mintPublicKey_1, ...args_1) => __awaiter(void 0, [mintPublicKey_1, ...args_1], void 0, function* (mintPublicKey, tokenType = getPDAs_1.TokenType.SPL, adminPublicKey) {
@@ -197,9 +231,20 @@ const initializeRewardPoolService = (mintPublicKey_1, adminPublicKey_1, ...args_
 });
 exports.initializeRewardPoolService = initializeRewardPoolService;
 // ✅ Function to check pool status for staking and reward pools
-const checkPoolStatus = (adminPublicKey, tokenType) => __awaiter(void 0, void 0, void 0, function* () {
+// Uses super admin from platform config (pools are global)
+const checkPoolStatus = (tokenType) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { program } = (0, services_1.getProgram)();
+        // Get super admin from platform config (pools are global, initialized by super admin)
+        const platformConfig = yield (0, exports.getPlatformConfigService)();
+        if (!platformConfig.success || !platformConfig.data) {
+            return {
+                success: false,
+                message: 'Platform config not initialized. Please initialize platform config first.'
+            };
+        }
+        const superAdminPublicKey = new web3_js_1.PublicKey(platformConfig.data.superAdmin);
+        console.log("🔹 Using Super Admin for pool check:", superAdminPublicKey.toString());
         const result = {
             success: true,
             stakingPool: {
@@ -210,10 +255,10 @@ const checkPoolStatus = (adminPublicKey, tokenType) => __awaiter(void 0, void 0,
                 status: false, // false = needs initialization, true = exists
                 tokenType: null,
             },
-            adminAddress: adminPublicKey.toString()
+            adminAddress: superAdminPublicKey.toString()
         };
-        // ✅ 1. Check Staking Pool
-        const stakingPoolPublicKey = (0, getPDAs_1.getStakingPoolPDA)(adminPublicKey, tokenType);
+        // ✅ 1. Check Staking Pool (using super admin)
+        const stakingPoolPublicKey = (0, getPDAs_1.getStakingPoolPDA)(superAdminPublicKey, tokenType);
         console.log("🔹 Checking Staking Pool PDA:", stakingPoolPublicKey.toString());
         const stakingPoolAccount = yield program.account.stakingPool.fetchNullable(stakingPoolPublicKey);
         result.stakingPool = {
@@ -222,8 +267,8 @@ const checkPoolStatus = (adminPublicKey, tokenType) => __awaiter(void 0, void 0,
                 (stakingPoolAccount.tokenType.hasOwnProperty('spl') ? 'SPL' : 'SOL') :
                 null,
         };
-        // ✅ 2. Check Reward Pool
-        const rewardPoolPublicKey = (0, getPDAs_1.getRewardPoolPDA)(adminPublicKey, tokenType);
+        // ✅ 2. Check Reward Pool (using super admin)
+        const rewardPoolPublicKey = (0, getPDAs_1.getRewardPoolPDA)(superAdminPublicKey, tokenType);
         console.log("🔹 Checking Reward Pool PDA:", rewardPoolPublicKey.toString());
         const rewardPoolAccount = yield program.account.rewardPool.fetchNullable(rewardPoolPublicKey);
         result.rewardPool = {
@@ -250,7 +295,8 @@ exports.checkPoolStatus = checkPoolStatus;
  * Initialize platform configuration (super admin only, one-time)
  * Sets the revenue share split between developers and platform
  */
-const initializePlatformConfigService = (superAdminPublicKey_1, platformWalletPublicKey_1, ...args_1) => __awaiter(void 0, [superAdminPublicKey_1, platformWalletPublicKey_1, ...args_1], void 0, function* (superAdminPublicKey, platformWalletPublicKey, developerShareBps = 9000, platformShareBps = 1000) {
+const initializePlatformConfigService = (superAdminPublicKey_1, platformWalletPublicKey_1, ...args_1) => __awaiter(void 0, [superAdminPublicKey_1, platformWalletPublicKey_1, ...args_1], void 0, function* (superAdminPublicKey, platformWalletPublicKey, developerShareBps = 9000, platformShareBps = 1000, developerOnboardingFee = 0 // In lamports, default 0
+) {
     try {
         const { program, connection } = (0, services_1.getProgram)();
         const platformConfigPDA = (0, getPDAs_1.getPlatformConfigPDA)();
@@ -269,23 +315,30 @@ const initializePlatformConfigService = (superAdminPublicKey_1, platformWalletPu
                 message: "Share percentages must be between 0 and 10000"
             };
         }
+        // Validate onboarding fee
+        if (developerOnboardingFee < 0) {
+            return {
+                success: false,
+                message: "Developer onboarding fee cannot be negative"
+            };
+        }
         console.log("Initializing Platform Config:");
         console.log("🔹 Platform Config PDA:", platformConfigPDA.toString());
         console.log("🔹 Super Admin:", superAdminPublicKey.toString());
         console.log("🔹 Platform Wallet:", platformWalletPublicKey.toString());
         console.log(`🔹 Developer Share: ${developerShareBps / 100}%`);
         console.log(`🔹 Platform Share: ${platformShareBps / 100}%`);
-        const instruction = yield program.methods
-            .initializePlatformConfig(developerShareBps, platformShareBps)
+        console.log(`🔹 Developer Onboarding Fee: ${developerOnboardingFee} lamports`);
+        const { blockhash } = yield connection.getLatestBlockhash("finalized");
+        const transaction = yield program.methods
+            .initializePlatformConfig(developerShareBps, platformShareBps, new anchor.BN(developerOnboardingFee))
             .accounts({
             platformConfig: platformConfigPDA,
             platformWallet: platformWalletPublicKey,
             superAdmin: superAdminPublicKey,
             systemProgram: web3_js_1.SystemProgram.programId,
         })
-            .instruction();
-        const transaction = new web3_js_1.Transaction().add(instruction);
-        const { blockhash } = yield connection.getLatestBlockhash("finalized");
+            .transaction();
         transaction.recentBlockhash = blockhash;
         transaction.feePayer = superAdminPublicKey;
         return {
@@ -451,6 +504,8 @@ const getPlatformConfigService = () => __awaiter(void 0, void 0, void 0, functio
                 platformShareBps: Number(config.platformShareBps),
                 developerSharePercent: Number(config.developerShareBps) / 100,
                 platformSharePercent: Number(config.platformShareBps) / 100,
+                developerOnboardingFee: Number(config.developerOnboardingFee),
+                onboardingFeeEnabled: config.onboardingFeeEnabled,
                 isInitialized: config.isInitialized,
                 bump: config.bump,
             }

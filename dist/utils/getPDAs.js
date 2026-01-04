@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.PDA_SEEDS = exports.logAllPDAs = exports.getAllStakingPoolPDAs = exports.getAllPoolPDAs = exports.getPlatformConfigPDA = exports.getRegistrationPDA = exports.getUserStakingPDA = exports.getPrizeEscrowPDA = exports.getPrizePoolPDA = exports.getTournamentEscrowPDA = exports.getTournamentPoolPDA = exports.getRewardEscrowPDA = exports.getRewardPoolPDA = exports.getStakingEscrowPDA = exports.getSOLVaultPDA = exports.getStakingPoolPDA = exports.TokenType = exports.SEEDS = void 0;
+exports.PDA_SEEDS = exports.logAllPDAs = exports.getAllStakingPoolPDAs = exports.getAllPoolPDAs = exports.getDeveloperOnboardingRecordPDA = exports.getPlatformConfigPDA = exports.getRegistrationPDA = exports.getUserStakingPDA = exports.getPrizeEscrowPDA = exports.getPrizePoolPDA = exports.getTournamentEscrowPDA = exports.getTournamentPoolPDA = exports.getRewardEscrowPDA = exports.getRewardPoolPDA = exports.getStakingEscrowPDA = exports.getSOLVaultPDA = exports.getStakingPoolPDA = exports.TokenType = exports.SEEDS = void 0;
 const web3_js_1 = require("@solana/web3.js");
 const services_1 = require("../staking/services");
 exports.SEEDS = {
@@ -16,6 +16,7 @@ exports.SEEDS = {
     TOURNAMENT_ESCROW: "escrow", // Tournament pool also uses "escrow" for its escrow
     SOL_VAULT: "sol_vault",
     PLATFORM_CONFIG: "platform_config",
+    DEVELOPER_ONBOARDING: "developer_onboarding",
 };
 exports.PDA_SEEDS = exports.SEEDS;
 var TokenType;
@@ -155,6 +156,19 @@ const getPlatformConfigPDA = () => {
     return web3_js_1.PublicKey.findProgramAddressSync([Buffer.from(exports.SEEDS.PLATFORM_CONFIG)], program.programId)[0];
 };
 exports.getPlatformConfigPDA = getPlatformConfigPDA;
+/**
+ * Get Developer Onboarding Record PDA
+ * @param developerPublicKey - The developer's public key
+ * @returns Developer Onboarding Record PDA
+ */
+const getDeveloperOnboardingRecordPDA = (developerPublicKey) => {
+    const { program } = (0, services_1.getProgram)();
+    return web3_js_1.PublicKey.findProgramAddressSync([
+        Buffer.from(exports.SEEDS.DEVELOPER_ONBOARDING),
+        developerPublicKey.toBuffer()
+    ], program.programId)[0];
+};
+exports.getDeveloperOnboardingRecordPDA = getDeveloperOnboardingRecordPDA;
 /**
  * Get all pool PDAs at once (convenience function)
  * @param adminPublicKey - Admin public key (optional)

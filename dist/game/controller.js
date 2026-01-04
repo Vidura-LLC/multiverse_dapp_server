@@ -18,63 +18,6 @@ const firebase_1 = require("../config/firebase"); // Adjust import path
 const s3Service_1 = require("./s3Service");
 const getPDAs_1 = require("../utils/getPDAs");
 const middleware_1 = require("../gamehub/middleware");
-// export async function createGame(req: Request, res: Response): Promise<void> {
-//     try {
-//         const { id, name, description, userId, status, adminPublicKey, image } = req.body;
-//         // Validate required fields
-//         if (!id || !name || !description || !userId || !status || !adminPublicKey) {
-//             res.status(400).json({
-//                 message: "Missing required fields: id, name, description, userId, status, adminPublicKey"
-//             });
-//             return;
-//         }
-//         // Validate status field  
-//         const validStatuses = ["draft", "published"];
-//         if (!validStatuses.includes(status)) {
-//             res.status(400).json({
-//                 message: "Invalid status. Must be one of: draft, published"
-//             });
-//             return;
-//         }
-//         // Create game object
-//         const game: Game = {
-//             id,
-//             gameId: id as string,
-//             userId,
-//             name,
-//             description,
-//             image: image || "",
-//             status: status as TGameStatus,
-//             createdAt: new Date(),
-//             updatedAt: new Date(),
-//             createdBy: adminPublicKey,
-//         };
-//         // Save to Firebase
-//         try {
-//             const gameRef = ref(db, "games");
-//             const newGameRef = push(gameRef);
-//             const gameId = newGameRef.key;
-//             await set(newGameRef, game);
-//             res.status(201).json({
-//                 message: "Game created successfully",
-//                 gameId,
-//                 game: {
-//                     ...game,
-//                     firebaseId: gameId
-//                 }
-//             });
-//             return;
-//         } catch (dbError) {
-//             console.error('Error saving to Firebase:', dbError);
-//             res.status(500).json({ message: "Failed to save game to database" });
-//             return;
-//         }
-//     } catch (error) {
-//         console.error('Unexpected error in createGame:', error);
-//         res.status(500).json({ message: "Internal Server Error" });
-//         return;
-//     }
-// }
 /**
  * Check if a user is an admin by checking their role in the database
  */
@@ -195,7 +138,7 @@ function getGameById(req, res) {
 function getGamePerformanceMetrics(req, res) {
     return __awaiter(this, void 0, void 0, function* () {
         try {
-            const { tokenType } = req.query;
+            const { tokenType, adminPublicKey } = req.query;
             if (!tokenType || tokenType === undefined || tokenType === null) {
                 res.status(400).json({ message: "tokenType is required" });
                 return;
@@ -204,11 +147,17 @@ function getGamePerformanceMetrics(req, res) {
             if (tt !== getPDAs_1.TokenType.SPL && tt !== getPDAs_1.TokenType.SOL) {
                 res.status(400).json({ message: "tokenType must be 0 (SPL) or 1 (SOL)" });
             }
+            // Check if user is admin to determine if we show all games or just developer's games
+            const userIsAdmin = adminPublicKey ? yield isAdmin(adminPublicKey) : false;
             // Get all games
             const gamesRef = (0, database_1.ref)(firebase_1.db, `games`);
             const gamesSnapshot = yield (0, database_1.get)(gamesRef);
             const gamesData = gamesSnapshot.val();
-            const games = gamesData ? Object.values(gamesData) : [];
+            let games = gamesData ? Object.values(gamesData) : [];
+            // Filter games by developer if not admin
+            if (adminPublicKey && !userIsAdmin) {
+                games = games.filter((game) => game.createdBy === adminPublicKey);
+            }
             // Get all tournaments
             const tournamentsRef = (0, database_1.ref)(firebase_1.db, `tournaments/${tt}`);
             const tournamentsSnapshot = yield (0, database_1.get)(tournamentsRef);

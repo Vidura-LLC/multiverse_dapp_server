@@ -12,6 +12,47 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.getAdminGameDetailsController = exports.getGamesLeaderboardController = exports.getGamesWithIssuesController = exports.getPlatformVersionsController = exports.getPlatformTrendsController = exports.getPlatformSummaryController = exports.getGameVersionsController = exports.getGameErrorsController = exports.getGameTrendsController = exports.getGameSummaryController = exports.trackBatchEventsController = exports.trackEventController = void 0;
 const analyticsService_1 = require("./analyticsService");
+const firebase_1 = require("../config/firebase");
+const database_1 = require("firebase/database");
+const middleware_1 = require("../gamehub/middleware");
+// ============================================
+// Helper Functions
+// ============================================
+/**
+ * Helper function to verify that a user owns a specific game
+ * @param gameId - The game ID to check
+ * @param publicKey - The user's public key
+ * @returns true if user owns the game or is admin, false otherwise
+ */
+function verifyGameOwnership(gameId, publicKey) {
+    return __awaiter(this, void 0, void 0, function* () {
+        try {
+            // Check if user is admin
+            const user = yield (0, middleware_1.checkUser)(publicKey);
+            const isAdmin = (user === null || user === void 0 ? void 0 : user.role) === 'admin' || (user === null || user === void 0 ? void 0 : user.role) === 'super_admin';
+            // Admins can access all game analytics
+            if (isAdmin) {
+                return { authorized: true, isAdmin: true };
+            }
+            // Get the game from Firebase
+            const gameRef = (0, database_1.ref)(firebase_1.db, `games/${gameId}`);
+            const gameSnapshot = yield (0, database_1.get)(gameRef);
+            if (!gameSnapshot.exists()) {
+                return { authorized: false, isAdmin: false, message: 'Game not found' };
+            }
+            const game = gameSnapshot.val();
+            // Check if user owns the game
+            if (game.createdBy !== publicKey) {
+                return { authorized: false, isAdmin: false, message: 'You do not have access to this game\'s analytics' };
+            }
+            return { authorized: true, isAdmin: false };
+        }
+        catch (error) {
+            console.error('[Analytics] Error verifying game ownership:', error);
+            return { authorized: false, isAdmin: false, message: 'Failed to verify game ownership' };
+        }
+    });
+}
 // ============================================
 // SDK Event Tracking Controllers
 // ============================================
@@ -120,11 +161,20 @@ const getGameSummaryController = (req, res) => __awaiter(void 0, void 0, void 0,
     try {
         const { gameId } = req.params;
         const days = parseInt(req.query.days) || 30;
+        const publicKey = req.headers['public-key'];
         if (!gameId) {
             res.status(400).json({
                 success: false,
                 error: 'INVALID_REQUEST',
                 message: 'gameId is required',
+            });
+            return;
+        }
+        if (!publicKey) {
+            res.status(401).json({
+                success: false,
+                error: 'UNAUTHORIZED',
+                message: 'Public key is required for authentication',
             });
             return;
         }
@@ -137,9 +187,16 @@ const getGameSummaryController = (req, res) => __awaiter(void 0, void 0, void 0,
             });
             return;
         }
-        // TODO: Verify user owns this game (session auth)
-        // For now, we'll allow any authenticated user to query any game
-        // This should be restricted in production
+        // Verify user owns this game or is admin
+        const verification = yield verifyGameOwnership(gameId, publicKey);
+        if (!verification.authorized) {
+            res.status(403).json({
+                success: false,
+                error: 'FORBIDDEN',
+                message: verification.message || 'Access denied',
+            });
+            return;
+        }
         const summary = yield (0, analyticsService_1.getGameSummary)(gameId, days);
         res.status(200).json(Object.assign({ success: true }, summary));
     }
@@ -162,11 +219,30 @@ const getGameTrendsController = (req, res) => __awaiter(void 0, void 0, void 0, 
     try {
         const { gameId } = req.params;
         const days = parseInt(req.query.days) || 30;
+        const publicKey = req.headers['public-key'];
         if (!gameId) {
             res.status(400).json({
                 success: false,
                 error: 'INVALID_REQUEST',
                 message: 'gameId is required',
+            });
+            return;
+        }
+        if (!publicKey) {
+            res.status(401).json({
+                success: false,
+                error: 'UNAUTHORIZED',
+                message: 'Public key is required for authentication',
+            });
+            return;
+        }
+        // Verify user owns this game or is admin
+        const verification = yield verifyGameOwnership(gameId, publicKey);
+        if (!verification.authorized) {
+            res.status(403).json({
+                success: false,
+                error: 'FORBIDDEN',
+                message: verification.message || 'Access denied',
             });
             return;
         }
@@ -195,11 +271,30 @@ const getGameErrorsController = (req, res) => __awaiter(void 0, void 0, void 0, 
     try {
         const { gameId } = req.params;
         const days = parseInt(req.query.days) || 7;
+        const publicKey = req.headers['public-key'];
         if (!gameId) {
             res.status(400).json({
                 success: false,
                 error: 'INVALID_REQUEST',
                 message: 'gameId is required',
+            });
+            return;
+        }
+        if (!publicKey) {
+            res.status(401).json({
+                success: false,
+                error: 'UNAUTHORIZED',
+                message: 'Public key is required for authentication',
+            });
+            return;
+        }
+        // Verify user owns this game or is admin
+        const verification = yield verifyGameOwnership(gameId, publicKey);
+        if (!verification.authorized) {
+            res.status(403).json({
+                success: false,
+                error: 'FORBIDDEN',
+                message: verification.message || 'Access denied',
             });
             return;
         }
@@ -228,11 +323,30 @@ const getGameVersionsController = (req, res) => __awaiter(void 0, void 0, void 0
     try {
         const { gameId } = req.params;
         const days = parseInt(req.query.days) || 30;
+        const publicKey = req.headers['public-key'];
         if (!gameId) {
             res.status(400).json({
                 success: false,
                 error: 'INVALID_REQUEST',
                 message: 'gameId is required',
+            });
+            return;
+        }
+        if (!publicKey) {
+            res.status(401).json({
+                success: false,
+                error: 'UNAUTHORIZED',
+                message: 'Public key is required for authentication',
+            });
+            return;
+        }
+        // Verify user owns this game or is admin
+        const verification = yield verifyGameOwnership(gameId, publicKey);
+        if (!verification.authorized) {
+            res.status(403).json({
+                success: false,
+                error: 'FORBIDDEN',
+                message: verification.message || 'Access denied',
             });
             return;
         }

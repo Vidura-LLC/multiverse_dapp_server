@@ -21,6 +21,8 @@ router.get('/admin/distribution-totals/:adminPubKey', revenueController_1.getAdm
 // ==============================
 // DEVELOPER REVENUE ENDPOINTS
 // ==============================
+// Get aggregated developer revenue across all developers (admin only) - MUST come before parameterized routes
+router.get('/developer/all', revenueController_1.getAllDeveloperRevenueController);
 // Get developer revenue history (paginated) - MUST come before the general route
 router.get('/developer/:developerPublicKey/history', revenueController_1.getDeveloperRevenueHistoryController);
 // Get developer revenue statistics
