@@ -15,6 +15,52 @@ import {
   getGamesWithIssues,
   AnalyticsEvent,
 } from './analyticsService';
+import { db } from '../config/firebase';
+import { ref, get } from 'firebase/database';
+import { checkUser } from '../gamehub/middleware';
+
+// ============================================
+// Helper Functions
+// ============================================
+
+/**
+ * Helper function to verify that a user owns a specific game
+ * @param gameId - The game ID to check
+ * @param publicKey - The user's public key
+ * @returns true if user owns the game or is admin, false otherwise
+ */
+async function verifyGameOwnership(gameId: string, publicKey: string): Promise<{ authorized: boolean; isAdmin: boolean; message?: string }> {
+  try {
+    // Check if user is admin
+    const user = await checkUser(publicKey);
+    const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
+
+    // Admins can access all game analytics
+    if (isAdmin) {
+      return { authorized: true, isAdmin: true };
+    }
+
+    // Get the game from Firebase
+    const gameRef = ref(db, `games/${gameId}`);
+    const gameSnapshot = await get(gameRef);
+
+    if (!gameSnapshot.exists()) {
+      return { authorized: false, isAdmin: false, message: 'Game not found' };
+    }
+
+    const game = gameSnapshot.val();
+
+    // Check if user owns the game
+    if (game.createdBy !== publicKey) {
+      return { authorized: false, isAdmin: false, message: 'You do not have access to this game\'s analytics' };
+    }
+
+    return { authorized: true, isAdmin: false };
+  } catch (error: any) {
+    console.error('[Analytics] Error verifying game ownership:', error);
+    return { authorized: false, isAdmin: false, message: 'Failed to verify game ownership' };
+  }
+}
 
 // ============================================
 // SDK Event Tracking Controllers
@@ -129,12 +175,22 @@ export const getGameSummaryController = async (req: Request, res: Response): Pro
   try {
     const { gameId } = req.params;
     const days = parseInt(req.query.days as string) || 30;
+    const publicKey = req.headers['public-key'] as string;
 
     if (!gameId) {
       res.status(400).json({
         success: false,
         error: 'INVALID_REQUEST',
         message: 'gameId is required',
+      });
+      return;
+    }
+
+    if (!publicKey) {
+      res.status(401).json({
+        success: false,
+        error: 'UNAUTHORIZED',
+        message: 'Public key is required for authentication',
       });
       return;
     }
@@ -149,9 +205,16 @@ export const getGameSummaryController = async (req: Request, res: Response): Pro
       return;
     }
 
-    // TODO: Verify user owns this game (session auth)
-    // For now, we'll allow any authenticated user to query any game
-    // This should be restricted in production
+    // Verify user owns this game or is admin
+    const verification = await verifyGameOwnership(gameId, publicKey);
+    if (!verification.authorized) {
+      res.status(403).json({
+        success: false,
+        error: 'FORBIDDEN',
+        message: verification.message || 'Access denied',
+      });
+      return;
+    }
 
     const summary = await getGameSummary(gameId, days);
 
@@ -178,12 +241,33 @@ export const getGameTrendsController = async (req: Request, res: Response): Prom
   try {
     const { gameId } = req.params;
     const days = parseInt(req.query.days as string) || 30;
+    const publicKey = req.headers['public-key'] as string;
 
     if (!gameId) {
       res.status(400).json({
         success: false,
         error: 'INVALID_REQUEST',
         message: 'gameId is required',
+      });
+      return;
+    }
+
+    if (!publicKey) {
+      res.status(401).json({
+        success: false,
+        error: 'UNAUTHORIZED',
+        message: 'Public key is required for authentication',
+      });
+      return;
+    }
+
+    // Verify user owns this game or is admin
+    const verification = await verifyGameOwnership(gameId, publicKey);
+    if (!verification.authorized) {
+      res.status(403).json({
+        success: false,
+        error: 'FORBIDDEN',
+        message: verification.message || 'Access denied',
       });
       return;
     }
@@ -213,12 +297,33 @@ export const getGameErrorsController = async (req: Request, res: Response): Prom
   try {
     const { gameId } = req.params;
     const days = parseInt(req.query.days as string) || 7;
+    const publicKey = req.headers['public-key'] as string;
 
     if (!gameId) {
       res.status(400).json({
         success: false,
         error: 'INVALID_REQUEST',
         message: 'gameId is required',
+      });
+      return;
+    }
+
+    if (!publicKey) {
+      res.status(401).json({
+        success: false,
+        error: 'UNAUTHORIZED',
+        message: 'Public key is required for authentication',
+      });
+      return;
+    }
+
+    // Verify user owns this game or is admin
+    const verification = await verifyGameOwnership(gameId, publicKey);
+    if (!verification.authorized) {
+      res.status(403).json({
+        success: false,
+        error: 'FORBIDDEN',
+        message: verification.message || 'Access denied',
       });
       return;
     }
@@ -248,12 +353,33 @@ export const getGameVersionsController = async (req: Request, res: Response): Pr
   try {
     const { gameId } = req.params;
     const days = parseInt(req.query.days as string) || 30;
+    const publicKey = req.headers['public-key'] as string;
 
     if (!gameId) {
       res.status(400).json({
         success: false,
         error: 'INVALID_REQUEST',
         message: 'gameId is required',
+      });
+      return;
+    }
+
+    if (!publicKey) {
+      res.status(401).json({
+        success: false,
+        error: 'UNAUTHORIZED',
+        message: 'Public key is required for authentication',
+      });
+      return;
+    }
+
+    // Verify user owns this game or is admin
+    const verification = await verifyGameOwnership(gameId, publicKey);
+    if (!verification.authorized) {
+      res.status(403).json({
+        success: false,
+        error: 'FORBIDDEN',
+        message: verification.message || 'Access denied',
       });
       return;
     }
