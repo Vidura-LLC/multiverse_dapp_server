@@ -313,7 +313,8 @@ export const checkDeveloperOnboardingStatus = async (
 // ==============================
 
 /**
- * Gets all developer onboarding records
+ * Gets all developer onboarding records from both Firebase and Solana
+ * Merges data to show both paid and unpaid developers
  * Useful for admin dashboard analytics
  */
 export const getAllOnboardedDevelopers = async (): Promise<{
@@ -322,25 +323,107 @@ export const getAllOnboardedDevelopers = async (): Promise<{
         developer: string;
         feePaid: number;
         timestamp: number;
+        hasPaid: boolean;
+        email?: string;
+        fullName?: string;
+        clerkUserId?: string;
+        professionalDetails?: {
+            company: string;
+            jobTitle: string;
+            website: string;
+        };
     }>;
     message?: string;
 }> => {
     try {
         const { program } = getProgram();
 
-        // Fetch all DeveloperOnboardingRecord accounts
+        // 1. Fetch all on-chain DeveloperOnboardingRecord accounts (developers who paid)
         const records = await program.account.developerOnboardingRecord.all();
 
-        const developers = records.map((record) => {
+        const onChainDevelopers = new Map<string, {
+            developer: string;
+            feePaid: number;
+            timestamp: number;
+            hasPaid: boolean;
+        }>();
+
+        records.forEach((record) => {
             const account = record.account as DeveloperOnboardingRecordAccount;
-            return {
-                developer: account.developer.toString(),
+            const publicKey = account.developer.toString();
+            onChainDevelopers.set(publicKey, {
+                developer: publicKey,
                 feePaid: account.feePaid.toNumber(),
                 timestamp: account.timestamp.toNumber(),
-            };
+                hasPaid: true,
+            });
         });
 
-        console.log(`📊 Found ${developers.length} onboarded developers`);
+        console.log(`📊 Found ${onChainDevelopers.size} on-chain developers`);
+
+        // 2. Fetch all developers from Firebase (includes both paid and unpaid)
+        const usersRef = ref(db, "users");
+        const snapshot = await get(usersRef);
+
+        const allDevelopers = new Map<string, {
+            developer: string;
+            feePaid: number;
+            timestamp: number;
+            hasPaid: boolean;
+            email?: string;
+            fullName?: string;
+            clerkUserId?: string;
+            professionalDetails?: {
+                company: string;
+                jobTitle: string;
+                website: string;
+            };
+        }>();
+
+        if (snapshot.exists()) {
+            const users = snapshot.val();
+
+            // Filter for developers only and merge with on-chain data
+            for (const key in users) {
+                const user = users[key];
+
+                // Only include users with developer role and who are marked as onboarded
+                if (user.role === "developer" && user.onboarded && user.publicKey) {
+                    const publicKey = user.publicKey;
+
+                    // Check if this developer has on-chain record
+                    const onChainData = onChainDevelopers.get(publicKey);
+
+                    if (onChainData) {
+                        // Merge on-chain data with Firebase data
+                        allDevelopers.set(publicKey, {
+                            ...onChainData,
+                            email: user.email,
+                            fullName: user.fullName,
+                            clerkUserId: user.id,
+                            professionalDetails: user.professionalDetails,
+                        });
+                    } else {
+                        // Developer in Firebase but not on-chain (hasn't paid)
+                        allDevelopers.set(publicKey, {
+                            developer: publicKey,
+                            feePaid: 0,
+                            timestamp: new Date(user.createdAt).getTime() / 1000, // Convert to Unix timestamp
+                            hasPaid: false,
+                            email: user.email,
+                            fullName: user.fullName,
+                            clerkUserId: user.id,
+                            professionalDetails: user.professionalDetails,
+                        });
+                    }
+                }
+            }
+
+            console.log(`📊 Found ${allDevelopers.size} total developers (Firebase + On-chain)`);
+        }
+
+        // Convert map to array
+        const developers = Array.from(allDevelopers.values());
 
         return {
             success: true,
