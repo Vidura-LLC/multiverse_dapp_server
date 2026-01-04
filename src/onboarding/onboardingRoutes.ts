@@ -8,6 +8,7 @@ import {
     buildFlushDeveloperController,
     confirmFlushDeveloperController,
     getFlushDeveloperInfoController,
+    deleteUnpaidDeveloperController,
 } from "./onboardingController";
 
 const router = express.Router();
@@ -74,6 +75,12 @@ router.post("/admin/flush-developer/build", buildFlushDeveloperController as unk
  * Confirm Solana tx and clean up Firebase + Clerk
  */
 router.post("/admin/flush-developer/confirm", confirmFlushDeveloperController as unknown as RequestHandler);
+
+/**
+ * DELETE /api/onboarding/admin/delete-unpaid-developer
+ * Delete unpaid developer (Firebase/Clerk only, no Solana transaction)
+ */
+router.delete("/admin/delete-unpaid-developer", deleteUnpaidDeveloperController as unknown as RequestHandler);
 
 export default router;
 
