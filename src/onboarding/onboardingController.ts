@@ -9,6 +9,7 @@ import {
     buildFlushDeveloperTransaction,
     confirmFlushDeveloper,
     getFlushDeveloperInfo,
+    deleteUnpaidDeveloper,
 } from "./onboardingService";
 
 // ==============================
@@ -502,6 +503,57 @@ export const confirmFlushDeveloperController = async (
         return res.status(result.success ? 200 : 207).json(result);
     } catch (error: any) {
         console.error("❌ Error in confirmFlushDeveloperController:", error);
+        return res.status(500).json({
+            success: false,
+            message: "Internal server error",
+            error: error.message,
+        });
+    }
+};
+
+// ==============================
+// DELETE UNPAID DEVELOPER
+// ==============================
+
+/**
+ * DELETE /api/onboarding/admin/delete-unpaid-developer
+ *
+ * Deletes an unpaid developer (Firebase/Clerk only, no Solana transaction)
+ * Used for developers who onboarded when fees were disabled
+ */
+export const deleteUnpaidDeveloperController = async (
+    req: Request,
+    res: Response
+) => {
+    try {
+        const { developerPublicKey } = req.body;
+
+        console.log("🗑️ DELETE /api/onboarding/admin/delete-unpaid-developer");
+        console.log("   Developer:", developerPublicKey);
+
+        // Validation
+        if (!developerPublicKey) {
+            return res.status(400).json({
+                success: false,
+                message: "Developer public key is required",
+            });
+        }
+
+        // Validate public key format
+        try {
+            new PublicKey(developerPublicKey);
+        } catch {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid public key format",
+            });
+        }
+
+        const result = await deleteUnpaidDeveloper(developerPublicKey);
+
+        return res.status(result.success ? 200 : 207).json(result);
+    } catch (error: any) {
+        console.error("❌ Error in deleteUnpaidDeveloperController:", error);
         return res.status(500).json({
             success: false,
             message: "Internal server error",
