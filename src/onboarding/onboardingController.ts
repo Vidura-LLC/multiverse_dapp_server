@@ -340,7 +340,7 @@ export const checkDeveloperOnboardingStatusController = async (
  * }
  */
 export const getAllOnboardedDevelopersController = async (
-    req: Request, 
+    req: Request,
     res: Response
 ) => {
     try {
@@ -349,16 +349,21 @@ export const getAllOnboardedDevelopersController = async (
         const result = await getAllOnboardedDevelopers();
 
         if (result.success && result.developers) {
-            // Calculate total fees collected
+            // Calculate statistics
             const totalFeesCollected = result.developers.reduce(
-                (sum, dev) => sum + dev.feePaid, 
+                (sum, dev) => sum + dev.feePaid,
                 0
             );
+
+            const paidDevelopers = result.developers.filter(dev => dev.hasPaid);
+            const unpaidDevelopers = result.developers.filter(dev => !dev.hasPaid);
 
             return res.status(200).json({
                 success: true,
                 developers: result.developers,
                 totalCount: result.developers.length,
+                paidCount: paidDevelopers.length,
+                unpaidCount: unpaidDevelopers.length,
                 totalFeesCollected,
             });
         }
