@@ -109,6 +109,22 @@ interface TrendData {
   solEvents: number;
 }
 
+interface PlatformDailyTrend {
+  date: string;
+  totalInitializations: number;
+  totalInitFailures: number;
+  totalWalletConnections: number;
+  totalWalletFailures: number;
+  totalRegistrations: number;
+  totalRegistrationFailures: number;
+  totalScoreSubmissions: number;
+  totalScoreFailures: number;
+  totalUniqueSessions: number;
+  totalUniqueWallets: number;
+  splEvents: number;
+  solEvents: number;
+}
+
 interface PlatformSummary {
   summary: {
     totalInitializations: number;
@@ -1003,7 +1019,7 @@ export async function getPlatformSummary(days: number): Promise<PlatformSummary>
  * Get platform trends for a date range
  * OPTIMIZED: Parallel queries and single fetch for sessions/wallets
  */
-export async function getPlatformTrends(days: number): Promise<TrendData[]> {
+export async function getPlatformTrends(days: number): Promise<PlatformDailyTrend[]> {
   const endDate = new Date();
   const startDate = new Date();
   startDate.setDate(startDate.getDate() - days);
@@ -1108,7 +1124,22 @@ export async function getPlatformTrends(days: number): Promise<TrendData[]> {
     return trend;
   });
 
-  return trends;
+  // Transform TrendData to match frontend PlatformDailyTrend interface
+  return trends.map(trend => ({
+    date: trend.date,
+    totalInitializations: trend.initializations,
+    totalInitFailures: trend.initFailures,
+    totalWalletConnections: trend.walletConnections,
+    totalWalletFailures: trend.walletFailures,
+    totalRegistrations: trend.registrations,
+    totalRegistrationFailures: trend.registrationFailures,
+    totalScoreSubmissions: trend.scoreSubmissions,
+    totalScoreFailures: trend.scoreFailures,
+    totalUniqueSessions: trend.uniqueSessions,
+    totalUniqueWallets: trend.uniqueWallets,
+    splEvents: trend.splEvents,
+    solEvents: trend.solEvents,
+  }));
 }
 
 /**
