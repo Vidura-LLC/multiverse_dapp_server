@@ -747,6 +747,118 @@ export const confirmFlushDeveloper = async (
     };
 };
 
+// ==============================
+// DELETE UNPAID DEVELOPER (Firebase/Clerk only)
+// ==============================
+
+/**
+ * Delete an unpaid developer who has no on-chain record
+ * Only removes from Firebase and resets Clerk metadata
+ * Used for developers who onboarded when fees were disabled
+ */
+export const deleteUnpaidDeveloper = async (
+    developerPublicKey: string
+): Promise<FlushDeveloperResult> => {
+    const details = {
+        solana: { success: true }, // No Solana record to delete
+        firebase: { success: false, error: undefined as string | undefined },
+        clerk: { success: false, error: undefined as string | undefined },
+    };
+
+    try {
+        // 1. Find developer in Firebase by publicKey
+        let firebaseKey: string | undefined;
+        let clerkUserId: string | undefined;
+
+        const usersRef = ref(db, "users");
+        const snapshot = await get(usersRef);
+
+        if (snapshot.exists()) {
+            const data = snapshot.val();
+
+            // Search for developer with matching publicKey
+            for (const key in data) {
+                if (data[key].publicKey === developerPublicKey) {
+                    firebaseKey = key;
+                    clerkUserId = data[key].id; // Clerk user ID
+                    break;
+                }
+            }
+        }
+
+        if (!firebaseKey) {
+            return {
+                success: false,
+                message: "Developer not found in Firebase",
+                details,
+            };
+        }
+
+        console.log("🗑️ Deleting unpaid developer...");
+        console.log("   Developer:", developerPublicKey);
+        console.log("   Firebase Key:", firebaseKey);
+        console.log("   Clerk User ID:", clerkUserId || "not found");
+
+        // 2. Delete from Firebase
+        try {
+            const developerRef = ref(db, `users/${firebaseKey}`);
+            await remove(developerRef);
+            details.firebase.success = true;
+            console.log("✅ Firebase record removed:", firebaseKey);
+        } catch (error: any) {
+            details.firebase.error = error.message;
+            console.error("❌ Failed to remove Firebase record:", error);
+        }
+
+        // 3. Reset Clerk metadata
+        if (clerkUserId) {
+            try {
+                if (!process.env.CLERK_SECRET_KEY) {
+                    details.clerk.error = "CLERK_SECRET_KEY not found in environment variables";
+                    console.error("❌ CLERK_SECRET_KEY not found");
+                } else {
+                    const clerkClient = createClerkClient({
+                        secretKey: process.env.CLERK_SECRET_KEY,
+                    });
+                    await clerkClient.users.updateUserMetadata(clerkUserId, {
+                        publicMetadata: {
+                            onboarded: false,
+                            publicKey: null,
+                            professionalDetails: null,
+                            // Keep role as "developer" so they can re-onboard
+                        },
+                    });
+                    details.clerk.success = true;
+                    console.log("✅ Clerk metadata reset for user:", clerkUserId);
+                }
+            } catch (error: any) {
+                details.clerk.error = error.message || "Failed to reset Clerk metadata";
+                console.error("❌ Failed to reset Clerk metadata:", error);
+            }
+        } else {
+            details.clerk.success = true; // No Clerk ID found
+            console.log("ℹ️ No Clerk user ID found, skipping Clerk cleanup");
+        }
+
+        const allSuccess = details.firebase.success && details.clerk.success;
+
+        return {
+            success: allSuccess,
+            message: allSuccess
+                ? "Unpaid developer removed from Firebase and Clerk"
+                : "Partial success - some systems may need manual cleanup",
+            details,
+        };
+    } catch (error: any) {
+        console.error("❌ Error deleting unpaid developer:", error);
+        return {
+            success: false,
+            message: error.message || "Failed to delete unpaid developer",
+            details,
+        };
+    }
+};
+
 /**
  * Optional: Get information about what will be flushed for a developer
  */
