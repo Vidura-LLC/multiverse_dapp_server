@@ -9,6 +9,8 @@ use solana_program::system_instruction; // ✅ ADD THIS
 
 declare_id!("C1tiBNKdWaH1p2RCpy2w3UetstzgwxKE7mBNUQyHyx2a");
 
+// Smart contract up to date with onboarding fee feature
+
 // ==============================
 // SEED CONSTANTS
 // ==============================
